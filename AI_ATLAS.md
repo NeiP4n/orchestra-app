@@ -3097,3 +3097,29 @@ restores only eight tabs; the full definition retains all (up to 100) saved link
 Simple confirmation retries its same durable token after partial commit, and a failed
 list refresh after success reports success without offering duplicate confirmation.
 No production endpoint/controller has been connected or screen mounted yet.
+
+Operator template workflow is now connected to server HttpApi and Registry -> Шаблоны.
+The generated client/OpenAPI are regenerated, not handwritten. Save recaptures the
+passive live configuration at confirmation and rejects changed digest; saved-folder
+retry verifies the same digest rather than making another template. Create reserves
+fresh identities and uses real live stores. An unfinished create is indexed durably
+by library/settings/digest so closing/reopening the screen returns the same token.
+Only after strict owning-UI browser persistence is the create acknowledged finished;
+restart hydration reads published browser definitions and avoids legacy orphan-chat
+adoption changing the browser ID. Future deliberate copies may then reserve new IDs.
+Global integration settings are not swept: only explicit project requirements travel,
+unbound global requirements remain names needing local binding. Providers/MCP remain
+requirements, not granted connections or auto-started services. Missing roles/models,
+unstable application versions, unsafe links and unsupported triggers refuse capture
+or destination prep rather than silently changing configuration.
+Server graph exposes App/KV/SessionStore explicitly for these handlers. Vault local
+factory can use the actual application data root instead of an unrelated static test
+root. HTTP integration exercises real save/create, browser links/agent remapping,
+repeat/reopen, empty permissions, paused/inert stores, stale-save rejection and foreign
+browser binding rejection. Connected Registry pixels use test-renderer and generated
+HTTP client with fixture HTTP replies, actual owning Storage persistence; this is not
+native Windows validation. Full server graph typecheck has not completed (75-second
+attempt timed out without diagnostics); targeted core and connected TUI checks pass.
+The existing Registry Plugins test expects old opencode.plugins to be hidden although
+production excludes orchestra.plugins. Same failure reproduced with prior HEAD's
+Registry file restored temporarily. That test/production behavior was not changed.

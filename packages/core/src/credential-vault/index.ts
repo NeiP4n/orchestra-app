@@ -478,4 +478,5 @@ export function make(options: {
     },
   }
 }
-export const local = (projectID?: string) => make({ directory: directory(), collector: collector(), projectID })
+export const local = (projectID?: string, dataDirectory = Global.Path.data) =>
+  make({ directory: path.join(dataDirectory, "credential-vault"), collector: collector(), projectID })

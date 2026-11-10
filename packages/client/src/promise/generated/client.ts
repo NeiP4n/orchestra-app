@@ -393,6 +393,19 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectTemplateListOutput,
+  OrchestraProjectTemplatePrepareSaveInput,
+  OrchestraProjectTemplatePrepareSaveOutput,
+  OrchestraProjectTemplateConfirmSaveInput,
+  OrchestraProjectTemplateConfirmSaveOutput,
+  OrchestraProjectTemplatePrepareCreateInput,
+  OrchestraProjectTemplatePrepareCreateOutput,
+  OrchestraProjectTemplateConfirmCreateInput,
+  OrchestraProjectTemplateConfirmCreateOutput,
+  OrchestraProjectTemplateFinishCreateInput,
+  OrchestraProjectTemplateFinishCreateOutput,
+  OrchestraProjectTemplateBrowsersInput,
+  OrchestraProjectTemplateBrowsersOutput,
   OrchestraProjectListOutput,
   OrchestraTemplateListOutput,
   OrchestraTemplateCreateInput,
@@ -3328,6 +3341,90 @@ export function make(options: ClientOptions) {
       },
     },
     orchestra: {
+      projectTemplate: {
+        list: (requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateListOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/project-template`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        prepareSave: (input: OrchestraProjectTemplatePrepareSaveInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplatePrepareSaveOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/prepare-save`,
+              body: { projectID: input["projectID"], browsers: input["browsers"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        confirmSave: (input: OrchestraProjectTemplateConfirmSaveInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateConfirmSaveOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/confirm-save`,
+              body: { token: input["token"], browsers: input["browsers"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+        prepareCreate: (input: OrchestraProjectTemplatePrepareCreateInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplatePrepareCreateOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/prepare-create`,
+              body: { templateID: input["templateID"], settingsDirectory: input["settingsDirectory"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        confirmCreate: (input: OrchestraProjectTemplateConfirmCreateInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateConfirmCreateOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/confirm-create`,
+              body: { token: input["token"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        finishCreate: (input: OrchestraProjectTemplateFinishCreateInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateFinishCreateOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/finish-create`,
+              body: { token: input["token"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+        browsers: (input: OrchestraProjectTemplateBrowsersInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateBrowsersOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/project-template/${encodeURIComponent(input.projectID)}/browsers`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
       project: {
         list: (requestOptions?: RequestOptions) =>
           request<OrchestraProjectListOutput>(
