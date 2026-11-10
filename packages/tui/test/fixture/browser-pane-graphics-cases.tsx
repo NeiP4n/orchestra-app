@@ -46,7 +46,7 @@ test("coarse-terminal browser offers a readable real window without extra profil
             <ThemeProvider mode="dark" source={emptyThemeSource}>
               <ToastProvider>
                 <DialogProvider>
-                  <BrowserPane sessionID="fixture" chatHidden={false} canShowChat={false} onToggleChat={() => {}} />
+                  <BrowserPane sessionID="fixture" name="Fixture" chatHidden={false} canShowChat={false} onToggleChat={() => {}} />
                 </DialogProvider>
               </ToastProvider>
             </ThemeProvider>
