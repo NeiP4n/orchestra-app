@@ -73,3 +73,13 @@ test("definition byte fidelity preserves UTF-8 BOM, Cyrillic and CRLF instead of
     expect(Buffer.from(files[0].content)).toEqual(Buffer.from(content))
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test("explicit skill assignment keeps its role even without an opened or recommended session", () => {
+  const { source, process } = fixture()
+  process.recommendedRoles = []
+  process.skillAssignments.push({ target: { kind: "role", role: "team-seller" }, skills: ["marketplace"] })
+  const result = S.capture(source, metadata, process)
+  if (!result.ok) throw Error(result.error)
+  expect(result.value.bundle.process.roles.map((r) => r.agent)).toEqual(["orchestrator", "team-seller"])
+  expect(result.value.bundle.process.skillAssignments.at(-1)).toEqual({ target: { kind: "role", role: "team-seller" }, skills: ["marketplace"] })
+})

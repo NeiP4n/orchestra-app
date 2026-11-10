@@ -46,8 +46,19 @@ export async function capture(
       sessionModels.push({ sessionID: row.id, models: refs.map((m) => ({ provider: m.providerID, id: m.id, variant: m.variant ?? null })) })
     }
     const [roles, playbook, inventory, programs] = await Promise.all([stores.roles(), stores.playbook(projectID), stores.skills({ projectID, sessionIDs: source.sessions.map((s) => s.id) }), stores.programs(projectID)])
+    const byID = new Map(inventory.definitions.map((s) => [s.id, s]))
+    if (byID.size !== inventory.definitions.length) throw Error("Skill definitions are ambiguous.")
+    const selected = new Set<string>(), visiting = new Set<string>()
+    const select = (id: string) => {
+      if (visiting.has(id)) throw Error("Skill dependencies contain a cycle.")
+      if (selected.has(id)) return
+      const skill = byID.get(id)
+      if (!skill) throw Error("An assigned skill definition is missing.")
+      visiting.add(id); skill.dependencies.forEach(select); visiting.delete(id); selected.add(id)
+    }
+    inventory.assignments.forEach((a) => a.skills.forEach(select))
     const skills: V2.Skill[] = []
-    for (const item of inventory.definitions) {
+    for (const item of inventory.definitions.filter((s) => selected.has(s.id))) {
       const { root, files, ...definition } = item
       skills.push({ ...definition, files: await Source.readSkillFiles(root, files) })
     }

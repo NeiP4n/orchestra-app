@@ -23,10 +23,17 @@ test("passive live reader captures owned metadata, model snapshots and actual sk
     }
     const linked = { browsers: [], vault: [], selectedGlobalSlotIDs: new Set<string>(), providers: [], mcp: [] }
     const meta = { name: "Factory", description: "Reusable process", minOrchestraVersion: "1.0.0" }
+    const originalSkills = stores.skills
+    stores.skills = async (input) => {
+      const inventory = await originalSkills(input)
+      return { ...inventory, definitions: [...inventory.definitions, { id: "unrelated", name: "Unrelated", entry: "SKILL.md", root: path.join(root, "does-not-exist"), files: ["SKILL.md"], dependencies: [] }] }
+    }
     const p = await Reader.capture(stores, "prj_a", meta, linked)
     expect(p.bundle.process.sessionModels).toEqual([{ session: "session_1", models: [{ provider: "demo", id: "backup", variant: "careful" }] }])
     expect(p.bundle.process.skillAssignments).toEqual([{ target: { kind: "session", session: "session_1" }, skills: ["offers"] }])
     expect(p.bundle.process.skills[0].files[0].content).toBe("# Offer skill\nCheck the request first.\n")
+    expect(p.bundle.process.skills.map((s) => s.id)).toEqual(["offers"])
+    expect(p.text).not.toContain("unrelated")
     expect(p.text).not.toContain(root)
     await Library.local(root).saveSerialized(p.text, "factory", p.digest)
     expect(await Library.local(root).preview("factory")).toEqual(p)
