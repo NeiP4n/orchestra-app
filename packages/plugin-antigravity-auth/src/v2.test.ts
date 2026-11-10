@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { EventEmitter, on } from "node:events"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
-import { Credential, Integration, Model, Provider, type Plugin } from "@opencode/plugin"
-import type { ConnectionInfo, V2Event } from "@opencode/client"
-import type { AISDKHooks } from "@opencode/plugin/promise/aisdk"
-import type { IntegrationMethodRegistration } from "@opencode/plugin/promise/integration"
-import type { ModelEditor } from "@opencode/plugin/promise/model"
-import type { ProviderEditor } from "@opencode/plugin/promise/provider"
-import type { Info as ToolInfo, ToolContext } from "@opencode/plugin/promise/tool"
-import type { DeepMutable } from "@opencode/plugin/promise/types"
-import type { RpcHandlers } from "@opencode/plugin/promise/rpc"
+import { Credential, Integration, Model, Provider, type Plugin } from "@orchestra/plugin"
+import type { ConnectionInfo, V2Event } from "@orchestra/client"
+import type { AISDKHooks } from "@orchestra/plugin/promise/aisdk"
+import type { IntegrationMethodRegistration } from "@orchestra/plugin/promise/integration"
+import type { ModelEditor } from "@orchestra/plugin/promise/model"
+import type { ProviderEditor } from "@orchestra/plugin/promise/provider"
+import type { Info as ToolInfo, ToolContext } from "@orchestra/plugin/promise/tool"
+import type { DeepMutable } from "@orchestra/plugin/promise/types"
+import type { RpcHandlers } from "@orchestra/plugin/promise/rpc"
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider"
 
 import { AntigravityV2Plugin } from "./v2.ts"
@@ -266,6 +266,7 @@ async function stream(sdk: ReturnType<typeof import("@ai-sdk/google")["createGoo
 }
 
 beforeEach(() => {
+  vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder")
   vi.clearAllMocks()
   state.storage = pool()
   state.callback = undefined
@@ -275,6 +276,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
 describe("OpenCode V2 adapter", () => {
@@ -1615,5 +1617,41 @@ describe("OAuth completing during an earlier save", () => {
     gate.release()
     await Promise.all([request, disabling])
     expect(state.storage!.accounts[0]).toMatchObject({ enabled: false, refreshToken: "latest-foreground-token" })
+  })
+})
+
+describe("OAuth app misconfiguration is never rotated as quota exhaustion", () => {
+  it("fails transport before pool selection and never penalizes an account", async () => {
+    mockNetwork()
+    const adapter = await host({ connection: false })
+    const { sdk } = await adapter.sdk()
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    const limited = vi.spyOn(AccountManager.prototype, "markRateLimited")
+    const cooling = vi.spyOn(AccountManager.prototype, "markAccountCoolingDown")
+    await expect(stream(sdk)).rejects.toThrow("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+    expect(limited).not.toHaveBeenCalled()
+    expect(cooling).not.toHaveBeenCalled()
+    expect(state.storage!.accounts[0]!.enabled).toBe(true)
+  })
+  it.each([400, 401])("rejected OAuth application credentials do not cool down accounts (%s)", async status => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      if (String(input).includes("oauth2.googleapis.com/token")) return Response.json({ error: "invalid_client", error_description: "PRIVATE_CANARY" }, { status })
+      return Response.json({})
+    })
+    const adapter = await host({ connection: false })
+    const { sdk } = await adapter.sdk()
+    const limited = vi.spyOn(AccountManager.prototype, "markRateLimited")
+    const cooling = vi.spyOn(AccountManager.prototype, "markAccountCoolingDown")
+    await expect(stream(sdk)).rejects.toThrow("OAuth application credentials were rejected")
+    expect(limited).not.toHaveBeenCalled()
+    expect(cooling).not.toHaveBeenCalled()
+    expect(state.storage!.accounts[0]!.enabled).toBe(true)
+  })
+  it("native refresh propagates app configuration errors rather than returning an empty credential", async () => {
+    mockNetwork()
+    const adapter = await host()
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    await expect(adapter.method.refresh!(credential())).rejects.toMatchObject({ code: "missing_client_secret", isRetryable: false })
+    expect(state.storage!.accounts[0]!.enabled).toBe(true)
   })
 })
