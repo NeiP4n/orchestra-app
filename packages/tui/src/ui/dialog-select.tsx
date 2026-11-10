@@ -262,7 +262,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const selected = createMemo(() => flat()[store.selected])
   // Category/filter reconciliation can change the selected option without moveTo().
   // Report that actual option too, so a footer never describes the previous row.
-  createEffect(on(() => selected()?.value, () => { const option = selected(); if (option) props.onMove?.(option) }))
+  const selectedValue = createMemo(() => selected()?.value, undefined, { equals: isDeepEqual })
+  createEffect(on(selectedValue, () => { const option = selected(); if (option) props.onMove?.(option) }))
 
   createEffect(
     on(

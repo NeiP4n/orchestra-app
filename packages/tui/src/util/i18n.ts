@@ -10,6 +10,8 @@ export type Language = "en" | "ru"
 // additions isolated so the upstream translation table can be replaced independently.
 const ruExtra: Record<string, string> = {
   ...registryRu,
+  "Delete refused (HTTP {status}). Try again.": "Удаление отклонено (HTTP {status}). Повтори.",
+  "Could not delete account: {reason}": "Не удалось удалить аккаунт: {reason}",
   options: "параметров",
   category: "категории",
   section: "раздел",
