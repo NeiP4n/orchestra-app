@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import {
   ANTIGRAVITY_CLIENT_ID,
   ANTIGRAVITY_SCOPES,
@@ -14,7 +14,12 @@ function encodeState(projectId: string): string {
   return Buffer.from(JSON.stringify({ verifier: "verifier-1", projectId }), "utf8").toString("base64url")
 }
 
+beforeEach(() => {
+  vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder")
+})
+
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
 
@@ -54,6 +59,8 @@ describe("exchangeAntigravity project lookup", () => {
       projectId: "project-1",
       email: "user@example.com",
     })
+    const tokenCall = fetchMock.mock.calls.find(([input]) => String(input) === "https://oauth2.googleapis.com/token")!
+    expect(new URLSearchParams(String(tokenCall[1]?.body)).get("client_secret")).toBe("test-only-placeholder")
     const loadCalls = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/v1internal:loadCodeAssist"))
     expect(loadCalls).toHaveLength(1)
     const [input, init] = loadCalls[0]!

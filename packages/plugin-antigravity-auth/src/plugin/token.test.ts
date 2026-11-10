@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ANTIGRAVITY_PROVIDER_ID } from "../constants";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./token";
@@ -21,14 +21,17 @@ function createClient() {
   };
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("refreshAccessToken", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder");
   });
 
   it("updates the caller when refresh token is unchanged", async () => {
     const client = createClient();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = vi.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) => {
       return new Response(
         JSON.stringify({
           access_token: "new-access",
@@ -42,6 +45,7 @@ describe("refreshAccessToken", () => {
     const result = await refreshAccessToken(baseAuth, client, ANTIGRAVITY_PROVIDER_ID);
 
     expect(result?.access).toBe("new-access");
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0]?.[1]?.body)).get("client_secret")).toBe("test-only-placeholder");
     expect(client.auth.set.mock.calls.length).toBe(0);
   });
 

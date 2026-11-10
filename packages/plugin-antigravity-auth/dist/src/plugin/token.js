@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "../constants.js";
+import { ANTIGRAVITY_CLIENT_ID, requireAntigravityClientSecret } from "../constants.js";
 import { formatRefreshParts, parseRefreshParts, calculateTokenExpiry } from "./auth.js";
 import { clearCachedAuth, storeCachedAuth } from "./cache.js";
 import { createLogger } from "./logger.js";
@@ -112,7 +112,7 @@ async function requestAccessToken(auth) {
                 grant_type: "refresh_token",
                 refresh_token: parts.refreshToken,
                 client_id: ANTIGRAVITY_CLIENT_ID,
-                client_secret: ANTIGRAVITY_CLIENT_SECRET,
+                client_secret: requireAntigravityClientSecret(),
             }),
         });
         if (!response.ok) {

@@ -5,7 +5,9 @@ export declare const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vt
 /**
  * Client secret issued for the Antigravity OAuth application.
  */
-export declare const ANTIGRAVITY_CLIENT_SECRET = "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";
+export declare const ANTIGRAVITY_CLIENT_SECRET: string | undefined;
+/** Resolve at use time so importing the plugin does not require an OAuth credential. */
+export declare function requireAntigravityClientSecret(env?: NodeJS.ProcessEnv): string;
 /**
  * Scopes required for Antigravity integrations.
  */

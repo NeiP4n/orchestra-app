@@ -141,6 +141,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Reject reintroduced credential fingerprints
+        run: python3 script/check-removed-credentials.py
+
       - name: Install verified Gitleaks binary
         shell: bash
         run: |
