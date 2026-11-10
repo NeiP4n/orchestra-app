@@ -37,7 +37,7 @@ test("project receipts survive reopen and stay out of a different project", asyn
     const rows = (await readFile(path.join(a, ".orchestra", "metrics.jsonl"), "utf8"))
       .trim()
       .split("\n")
-      .map(JSON.parse)
+      .map((line) => JSON.parse(line))
     expect(rows.map((row) => row.messageID)).toEqual(["msg_a", "msg_b"])
     await expect(readFile(path.join(b, ".orchestra", "metrics.jsonl"))).rejects.toThrow()
   } finally {
