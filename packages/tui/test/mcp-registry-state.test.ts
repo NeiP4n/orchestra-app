@@ -1,3 +1,4 @@
+import type { ConfigEntry } from "@orchestra/client/promise"
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
 import { Entry } from "@orchestra/schema/config"
@@ -41,4 +42,13 @@ test("operator OFF/ON preserves an installed custom command rather than reinstal
   expect(mcpRegistryToggle(entries, "context7", { type: "local", command: ["npx"], disabled: true })?.disabled).toBe(true)
   expect(mcpRegistryToggle([], "context7", { type: "local", command: ["npx"] })).toEqual({ type: "local", command: ["npx"] })
   expect(mcpRegistryToggle(entries, "context7", null)).toBeNull()
+})
+
+test("wire ConfigEntry is accepted without branding or unsafe assertions", () => {
+  const entries: ConfigEntry[] = [
+    { type: "directory", path: "/wire/path" },
+    { type: "document", path: "/wire/config.json", info: { mcp: { servers: { context7: { type: "local", command: ["npx", "custom"], disabled: true } } } } },
+  ]
+  expect(mcpRegistryState(entries)).toEqual({ installed: ["context7"], disabled: ["context7"] })
+  expect(mcpRegistryToggle(entries, "context7", { type: "local", command: ["ignored"] })).toEqual({ type: "local", command: ["npx", "custom"], disabled: false })
 })
