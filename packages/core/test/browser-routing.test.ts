@@ -3,7 +3,11 @@ import { browserRouteRefusal, browserSessionTitle } from "../src/tool/plugin/orc
 
 describe("browser tasks go to the BrowserAgent", () => {
   test("page work sent to another role is refused with the way to the BrowserAgent", () => {
-    for (const text of ["Open https://muse.ai and click Sign up", "зайди на сайт и заполни форму", "log in to the site and scroll"])
+    for (const text of [
+      "Open https://muse.ai and click Sign up",
+      "зайди на сайт и заполни форму",
+      "log in to the site and scroll",
+    ])
       expect(browserRouteRefusal("developer", text)).toContain("BrowserAgent")
   })
   test("the BrowserAgent itself and ordinary work are not refused", () => {
@@ -21,9 +25,9 @@ describe("no browser automation outside the browser tool", () => {
     expect(McpCatalog.separateBrowserDenial("playwright", { ORCHESTRA_MCP_PLAYWRIGHT: "1" })).toBeUndefined()
     expect(McpCatalog.separateBrowserDenial("context7", {})).toBeUndefined()
   })
-  test("the Playwright entry never points at Edge", () => {
-    const entry = McpCatalog.all.find((item) => item.id === "playwright")!
-    expect(JSON.stringify(entry.config)).not.toMatch(/edge/i)
+  test("no built-in launcher can recreate a separate Playwright or DevTools browser", () => {
+    for (const id of ["playwright", "chrome-devtools"])
+      expect(McpCatalog.all.find((item) => item.id === id)).toBeUndefined()
   })
 })
 

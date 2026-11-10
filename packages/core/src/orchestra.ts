@@ -45,6 +45,10 @@ import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
 import { BrowserBridge } from "./browser/bridge.js"
 import { BrowserRuntime } from "./browser/runtime.js"
+import { ScheduleRequests } from "./schedule-requests.js"
+import { TriggerBundle } from "./trigger-bundle.js"
+import { TriggerBundleFiles } from "./trigger-bundle-files.js"
+import { BrowserWatcherLifetime } from "./browser/watcher-lifetime.js"
 import { BrowserSchedule } from "./browser/schedule.js"
 import { BrowserWatch } from "./browser/watch.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
@@ -1824,6 +1828,42 @@ const layer: Layer.Layer<
         if (!trigger) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
+        const command = ScheduleRequests.read(trigger.id, String(project.main))
+        if (command) {
+          if (command.action === "export") {
+            const bundle = TriggerBundle.fromTriggers([trigger])
+            if (!bundle.ok) ScheduleRequests.finish(command, false, "Этот тип триггера пока нельзя перенести. Браузер и его права не экспортируются.")
+            else {
+              const saved = yield* Effect.tryPromise(() => TriggerBundleFiles.save(project.directory, `trigger-${command.requestID}`, JSON.stringify(bundle.value))).pipe(Effect.result)
+              ScheduleRequests.finish(command, saved._tag === "Success", saved._tag === "Success" ? `Шаблон сохранён: ${saved.success}` : "Не удалось сохранить шаблон в проекте.")
+            }
+          } else {
+            const next = command.action === "pause" ? {...trigger, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(trigger, Date.now())
+            const browserID = trigger.kind === "browser" ? trigger.spec : trigger.browserSessionID
+            const refusal = command.action === "resume" && browserID ? BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), browserID, project.directory, String(project.id)) : undefined
+            if (!next || refusal) ScheduleRequests.finish(command, false, refusal ? "Браузер не принадлежит этому проекту. Проверьте привязку." : "Это расписание уже завершено; создайте новое.")
+            else {
+              const applied = Trigger.parse(yield* kv.atomicUpdate(entry.key, current => {
+                const latest = Trigger.parse(current)
+                if (!latest || latest.id !== trigger.id || latest.projectID !== String(project.id)) return current
+                return (command.action === "pause" ? {...latest, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(latest, Date.now()) ?? latest) as never
+              }))
+              if (!applied || applied.id !== trigger.id || applied.projectID !== String(project.id)) { ScheduleRequests.finish(command, false, "Триггер уже удалён или сменил владельца."); continue }
+              if (command.action === "resume" && !applied.enabled) { ScheduleRequests.finish(command, false, "Расписание уже завершено; создайте новое."); continue }
+              ScheduleView.sync(applied, String(project.main))
+              BrowserSchedule.sync(applied.kind === "browser" ? {...applied, browserSessionID:applied.spec} : applied)
+              if (trigger.kind === "browser") {
+                if (command.action === "resume") yield* Effect.promise(() => BrowserRuntime.watchActivate(trigger.spec))
+                else {
+                  const remaining = (yield* scanAll(Trigger.PREFIX)).flatMap(row => Trigger.parse(row.value) ?? [])
+                  yield* Effect.promise(() => BrowserWatcherLifetime.release({sessionID:trigger.spec, projectID:String(project.id), directory:project.directory, sessions:BrowserRuntime.sessions(), triggers:remaining, stop:BrowserRuntime.stopPageWatcher}))
+                }
+              }
+              ScheduleRequests.finish(command, true, command.action === "pause" ? "Триггер на паузе." : "Триггер включён.")
+            }
+          }
+          continue
+        }
         const limit = ScheduleView.hourlyLimitRequested(trigger.id, String(project.main))
         if (limit) {
           const updated = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
@@ -1850,11 +1890,9 @@ const layer: Layer.Layer<
         BrowserSchedule.remove(trigger.id)
         // Retain the operator tombstone: another sweep may already hold the old record.
         if (trigger.kind === "browser") {
-          const remaining = (yield* scanAll(Trigger.PREFIX)).some((entry) => {
-            const other = Trigger.parse(entry.value)
-            return other?.enabled && other.kind === "browser" && other.spec === trigger.spec
-          })
-          if (!remaining && !BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id))) yield* Effect.promise(() => BrowserRuntime.stopPageWatcher(trigger.spec))
+          const remaining = (yield* scanAll(Trigger.PREFIX)).flatMap(entry => Trigger.parse(entry.value) ?? [])
+          yield* Effect.promise(() => BrowserWatcherLifetime.release({ sessionID: trigger.spec, projectID: String(project.id),
+            directory: project.directory, sessions: BrowserRuntime.sessions(), triggers: remaining, stop: BrowserRuntime.stopPageWatcher }))
         }
         reportLog({ event: "trigger-deleted-by-operator", trigger: trigger.id, project: trigger.projectID })
       }
@@ -1870,6 +1908,10 @@ const layer: Layer.Layer<
       const pending = trigger.pendingFire
       if (!pending || pending.destination !== String(main) || (!trigger.enabled && trigger.pausedReason === "paused by the Orchestrator")) return false
       const source = pending.source
+      if (source.kind === "browser") {
+        const project = yield* get(source.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project || BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), source.spec, project.directory, String(project.id))) return false
+      }
       if (source.actions?.length) {
         // Local allowlisted actions are at-least-once across a process crash, never arbitrary effects.
         const result = yield* localActions(trigger, pending.firedAt)
@@ -1882,8 +1924,8 @@ const layer: Layer.Layer<
       }
       const ok = yield* sessions.synthetic({
         id: SessionMessage.ID.make(pending.messageID), sessionID: main,
-        description: `Trigger ${source.id} fired`, text: Trigger.render(source, pending.firedAt),
-        metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...(source.browserSessionID ? { browserSessionID: source.browserSessionID } : {}) },
+        description: `Trigger ${source.id} fired`, text: Trigger.render(source.kind === "browser" ? {...source, publishApproved: false, browserSessionID: source.spec} : source, pending.firedAt, pending.rows ? Trigger.renderRows(source, pending.rows) : undefined),
+        metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...((source.kind === "browser" ? source.spec : source.browserSessionID) ? { browserSessionID: source.kind === "browser" ? source.spec : source.browserSessionID } : {}) },
       }).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
       if (ok) {
         const acknowledged = Trigger.parse(yield* kv.atomicUpdate(key, (current) => TriggerDelivery.acknowledge(current, pending.fireId) as never))
@@ -1938,7 +1980,7 @@ const layer: Layer.Layer<
       for (const entry of yield* scanAll(Trigger.PREFIX)) {
         if (!(yield* TriggerDelivery.acquire(kv, "time", sweepOwner, Date.now()))) return
         let trigger = Trigger.parse(entry.value)
-        if (!trigger) continue
+        if (!trigger || trigger.kind === "browser") continue
         const planned = TriggerMissed.plan(trigger, now)
         if (planned !== trigger) trigger = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
           const latest = Trigger.parse(current)
@@ -1995,8 +2037,8 @@ const layer: Layer.Layer<
       Effect.forkScoped({ startImmediately: true }),
     )
 
-    // Browser triggers: rows the page watcher reports wait in memory, then go to the Orchestrator of the project whose
-    // trigger watches that session, as a <trigger-fired> with the rows inside an <untrusted> block. The same caps and
+    // Browser triggers: rows accepted from the page watcher enter a durable private queue, then go to the Orchestrator of the project whose
+    // trigger watches that session, as a <trigger-fired> with the rows inside an <untrusted> block. Private KV retains the bounded queue across service restarts. The same caps and
     // auto-pause as the schedules apply; rows that arrive inside the 60 s gap wait and go out together. Every minute the
     // sweep re-arms every five seconds (tab switches, reloads and Chrome restarts replace the connection).
     const browserInbox: BrowserWatch.Event[] = []
@@ -2004,20 +2046,18 @@ const layer: Layer.Layer<
       if (browserInbox.length < 200) browserInbox.push(event)
     })
     yield* Effect.addFinalizer(() => Effect.sync(stopBrowserWatch))
-    const waiting = new Map<string, Trigger.Row[]>()
     const fireBrowserTriggers = Effect.gen(function* () {
       const now = Date.now()
       const mine = (yield* scanAll(Trigger.PREFIX)).flatMap((entry) => {
         const trigger = Trigger.parse(entry.value)
         return trigger && trigger.kind === "browser" ? [{ key: entry.key, trigger }] : []
       })
-      for (const key of [...waiting.keys()]) if (!mine.some((item) => item.key === key)) waiting.delete(key)
       for (const item of mine) {
           if (!(yield* TriggerDelivery.acquire(kv, "browser", sweepOwner, Date.now()))) return
           const project = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
           if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
-          BrowserSchedule.queueStatus(item.trigger.id, waiting.get(item.key)?.length ?? 0)
+          BrowserSchedule.queueStatus(item.trigger.id, (item.trigger.browserQueue?.rows.length ?? 0) + (item.trigger.pendingFire?.rows?.length ?? 0), now, true, item.trigger.browserQueue?.droppedRows ?? 0)
           const wanted = item.trigger.enabled && project?.main && !ScheduleView.removalRequested(item.trigger.id, String(project.main))
           const bound = project ? BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory, String(project.id)) : undefined
           const ownBrowser = bound && !("error" in bound) && project && path.resolve(bound.session.project).toLowerCase() === path.resolve(project.directory).toLowerCase()
@@ -2026,27 +2066,28 @@ const layer: Layer.Layer<
           BrowserSchedule.watchStatus(item.trigger.id, armed)
           BrowserSchedule.watchReason(item.trigger.id, armed ? undefined : bound && "error" in bound ? bound.error : !ownBrowser ? "Ждёт запуска браузера: сессия не принадлежит этому проекту." : BrowserRuntime.watcherReason(item.trigger.spec) ?? "Ждёт запуска браузера: соединение или страница недоступны.")
         }
-      for (const event of browserInbox.splice(0))
+      // Do not consume an ingress event until every matching KV write succeeded. Replays are idempotent.
+      while (browserInbox.length) {
+        const event = browserInbox[0]!
         for (const item of mine) {
-          const eventOwner=yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(()=>undefined))
-          if(!eventOwner||BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),event.sessionID,eventOwner.directory,String(eventOwner.id)))continue
-          const rows = event.items.filter((row) => Trigger.matches(item.trigger, event.sessionID, row))
-          if (rows.length > 0) BrowserSchedule.watchStatus(item.trigger.id, true, event.at)
-          if (rows.length > 0) {
-            waiting.set(item.key, [...(waiting.get(item.key) ?? []), ...rows].slice(-Trigger.MAX_PENDING))
-            BrowserSchedule.queueStatus(item.trigger.id, waiting.get(item.key)!.length)
-          }
+          const owner = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+          if (!owner || BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), event.sessionID, owner.directory, String(owner.id))) continue
+          yield* kv.atomicUpdate(item.key, current => TriggerDelivery.enqueueBrowser(current, event) as never)
         }
-      for (const { key, trigger } of mine) {
-        const rows = waiting.get(key)
-        if (!rows || rows.length === 0) continue
+        browserInbox.shift()
+      }
+      for (const { key } of mine) {
+        const trigger = Trigger.parse(yield* kv.get(key))
+        if (!trigger) continue
+        const rows = trigger.browserQueue?.rows ?? []
+        BrowserSchedule.queueStatus(trigger.id, rows.length + (trigger.pendingFire?.rows?.length ?? 0), now, true, trigger.browserQueue?.droppedRows ?? 0)
         const verdict = Trigger.browserDue(trigger, now)
-        if (verdict === "wait") continue
-        waiting.delete(key)
-        BrowserSchedule.queueStatus(trigger.id, 0)
-        if (verdict === "skip") continue
-        if (verdict === "pause") {
-          yield* kv.set(key, Trigger.paused(trigger, now) as never)
+        if (!trigger.pendingFire && (verdict === "wait" || verdict === "skip" || rows.length === 0)) continue
+        if (!trigger.pendingFire && verdict === "pause") {
+          yield* kv.atomicUpdate(key, current => {
+            const latest = Trigger.parse(current)
+            return latest && Trigger.browserDue(latest, now) === "pause" ? Trigger.paused(latest, now) as never : current
+          })
           reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
           continue
         }
@@ -2054,35 +2095,24 @@ const layer: Layer.Layer<
         if (!project?.main) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         if(BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id)))continue
+        if (trigger.pendingFire) {
+          yield* deliverPending(key, trigger, project.main)
+          continue
+        }
         let reserved = false
         const next = Trigger.parse(yield* kv.atomicUpdate(key, (current) => {
           const latest = Trigger.parse(current)
-          if (!latest || Trigger.browserDue(latest, now) !== "fire") return current
+          if (!latest || latest.pendingFire || Trigger.browserDue(latest, now) !== "fire") return current
+          const prepared = TriggerDelivery.reserveBrowser(current, now, String(project.main))
+          if (prepared === current) return current
           reserved = true
-          return Trigger.afterFire(latest, now) as never
+          return prepared as never
         }))
         if (!reserved || !next) continue
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync({ ...next, browserSessionID: trigger.spec })
-        if (trigger.actions?.length) {
-          const result = yield* localActions(next, now)
-          yield* kv.atomicUpdate(key, (current) => {
-            const latest = Trigger.parse(current)
-            return latest ? { ...latest, errors: result.errors, ...(result.enabled ? {} : { enabled: false, pausedReason: result.pausedReason }) } as never : current
-          })
-          ScheduleView.sync(result, String(project.main))
-          continue
-        }
         BrowserSchedule.dispatched(trigger.id, now)
-        const ok = yield* sessions
-          .synthetic({
-            id: SessionMessage.ID.create(),
-            sessionID: project.main,
-            description: `Trigger ${trigger.id} fired`,
-            text: Trigger.render({ ...trigger, publishApproved: false, browserSessionID: trigger.spec }, now, Trigger.renderRows(trigger, rows)),
-            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: false, browserSessionID: trigger.spec },
-          })
-          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        const ok = yield* deliverPending(key, next, project.main)
         if (!ok) BrowserSchedule.deliveryFailed(trigger.id)
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })
       }

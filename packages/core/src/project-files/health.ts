@@ -75,6 +75,10 @@ const checkOne = (
     const file = ProjectFilesPaths.readPath(directory, descriptor.rel, descriptor.base)
     const exists = yield* ProjectFilesFormat.exists(file)
     if (!exists) return { path: descriptor.rel, status: "missing" }
+    // Binary stores are owned and integrity-checked by their own subsystems.
+    // Do not decode a live SQLite database/WAL as text or claim a parse check.
+    if (/\.db(?:-wal|-shm)?$/.test(descriptor.rel))
+      return { path: descriptor.rel, status: "ok", detail: "Present; database integrity not checked here" }
     const text = yield* ProjectFilesFormat.readText(file)
     const parsed = parseStatus(descriptor.rel, text)
     return parsed === "ok"
@@ -106,7 +110,9 @@ export const checkHealth = (
       // construction, and checking it before the write would make every
       // first check degraded for a file that is about to exist.
       if (descriptor.rel === ProjectFilesPaths.HEALTH_FILE) continue
-      files.push(yield* checkOne(directory, descriptor, divergent))
+      const health = yield* checkOne(directory, descriptor, divergent)
+      if (descriptor.optional && health.status === "missing") continue
+      files.push(health)
     }
     // A divergence names a real file even when its descriptor has not
     // landed yet (a slice registers its files with its own commit): the

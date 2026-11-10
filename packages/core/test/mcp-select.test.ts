@@ -5,16 +5,13 @@ import { McpCatalog } from "../src/mcp/catalog"
 describe("McpSelect.rank", () => {
   test("ranks English needs deterministically", () => {
     const browser = McpSelect.rank("browser automation")
-    expect(browser.length).toBeGreaterThan(0)
-    expect(browser[0]!.entry.id).toBe("playwright")
-    expect(browser[0]!.reasons).toContain("browser")
-    expect(browser[0]!.confidence).toBeGreaterThanOrEqual(McpSelect.CONFIDENCE_THRESHOLD)
+    expect(browser).toEqual([])
     const docs = McpSelect.rank("library documentation")
     expect(docs.map((match) => match.entry.id)).toContain("context7")
     expect(docs[0]!.entry.id).toBe("context7")
     expect(McpSelect.rank("zzqqx nonexistent")).toEqual([])
     expect(McpSelect.rank("")).toEqual([])
-    expect(McpSelect.rank("browser automation")[0]!.entry.id).toBe(browser[0]!.entry.id)
+    expect(McpSelect.rank("browser automation")).toEqual(browser)
   })
 
   test("one generic word is not a match", () => {
@@ -24,51 +21,49 @@ describe("McpSelect.rank", () => {
 
   test("understands Russian needs", () => {
     const browser = McpSelect.rank("автоматизация браузера")
-    expect(browser.length).toBeGreaterThan(0)
-    expect(browser[0]!.entry.id).toBe("playwright")
+    expect(browser).toEqual([])
     const docs = McpSelect.rank("документация библиотеки")
     expect(docs[0]!.entry.id).toBe("context7")
     const code = McpSelect.rank("поиск по коду")
     expect(code.map((match) => match.entry.id)).toContain("serena")
     expect(code[0]!.entry.id).toBe("serena")
-    expect(McpSelect.rank("нужен playwright пожалуйста")[0]!.entry.id).toBe("playwright")
+    expect(McpSelect.rank("нужен playwright пожалуйста")).toEqual([])
   })
 
-  test("chrome-devtools is found by name and falls back to playwright, not the other way round", () => {
-    // "browser automation" still picks playwright first: chrome-devtools is
-    // the Chrome-specific alternative, found by name.
-    expect(McpSelect.rank("browser automation")[0]!.entry.id).toBe("playwright")
-    expect(McpSelect.rank("chrome devtools")[0]!.entry.id).toBe("chrome-devtools")
-    expect(McpSelect.rank("chrome devtools").map((match) => match.entry.id)).toContain("chrome-devtools")
-    expect(McpSelect.fallbackChain("chrome-devtools")).toEqual([
-      { kind: "mcp", server: "playwright" },
-      { kind: "native", tools: ["browser", "playtest"] },
-    ])
+  test("retired browser IDs resolve to native browser tools, never another MCP launch", () => {
+    for (const need of ["browser automation", "chrome devtools", "playwright"]) {
+      expect(McpSelect.rank(need)).toEqual([])
+      expect(McpSelect.selectForTask(need)).toMatchObject({
+        kind: "native",
+        analogue: { id: "browser", nativeTools: ["browser", "playtest"] },
+      })
+    }
+    for (const id of ["playwright", "chrome-devtools"])
+      expect(McpSelect.fallbackChain(id)).toEqual([{ kind: "native", tools: ["browser", "playtest"] }])
   })
 
   test("a server with a good rating outranks an untried one on an equal textual score", () => {
     const plain = McpSelect.rank("документация")
     expect(plain[0]!.entry.id).toBe("context7")
-    const rated = McpSelect.rank("документация", process.platform, new Map([
-      ["context7", { calls: 10, successes: 0, failures: 10, totalLatencyMs: 0, totalOutputTokens: 0 }],
-      ["deepwiki", { calls: 10, successes: 10, failures: 0, totalLatencyMs: 1000, totalOutputTokens: 0 }],
-    ]))
+    const rated = McpSelect.rank(
+      "документация",
+      process.platform,
+      new Map([
+        ["context7", { calls: 10, successes: 0, failures: 10, totalLatencyMs: 0, totalOutputTokens: 0 }],
+        ["deepwiki", { calls: 10, successes: 10, failures: 0, totalLatencyMs: 1000, totalOutputTokens: 0 }],
+      ]),
+    )
     expect(rated[0]!.entry.id).toBe("deepwiki")
   })
 })
 
 describe("McpSelect.selectForTask", () => {
-  test("a Russian browser need picks playwright with its fallback chain, explained", () => {
+  test("a Russian browser need names the native tool instead of installing a duplicate", () => {
     const decision = McpSelect.selectForTask("автоматизация браузера")
-    expect(decision.kind).toBe("mcp")
-    if (decision.kind !== "mcp") throw new Error("expected an mcp decision")
-    expect(decision.server).toBe("playwright")
-    expect(decision.chain).toEqual([
-      { kind: "mcp", server: "agent-desktop" },
-      { kind: "native", tools: ["browser", "playtest"] },
-    ])
-    expect(decision.explanation).toContain("playwright")
-    expect(decision.explanation).toContain("agent-desktop")
+    expect(decision.kind).toBe("native")
+    if (decision.kind !== "native") throw Error("expected native browser")
+    expect(decision.analogue.id).toBe("browser")
+    expect(decision.explanation).toContain("browser")
   })
 
   test("context7 falls back to deepwiki, serena and xerj fall back to each other then native", () => {
@@ -125,7 +120,17 @@ describe("McpSelect.selectForTask", () => {
 describe("McpSelect native analogues", () => {
   test("every native class is documented in the catalog", () => {
     const ids = McpCatalog.nativeAnalogues.map((analogue) => analogue.id)
-    for (const id of ["web-search", "memory", "sequential-thinking", "filesystem", "database", "task-tracker", "fetch", "git", "time"])
+    for (const id of [
+      "web-search",
+      "memory",
+      "sequential-thinking",
+      "filesystem",
+      "database",
+      "task-tracker",
+      "fetch",
+      "git",
+      "time",
+    ])
       expect(ids).toContain(id)
     for (const analogue of McpCatalog.nativeAnalogues) {
       expect(analogue.nativeTools.length).toBeGreaterThan(0)

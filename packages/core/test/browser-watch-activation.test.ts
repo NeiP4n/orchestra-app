@@ -14,8 +14,11 @@ test("explicit create and resume start watchers, but passive ensure never launch
   expect(ensure).not.toContain("BrowserTabs.activate")
   expect(ensure).not.toContain("stream(sessionID")
   const restore = runtime.slice(runtime.indexOf("export async function watchRestore("), runtime.indexOf("const armed ="))
-  expect(restore.indexOf("existsSync(watcherStopFile")).toBeLessThan(restore.indexOf("await open("))
-  expect(restore).toContain("watcherRestoreAttempted.has(sessionID)")
+  expect(restore).toContain("stopped: () =>")
+  expect(restore).toContain("existsSync(watcherStopFile(sessionID))")
+  const recovery = readFileSync(new URL("../src/browser/watch-recovery.ts", import.meta.url), "utf8")
+  expect(recovery.indexOf("io.stopped()")).toBeLessThan(recovery.indexOf("await io.open()"))
+  expect(restore).toContain("watcherRecovery.restore(sessionID")
   expect(runtime).toContain('if (passive && existsSync(watcherStopFile(sessionID))) throw')
 })
 test("durable enabled watchers restore in the server sweep, not from pane rendering", () => {

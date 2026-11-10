@@ -428,21 +428,20 @@ describe("B7 MCP real-screen servers", () => {
     expect(McpCatalog.isRealScreenServer("agent-desktop")).toBe(true)
     expect(McpCatalog.isRealScreenServer("context7")).toBe(false)
     expect(McpCatalog.isRealScreenServer("serena")).toBe(false)
-    expect(McpCatalog.all.find((entry) => entry.id === "playwright")?.realScreen).toBe(true)
-    expect(McpCatalog.all.find((entry) => entry.id === "agent-desktop")?.realScreen).toBe(true)
+    expect(McpCatalog.all.find((entry) => entry.id === "playwright")).toBeUndefined()
+    expect(McpCatalog.all.find((entry) => entry.id === "agent-desktop")).toBeUndefined()
   })
 
-  test("the selector still matches real-screen servers; the gate lives in acquire, not in ranking", async () => {
-    // rank is a pure matcher: a browser need still finds playwright. What
-    // the gate blocks is installing/connecting it (see the acquire test
-    // below) and calling its tools (MCP.callTool) — not matching the need.
+  test("retired real-screen servers are not rediscovered by ranking; safety classification remains", async () => {
+    // Catalog removal must not remove the independent safety classification
+    // used to guard manually configured real-screen servers.
     await withEnv({ ORCHESTRA_DESKTOP_CAPTURE: undefined, ORCHESTRA_DESKTOP_REAL_SCREEN: undefined }, () => {
-      expect(McpSelect.rank("playwright").some((match) => match.entry.id === "playwright")).toBe(true)
-      expect(McpSelect.rank("agent-desktop").some((match) => match.entry.id === "agent-desktop")).toBe(true)
+      expect(McpSelect.rank("playwright")).toEqual([])
+      expect(McpSelect.rank("agent-desktop").some((match) => match.entry.id === "agent-desktop")).toBe(false)
     })
   })
 
-  test("acquire refuses a real-screen server while the gate is closed and installs it once open", async () => {
+  test("acquire cannot reinstall a retired real-screen server, even with a valid opt-in", async () => {
     const calls: string[] = []
     const access: McpAcquire.Access = {
       servers: () => Effect.succeed([]),
@@ -455,8 +454,8 @@ describe("B7 MCP real-screen servers", () => {
       async () => {
         const refused = await Effect.runPromise(McpAcquire.ensure(access, "agent-desktop"))
         expect(refused.action).toBe("none")
-        expect(refused.state).toBe("failed")
-        expect(refused.detail).toContain("blocked")
+        expect(refused.state).toBe("unavailable")
+        expect(refused.detail).toContain("No MCP catalog entry")
         expect(calls).toEqual([])
       },
     )
@@ -470,8 +469,9 @@ describe("B7 MCP real-screen servers", () => {
       },
       async () => {
         const ensured = await Effect.runPromise(McpAcquire.ensure(access, "agent-desktop"))
-        expect(ensured.action).toBe("installed")
-        expect(calls).toEqual(["add"])
+        expect(ensured.action).toBe("none")
+        expect(ensured.state).toBe("unavailable")
+        expect(calls).toEqual([])
       },
     )
   })

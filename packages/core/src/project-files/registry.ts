@@ -39,6 +39,8 @@ export interface FileDescriptor {
   /** Versioned in git. Secrets are never in git; memory and notes are not either. */
   readonly git: boolean
   readonly source: FileSource
+  /** Runtime artifacts are created on demand; absence is not a health defect. */
+  readonly optional?: boolean
 }
 
 /**
@@ -47,6 +49,106 @@ export interface FileDescriptor {
  * belong to other subsystems but must still be listed in the index.
  */
 export const CORE_DESCRIPTORS: ReadonlyArray<FileDescriptor> = [
+  {
+    rel: "memory.db",
+    base: "orchestra",
+    dir: false,
+    kind: "memory",
+    purpose: "Project-local memory SQLite store",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "memory.db-wal",
+    base: "orchestra",
+    dir: false,
+    kind: "memory",
+    purpose: "Live SQLite write-ahead log for project memory",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "memory.db-shm",
+    base: "orchestra",
+    dir: false,
+    kind: "memory",
+    purpose: "Live SQLite shared memory for project memory",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "codegraph.db",
+    base: "orchestra",
+    dir: false,
+    kind: "codegraph",
+    purpose: "Project codegraph SQLite index",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "codegraph.db-wal",
+    base: "orchestra",
+    dir: false,
+    kind: "codegraph",
+    purpose: "Live SQLite write-ahead log for codegraph",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "codegraph.db-shm",
+    base: "orchestra",
+    dir: false,
+    kind: "codegraph",
+    purpose: "Live SQLite shared memory for codegraph",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "checkpoints/",
+    base: "orchestra",
+    dir: true,
+    kind: "checkpoint",
+    purpose: "Native project checkpoints and changed-path snapshots",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "work/",
+    base: "orchestra",
+    dir: true,
+    kind: "workspace",
+    purpose: "Role-specific working directories, one child directory per role",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "sessions/",
+    base: "orchestra",
+    dir: true,
+    kind: "session",
+    purpose: "Project-local session artifacts",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "triggers/",
+    base: "orchestra",
+    dir: true,
+    kind: "trigger",
+    purpose: "Portable reviewed time-trigger templates; name-only secret requirements, no values or page text",
+    git: false,
+    source: "file",
+    optional: true,
+  },
   {
     rel: "index.yaml",
     base: "orchestra",

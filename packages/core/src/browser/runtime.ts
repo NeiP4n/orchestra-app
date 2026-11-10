@@ -1,5 +1,6 @@
 export * as BrowserRuntime from "./runtime.js"
 
+import { BrowserWatchRecovery } from "./watch-recovery.js"
 import { freemem, totalmem } from "node:os"
 import { spawn } from "node:child_process"
 import { closeSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs"
@@ -359,7 +360,7 @@ export async function open(sessionID: string, options: { passive?: boolean } = {
   if (!inside.has(sessionID)) await awaitRelaunch(sessionID)
   if (!options.passive) {
     rmSync(watcherStopFile(sessionID), { force: true })
-    watcherRestoreAttempted.delete(sessionID)
+    watcherRecovery.reset(sessionID)
   }
   const existing = live.get(sessionID)
   if (existing && existing.client.isClosed?.() === true) {
@@ -406,27 +407,30 @@ export const isOpen = (sessionID: string) => live.has(sessionID)
 // Chrome gives the session a new connection, so the trigger sweep calls this again every few seconds and it re-arms when
 // the connection changed. It never starts Chrome: a session that is not running is not watched.
 const watcherStopFile = (sessionID: string) => path.join(Global.Path.data, "browser-profiles", encodeURIComponent(sessionID) + ".watcher-stopped.json")
-const watcherRestoreAttempted = new Set<string>()
+const watcherRecovery = BrowserWatchRecovery.make()
 const watcherReasons = new Map<string, string>()
 export const watcherReason = (sessionID: string) => watcherReasons.get(sessionID)
-/** Enabled durable triggers restore once at service startup. A user stop always wins until explicit enable/start. */
+/** Restore once per outage; a healthy watcher resets recovery. A user stop wins until explicit enable/start. */
 export async function watchRestore(sessionID: string): Promise<void> {
-  if (await watchEnsure(sessionID)) { watcherReasons.delete(sessionID); return }
-  if (existsSync(watcherStopFile(sessionID))) { watcherReasons.set(sessionID, "Ждёт запуска браузера: Chrome остановлен оператором. Нажмите ▶ или включите триггер заново."); return }
-  if (watcherRestoreAttempted.has(sessionID)) return
-  watcherRestoreAttempted.add(sessionID)
-  try {
-    await open(sessionID, { passive: true })
-    if (!await watchEnsure(sessionID)) throw new Error("Страница не готова к наблюдению. Откройте сохранённую страницу и проверьте вход в аккаунт.")
-    watcherReasons.delete(sessionID)
-  } catch (error) {
-    watcherReasons.set(sessionID, "Ждёт запуска браузера: " + (error instanceof Error ? error.message : "Не удалось запустить Chrome").slice(0, 180))
-  }
+  await watcherRecovery.restore(sessionID, {
+    ensure: async () => {
+      const healthy = await watchEnsure(sessionID)
+      if (healthy) watcherReasons.delete(sessionID)
+      return healthy
+    },
+    stopped: () => {
+      const stopped = existsSync(watcherStopFile(sessionID))
+      if (stopped) watcherReasons.set(sessionID, "Ждёт запуска браузера: Chrome остановлен оператором. Нажмите ▶ или включите триггер заново.")
+      return stopped
+    },
+    open: () => open(sessionID, { passive: true }),
+    failed: (error) => watcherReasons.set(sessionID, "Ждёт запуска браузера: " + (error instanceof Error ? error.message : "Не удалось запустить Chrome").slice(0, 180)),
+  })
 }
 /** Explicit create/resume is permission to start this already-resolved managed profile, not arbitrary page actions. */
 export async function watchActivate(sessionID: string): Promise<boolean> {
   rmSync(watcherStopFile(sessionID), { force: true })
-  watcherRestoreAttempted.delete(sessionID)
+  watcherRecovery.reset(sessionID)
   await watchRestore(sessionID)
   return watchEnsure(sessionID)
 }

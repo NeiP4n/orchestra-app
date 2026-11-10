@@ -85,21 +85,57 @@ export function classify(
         missing,
         tools: [],
       }
-    return { id, state: "not_installed", detail: `${entry.name} is in the catalog but not installed.`, missing: [], tools: [] }
+    return {
+      id,
+      state: "not_installed",
+      detail: `${entry.name} is in the catalog but not installed.`,
+      missing: [],
+      tools: [],
+    }
   }
   switch (info.status.status) {
     case "connected":
       return own.length > 0
-        ? { id, state: "healthy", detail: `${entry.name} is connected with ${own.length} tool(s) discovered.`, missing: [], tools: own }
-        : { id, state: "degraded", detail: `${entry.name} is connected but no tools were discovered.`, missing: [], tools: [] }
+        ? {
+            id,
+            state: "healthy",
+            detail: `${entry.name} is connected with ${own.length} tool(s) discovered.`,
+            missing: [],
+            tools: own,
+          }
+        : {
+            id,
+            state: "degraded",
+            detail: `${entry.name} is connected but no tools were discovered.`,
+            missing: [],
+            tools: [],
+          }
     case "needs_auth":
-      return { id, state: "needs_auth", detail: `${entry.name} needs authentication: ${info.status.error}`, missing: [], tools: [] }
+      return {
+        id,
+        state: "needs_auth",
+        detail: `${entry.name} needs authentication: ${info.status.error}`,
+        missing: [],
+        tools: [],
+      }
     case "failed":
-      return { id, state: "failed", detail: `${entry.name} failed to start: ${info.status.error}`, missing: [], tools: [] }
+      return {
+        id,
+        state: "failed",
+        detail: `${entry.name} failed to start: ${info.status.error}`,
+        missing: [],
+        tools: [],
+      }
     case "disabled":
       return { id, state: "disabled", detail: `${entry.name} is disabled by the operator.`, missing: [], tools: [] }
     case "pending":
-      return { id, state: "configured", detail: `${entry.name} is installed and still starting.`, missing: [], tools: [] }
+      return {
+        id,
+        state: "configured",
+        detail: `${entry.name} is installed and still starting.`,
+        missing: [],
+        tools: [],
+      }
   }
 }
 
@@ -128,7 +164,11 @@ export interface Ensured extends Classification {
 const snapshot = Effect.fnUntraced(function* (access: Access, id: string) {
   const infos = yield* access.servers()
   const tools = yield* access.tools()
-  return classify(id, infos.find((info) => String(info.name) === id), tools)
+  return classify(
+    id,
+    infos.find((info) => String(info.name) === id),
+    tools,
+  )
 })
 
 /** Catalog servers that launch their own Chrome. */
@@ -155,7 +195,8 @@ export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Ef
       ...before,
       state: "failed" as const,
       action: "none" as const,
-      detail: "MCP is switched off for agents (the operator can set ORCHESTRA_MCP=1). Use the native tools: websearch, webfetch, research, browser.",
+      detail:
+        "MCP is switched off for agents (the operator can set ORCHESTRA_MCP=1). Use the native tools: websearch, webfetch, research, browser.",
     }
   if (before.state === "healthy") return { ...before, action: "reused" as const }
   // A degraded server (connected, but no tools discovered) is NOT reused as
@@ -167,21 +208,25 @@ export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Ef
   // or connected while the real-screen opt-in is invalid — not even when it
   // is already configured. The operator's screen is not a default.
   const entry = McpCatalog.all.find((item) => item.id === id)
-  if (entry?.realScreen === true) {
+  if (McpCatalog.isRealScreenServer(id)) {
     const denial = DesktopIsolation.realScreenDenial(process.env, id)
     if (denial)
       return {
         ...before,
         state: "failed" as const,
         action: "none" as const,
-        detail: `${entry.name} drives the operator's real screen and is blocked: ${denial}`,
+        detail: `${entry?.name ?? id} drives the operator's real screen and is blocked: ${denial}`,
       }
   }
 
   // A server that starts a browser of its own is not installed behind the operator's back: the Browser tab's `browser`
   // tool is the browser, and a removed chrome-devtools came straight back through acquisition. Installing it needs
   // its ORCHESTRA_MCP_* flag set to 1 (chrome-devtools, playwright); one that is already configured is left as it is.
-  if (before.state === "not_installed" && SEPARATE_BROWSER[id] !== undefined && process.env[SEPARATE_BROWSER[id]!] !== "1")
+  if (
+    before.state === "not_installed" &&
+    SEPARATE_BROWSER[id] !== undefined &&
+    process.env[SEPARATE_BROWSER[id]!] !== "1"
+  )
     return {
       ...before,
       state: "unavailable" as const,

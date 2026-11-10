@@ -95,3 +95,11 @@ test("watcher restart preserves only lost queue count, not a false replay", () =
   expect(BrowserSchedule.get(id)?.lostPendingRows).toBe(4)
   BrowserSchedule.remove(id)
 })
+test("durable observer queue is recovered, not counted as lost on process restart; overflow remains explicit", () => {
+  const id = "restart-durable-queue"
+  try {
+    BrowserSchedule.save({triggerID:id, browserSessionID:"fixture", enabled:true, nextAt:null, phase:"waiting", watcherRun:"old-process", pendingRows:4})
+    BrowserSchedule.queueStatus(id, 4, 4567, true, 2)
+    expect(BrowserSchedule.get(id)).toMatchObject({lostPendingRows:0, pendingRows:4, droppedPendingRows:2, restartedAt:4567})
+  } finally {BrowserSchedule.remove(id)}
+})

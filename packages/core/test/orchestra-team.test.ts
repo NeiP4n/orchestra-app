@@ -35,6 +35,9 @@ import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionStore } from "@orchestra/core/session/store"
 import { SessionTable } from "@orchestra/core/session/sql"
 import { eq } from "drizzle-orm"
+import { Trigger } from "@orchestra/core/trigger"
+import { ScheduleView } from "@orchestra/core/schedule-view"
+import { ScheduleRequests } from "@orchestra/core/schedule-requests"
 import { KV } from "@orchestra/core/kv"
 import { Form as FormService } from "@orchestra/core/form"
 import { tmpdir } from "./fixture/tmpdir"
@@ -2352,3 +2355,29 @@ describe("Orchestra workflow stages", () => {
     }),
   )
 })
+
+
+it.live("local trigger window applies operator pause/resume/export through the real scheduler with no model call", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-trigger-window-")))
+    const orchestra = yield* Orchestra.Service, kv = yield* KV.Service
+    const project = yield* orchestra.create({name:"Trigger window", directory:tmp.path})
+    const main = yield* orchestra.main(project.id)
+    const made = Trigger.create({kind:"interval",spec:"60",prompt:"private reviewed instruction"},{id:"trg_window",projectID:project.id,now:Date.now(),existing:0})
+    if(!made.ok)throw Error(made.error)
+    yield* kv.set(Trigger.key(project.id,made.trigger.id),made.trigger as never)
+    ScheduleView.sync(made.trigger,String(main.id))
+    for(const action of ["pause","resume","export"] as const){
+      const command=ScheduleRequests.request(made.trigger.id,String(main.id),action)
+      const result=yield* Effect.sync(()=>ScheduleRequests.result(command)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+      expect(result?.ok).toBe(true)
+      const current=Trigger.parse(yield* kv.get(Trigger.key(project.id,made.trigger.id)))!
+      expect(current.enabled).toBe(action!=="pause")
+      expect(current.total).toBe(0)
+      if(action==="export"){
+        const content=yield* Effect.promise(()=>Bun.file(path.join(tmp.path,".orchestra","triggers",`trigger-${command.requestID}.json`)).text())
+        expect(JSON.parse(content).format).toBe("orchestra.trigger-bundle")
+        expect(content).not.toContain("private reviewed instruction")
+      }
+    }
+  }),30_000)

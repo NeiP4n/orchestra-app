@@ -12,9 +12,10 @@ describe("MCP role profiles", () => {
 
   test("derives a role's servers from its tool list, implied tools included", () => {
     const developer = forRole("developer")!
-    for (const server of ["context7", "deepwiki", "github", "rea-anything", "serena", "agent-desktop"])
+    for (const server of ["context7", "deepwiki", "rea-anything", "serena"])
       expect(allows(developer, server)).toBe(true)
-    for (const server of ["playwright", "chrome-devtools"]) expect(allows(developer, server)).toBe(false)
+    for (const server of ["playwright", "chrome-devtools", "agent-desktop", "github"])
+      expect(allows(developer, server)).toBe(false)
     expect(serversOf(["browser"])).toEqual([])
     // The tester may edit test files but its profile still comes from the same derivation.
     expect(serversOf(["webfetch"])).toEqual(["context7", "deepwiki"])
@@ -34,9 +35,9 @@ describe("MCP role profiles", () => {
       expect(missingRequired(deep, [])).not.toContain(server)
     }
     expect(access.get("rea-anything")).toBe("required")
-    // Its rules send it to github for issues and commits, so that is required too;
-    // serena only rides along with the read tools and stays allowed.
-    expect(access.get("github")).toBe("required")
+    // Removing a registry entry removes its derived grant, not the original rule.
+    // Serena only rides along with the read tools and stays allowed.
+    expect(access.has("github")).toBe(false)
     expect(access.get("serena")).toBe("allowed")
 
     const auditor = forRole("security-auditor")!
@@ -59,8 +60,7 @@ describe("MCP role profiles", () => {
   })
 
   test("no profile grants a server that does not exist: android_helper is gone from every ceiling", () => {
-    for (const profile of all)
-      for (const grant of profile.servers) expect(grant.server).not.toBe("android_helper")
+    for (const profile of all) for (const grant of profile.servers) expect(grant.server).not.toBe("android_helper")
     expect(catalog.some((entry) => entry.id === "android_helper")).toBe(false)
     expect(allows(forRole("mobile-developer")!, "android_helper")).toBe(false)
     expect(allows(forRole("tester")!, "android_helper")).toBe(false)
@@ -68,8 +68,7 @@ describe("MCP role profiles", () => {
 
   test("every granted server is a catalog server", () => {
     const known = new Set(catalog.map((entry) => entry.id))
-    for (const profile of all)
-      for (const grant of profile.servers) expect(known.has(grant.server)).toBe(true)
+    for (const profile of all) for (const grant of profile.servers) expect(known.has(grant.server)).toBe(true)
   })
 
   test("every ordinary catalog server has a team role; opt-in-only external browsers have none by default", () => {
@@ -83,7 +82,7 @@ describe("MCP role profiles", () => {
 
   test("external browser opt-in lifts only the catalog refusal, never grants a built-in role", () => {
     for (const [server, flag] of Object.entries(SEPARATE_BROWSER_FLAG)) {
-      expect(catalog.some((entry) => entry.id === server)).toBe(true)
+      expect(catalog.some((entry) => entry.id === server)).toBe(false)
       for (const value of [undefined, "", "0", "true"]) {
         expect(separateBrowserDenial(server, { [flag]: value })).toContain("switched off")
       }
@@ -154,7 +153,10 @@ describe("MCP role profiles", () => {
 
   test("missingRequired reports only required servers that are absent", () => {
     const deep = forRole("deep-researcher")!
-    const missing = missingRequired(deep, catalog.map((entry) => entry.id))
+    const missing = missingRequired(
+      deep,
+      catalog.map((entry) => entry.id),
+    )
     expect(missing).toEqual([])
     expect(missingRequired(deep, ["context7"])).toContain("rea-anything")
     expect(missingRequired(deep, ["context7"])).not.toContain("memory")
