@@ -1528,7 +1528,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           </Section>
           <Section title={t("Multiplayer")} icon="⇄" stackActions={props.width < 36} actions={<>
               <SectionButton icon="◈" label={t("Host")} onClick={() => openRooms(DialogHost)} />
-              <SectionButton icon="⇢" label={props.width < 50 ? "Войти" : t("Connect")} onClick={() => openRooms(DialogConnect)} />
+              <SectionButton icon="⇢" label={props.width < 50 ? t("Join") : t("Connect")} onClick={() => openRooms(DialogConnect)} />
             </>}>
             <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
               <Row
