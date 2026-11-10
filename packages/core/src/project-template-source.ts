@@ -13,7 +13,7 @@ export interface Source {
   /** Already verified project ownership by the caller, including its main session. */
   ownedSessionIDs: ReadonlySet<string>
   browsers: readonly { id: string; name: string; projectID: string; mode: "headless" | "window" | "capture"; savedLinks: readonly string[] }[]
-  rules: readonly { scope: "project" | "session"; sessionID?: string; text: string }[]
+  rules: readonly { scope: "project" | "project-defaults" | "orchestrator" | "role" | "session"; sessionID?: string; role?: string; text: string }[]
   schedules: readonly Trigger.Info[]
   vault: readonly CredentialVault.SlotInfo[]
   selectedGlobalSlotIDs: ReadonlySet<string>
@@ -40,10 +40,17 @@ export function capture(source: Source, metadata: { name: string; description: s
       const slot = `browser_${index + 1}`; browsers.set(row.id, slot)
       return { slot, name: row.name, mode: row.mode, links: [...row.savedLinks] }
     })
-    const rules = source.rules.map((row) => {
-      if (row.scope === "project") { if (row.sessionID !== undefined) throw Error(); return { session: null, text: row.text } }
-      if (row.scope !== "session" || !row.sessionID || !sessions.has(row.sessionID)) throw Error()
-      return { session: sessions.get(row.sessionID)!, text: row.text }
+    const rules: ProjectTemplate.Bundle['rules'] = source.rules.map((row) => {
+      if (row.scope === "project" || row.scope === "project-defaults" || row.scope === "orchestrator") {
+        if (row.sessionID !== undefined || row.role !== undefined) throw Error()
+        return { scope: row.scope, session: null, text: row.text }
+      }
+      if (row.scope === "role") {
+        if (row.sessionID !== undefined || !row.role) throw Error()
+        return { scope: row.scope, role: row.role, session: null, text: row.text }
+      }
+      if (row.scope !== "session" || !row.sessionID || !sessions.has(row.sessionID) || row.role !== undefined) throw Error()
+      return { scope: row.scope, session: sessions.get(row.sessionID)!, text: row.text }
     })
     if (new Set(source.schedules.map((row) => row.id)).size !== source.schedules.length) throw Error()
     const schedules: ProjectTemplate.Bundle["schedules"] = source.schedules.map((row, index) => {

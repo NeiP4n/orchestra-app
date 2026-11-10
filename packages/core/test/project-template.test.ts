@@ -47,3 +47,22 @@ test("empty slots and missing global names cannot collide; references must be de
   input.vault.globalRequirements = ['shared']; input.providers[0].credentialSlots.push('undeclared'); expect(parse(input).ok).toBe(false)
   input.providers[0].credentialSlots = ['shared']; expect(parse(input).ok).toBe(true)
 })
+test("explicit rule scopes preserve defaults, orchestrator, role and session boundaries without flattening", () => {
+  const input = templateFixture()
+  input.rules = [
+    { scope: "project", session: null, text: "Project rule" },
+    { scope: "project-defaults", session: null, text: "Default copy" },
+    { scope: "orchestrator", session: null, text: "Orchestrator rule" },
+    { scope: "role", role: "builder", session: null, text: "Builder rule" },
+    { scope: "session", session: "main", text: "Exact session rule" },
+  ]
+  expect(parse(input)).toEqual({ ok: true, value: input })
+  const bad = [
+    { scope: "global", session: null, text: "Rule" },
+    { scope: "role", session: null, text: "Rule" },
+    { scope: "session", session: null, text: "Rule" },
+    { scope: "project", session: "main", text: "Rule" },
+    { scope: "orchestrator", session: null, role: "builder", text: "Rule" },
+  ]
+  for (const rule of bad) expect(parse({ ...input, rules: [rule] }).ok).toBe(false)
+})

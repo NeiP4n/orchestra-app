@@ -14,7 +14,7 @@ export interface Bundle {
   vault: { local: { name: string; type: "login" | "api-key" | "password"; label: string }[]; globalRequirements: string[] }
   sessions: { slot: string; title: string; role: string; model: { provider: string; id: string; variant: string | null } | null }[]
   browsers: { slot: string; name: string; mode: "headless" | "window" | "capture"; links: string[] }[]
-  rules: { session: string | null; text: string }[]
+  rules: { session: string | null; text: string; scope?: "project" | "project-defaults" | "orchestrator" | "session" | "role"; role?: string }[]
   schedules: {
     slot: string
     source: { kind: "cron" | "interval" | "once"; spec: string } |
@@ -84,7 +84,18 @@ export function parse(serialized: string): Result<Bundle> {
     const browsers = array(data.browsers, 50).map((v) => { const row = object(v, ['slot', 'name', 'mode', 'links']), links = array(row.links, 100).map(url); unique(links); return { slot: slot(row.slot), name: text(row.name, 160), mode: choice(row.mode, ['headless', 'window', 'capture']), links } }); unique(browsers.map((row) => row.slot))
     const sessionNames = new Set(sessions.map((row) => row.slot)), browserNames = new Set(browsers.map((row) => row.slot))
     const sessionRef = (v: unknown) => { const s = slot(v); if (!sessionNames.has(s)) invalid(); return s }
-    const rules = array(data.rules, 100).map((v) => { const row = object(v, ['session', 'text']); return { session: row.session === null ? null : sessionRef(row.session), text: text(row.text) } })
+    const rules: Bundle['rules'] = array(data.rules, 100).map((v) => {
+      const hasScope = !!v && typeof v === "object" && Object.hasOwn(v, "scope")
+      const hasRole = !!v && typeof v === "object" && Object.hasOwn(v, "role")
+      const row = object(v, ['session', 'text', ...(hasScope ? ['scope'] : []), ...(hasRole ? ['role'] : [])])
+      const session = row.session === null ? null : sessionRef(row.session), ruleText = text(row.text)
+      if (!hasScope) { if (hasRole) invalid(); return { session, text: ruleText } }
+      const scope = choice(row.scope, ['project', 'project-defaults', 'orchestrator', 'session', 'role'])
+      if (scope === 'session' ? session === null : session !== null) invalid()
+      if (scope === 'role') { if (!hasRole) invalid(); return { session: null, text: ruleText, scope, role: id(row.role) } }
+      if (hasRole) invalid()
+      return { session, text: ruleText, scope }
+    })
     const schedules: Bundle['schedules'] = array(data.schedules, 20).map((v) => {
       const row = object(v, ['slot', 'source', 'instruction', 'maxPerHour', 'maxPerDay', 'missedPolicy']), kind = (row.source as { kind?: unknown } | null)?.kind
       let source: Bundle['schedules'][number]['source']

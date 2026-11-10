@@ -2999,3 +2999,10 @@ is create-only. The UI plainly labels staging as inactive and says live sessions
 browsers and Vault entries are not created yet. Actual filesystem plus test-renderer
 mouse/input tests cover review gating, export, inactive staging and changed-source
 refusal. Source capture from live stores and live import materialization remain open.
+
+Portable rules may now explicitly retain project, project-defaults, orchestrator,
+role and session scope. Legacy v1 rules with session/null stay readable. Role rules
+must name a role; only session-scoped rules may reference a session. This avoids
+flattening a narrow Orchestrator/role rule into a project-wide mandate at import.
+The metadata projection keeps these boundaries exactly. Global and society scopes
+cannot enter this project-only schema.
