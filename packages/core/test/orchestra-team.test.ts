@@ -2431,20 +2431,22 @@ it.live("template reader captures real project metadata without reading messages
 it.live("template live materializer writes real sessions/KV/DoD and empty Vault, then resumes without duplicates", () =>
  Effect.gen(function*(){
   const {ProjectTemplateLiveStores}=yield* Effect.promise(()=>import('../src/project-template-live-stores'))
+  const {ProjectTemplateBrowserStore}=yield* Effect.promise(()=>import('../src/project-template-browser-store'))
   const {ProjectTemplate}=yield* Effect.promise(()=>import('../src/project-template'))
   const {ProjectFilesBootstrap}=yield* Effect.promise(()=>import('../src/project-files/bootstrap'))
   const {SessionHold}=yield* Effect.promise(()=>import('../src/session/hold'))
   const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir('template-real-import-')))
   const kv=yield* KV.Service,sessions=yield* Session.Service,store=yield* SessionStore.Service,database=yield* Database.Service
-  const savedBrowsers=new Map<string,unknown>();let failOnce=true,failBootstrapOnce=true
+  yield* Effect.promise(()=>mkdir(path.join(tmp.path,'browser-data')))
+  const browserStore=ProjectTemplateBrowserStore.make(kv,path.join(tmp.path,'browser-data'));let failOnce=true,failBootstrapOnce=true
   const vault=(id:string)=>CredentialVault.make({directory:path.join(tmp.path,'vault'),projectID:id,collector:{collect:async()=>{throw Error('must not request secrets')}} as never})
   const adapter=ProjectTemplateLiveStores.make({kv,sessions,store,root:path.join(tmp.path,'imports'),installedVersion:'1.0.0',timezone:'UTC',
-   availableRoles:async()=>new Set(['orchestrator']),availableModels:async()=>new Set(['demo/free']),vault,
+   availableRoles:async()=>new Set(['orchestrator','team-browser-agent']),availableModels:async()=>new Set(['demo/free']),vault,
    bootstrap:async(directory,name)=>{await Effect.runPromise(ProjectFilesBootstrap.initialize(directory,name,kv).pipe(Effect.provideService(Database.Service,database)));if(failBootstrapOnce){failBootstrapOnce=false;throw Error('simulated bootstrap completion loss')}},
-   browsers:{ensure:async(r,rows)=>{savedBrowsers.set(r.projectID,structuredClone(rows));if(failOnce){failOnce=false;throw Error('simulated browser-store checkpoint loss')}},verify:async(r,rows)=>{expect(savedBrowsers.get(r.projectID)).toEqual(rows)}},
+   browsers:{ensure:async(r,rows)=>{await browserStore.ensure(r,rows);if(failOnce){failOnce=false;throw Error('simulated browser-store checkpoint loss')}},verify:browserStore.verify},
   })
   const removeGuard=SessionHold.addGuard(adapter.held);yield* Effect.addFinalizer(()=>Effect.sync(removeGuard))
-  const template={format:'orchestra.project-template',version:1,name:'Factory',description:'Settings only',minOrchestraVersion:'1.0.0',variables:{projectName:'Fresh factory',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}}],browsers:[],rules:[{scope:'orchestrator',session:null,text:'Check the output.'}],schedules:[{slot:'daily',source:{kind:'cron',spec:'0 9 * * *'},instruction:'Check status',maxPerHour:1,maxPerDay:1,missedPolicy:'skip'}],vault:{local:[{name:'service',type:'api-key',label:'Service'}],globalRequirements:['shared']},providers:[],mcp:[]}
+  const template={format:'orchestra.project-template',version:1,name:'Factory',description:'Settings only',minOrchestraVersion:'1.0.0',variables:{projectName:'Fresh factory',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'browser',title:'Inbox',role:'team-browser-agent',model:null}],browsers:[{slot:'inbox',name:'Inbox',mode:'window',links:['https://example.com/inbox'],session:'browser'}],rules:[{scope:'orchestrator',session:null,text:'Check the output.'}],schedules:[{slot:'daily',source:{kind:'cron',spec:'0 9 * * *'},instruction:'Check status',maxPerHour:1,maxPerDay:1,missedPolicy:'skip'}],vault:{local:[{name:'service',type:'api-key',label:'Service'}],globalRequirements:['shared']},providers:[],mcp:[]}
   const preview=ProjectTemplate.preview(JSON.stringify(template));if(!preview.ok)throw Error(preview.error)
   const reservation=yield* Effect.promise(()=>adapter.reserve(preview.value.text,preview.value.digest))
   expect(yield* kv.get('orchestra/project/'+reservation.projectID)).toBeUndefined()
@@ -2462,14 +2464,16 @@ it.live("template live materializer writes real sessions/KV/DoD and empty Vault,
   expect(created.phase).toBe('published');expect((yield* (yield* Orchestra.Service).projects()).some(p=>p.id===reservation.projectID)).toBe(true);expect(yield* SessionHold.held(reservation.plan.mainSessionID!)).toBe(false)
   const main=yield* (yield* Orchestra.Service).main(Orchestra.ProjectID.make(reservation.projectID));expect(main.title).toBe('Main')
   const infos=yield* store.list({directoryPrefix:AbsolutePath.make(reservation.directory)})
-  expect(infos).toHaveLength(1);expect(infos[0].permissions).toEqual([]);expect(infos[0].tokens.input).toBe(0)
+  expect(infos).toHaveLength(2);expect(infos[0].permissions).toEqual([]);expect(infos[0].tokens.input).toBe(0)
   expect(yield* store.messages({sessionID:infos[0].id,limit:1})).toEqual([])
   expect(Trigger.parse(yield* kv.get(Trigger.key(reservation.projectID,reservation.plan.schedules[0].id)))?.enabled).toBe(false)
   expect((yield* Effect.promise(()=>vault(reservation.projectID).slots()))[0]).toMatchObject({state:'empty',allowedSessionIDs:[]})
   expect(yield* kv.get('rules/project-defaults:'+reservation.projectID)).toEqual([])
+  expect(yield* Effect.promise(()=>Bun.file(path.join(tmp.path,'browser-data','browser-profiles',reservation.plan.browsers[0].id+'.tabs.json')).json())).toEqual({tabs:[{url:'https://example.com/inbox'}]})
+  expect(yield* Effect.promise(()=>Bun.file(path.join(tmp.path,'browser-data','browser-profiles',reservation.plan.browsers[0].id,'Cookies')).exists())).toBe(false)
   expect(yield* Effect.promise(()=>Bun.file(path.join(reservation.directory,Dod.FILE)).exists())).toBe(true)
   yield* Effect.promise(()=>adapter.resume(reservation.id))
-  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reservation.directory)})).toHaveLength(1)
+  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reservation.directory)})).toHaveLength(2)
   const missing=yield* kv.get(ProjectTemplateLiveStores.RECEIPT+reservation.id)
   yield* kv.remove(ProjectTemplateLiveStores.RECEIPT+reservation.id)
   expect(yield* SessionHold.held(reservation.plan.mainSessionID!)).toBe(true)

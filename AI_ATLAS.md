@@ -3084,3 +3084,16 @@ list/get hide pending rows; an independent SessionHold guard blocks imported ses
 until that checkpoint, including after restart, without replacing Society holds. Main
 repair preserves imported main titles. Actual KV/Session/DoD/Vault + regular bootstrap
 are exercised in orchestra-team; browser store remains fixture in that integration test.
+
+Browser destination bridge: ProjectTemplateBrowserStore writes exact owned definitions
+into KV and create-only runtime-compatible .tabs.json, with no profile/Chrome launch.
+It rejects pre-existing identities, changed rows/links, symlinks and opened profiles.
+TUI ensureImportedBrowsers uses the owning Storage.update lock, persists exact IDs/chat
+bindings without a selection, and marks one successful hydration. Repeat hydration
+never resets later user edits. Notes exposes a strict import path instead of its
+normal catch/log wrapper. Core live-import integration now uses the real browser KV
+and saved-link file bridge, not the old browser fixture. The current runtime still
+restores only eight tabs; the full definition retains all (up to 100) saved links.
+Simple confirmation retries its same durable token after partial commit, and a failed
+list refresh after success reports success without offering duplicate confirmation.
+No production endpoint/controller has been connected or screen mounted yet.

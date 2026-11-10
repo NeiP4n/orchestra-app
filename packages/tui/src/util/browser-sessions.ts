@@ -8,6 +8,9 @@ export type BrowserSession = {
   created: number
   /** The chat of this session's BrowserAgent. One browser session has one BrowserAgent; it comes back with the session. */
   chat?: string
+  /** Portable preference on a fresh imported definition; not a claim about live Chrome. */
+  mode?: "headless" | "window" | "capture"
+  templateImportID?: string
 }
 
 /** The explicit sidebar selection wins over the chat still visible during a switch. */
@@ -19,6 +22,8 @@ export function activeBrowserSession(selected: BrowserSession | undefined, bound
 export type ClosedBrowserSession = BrowserSession & { closedAt: number }
 
 export type BrowserSessionsState = {
+  /** Completed, atomic owning-store hydration. Never reapplies original definitions after user edits. */
+  templateImports?: Record<string, string>
   /** BrowserAgent chats explicitly removed/closed, including evicted history. Never auto-adopt them. */
   retiredChats?: Record<string, string[]>
   projects: Record<string, BrowserSession[]>

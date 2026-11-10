@@ -1,3 +1,4 @@
+import { ensureImportedBrowsers, type ImportedBrowsers } from "../util/project-template-browsers"
 import { BrowserLifecycle } from "@orchestra/core/browser/lifecycle"
 import {
   isNoteConflictError,
@@ -285,6 +286,8 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
       tab,
       setTab,
       browserChatRecord: (chat: string) => browserChatRecord(browser, chat),
+      // Unlike changeBrowser, this strict path propagates persistence failures to import recovery.
+      importBrowserDefinitions: (input: ImportedBrowsers) => updateBrowser(draft => ensureImportedBrowsers(draft,input)),
       browserSessions: (projectID: string): readonly BrowserSession[] => browser.projects?.[projectID] ?? [],
       browserSelected: (projectID: string) => {
         const id = browser.selected?.[projectID]
