@@ -2972,3 +2972,12 @@ marker; globals and other project slots remain. Empty imports, access, cleanup
 and the real project-removal integration have fixture tests. Native Windows
 DPAPI behavior remains unverified here. UI scope/grant controls and template
 materialization are not yet connected; worker Vault tools remain main-only.
+
+The local Registry Vault UI now selects new-slot global/project scope explicitly,
+shows empty slots and scope badges, fills through masked input, and offers a
+two-click grant or immediate revoke for the current chat. It receives the exact
+route session/project, uses the scoped registry view, and leaves HTTP activation
+and worker tool permissions separate. Legacy project bindings remain visible only
+for legacy entries. Mouse tests cover explicit scope parameters and grant/revoke;
+a captured real test-renderer cell frame was visually inspected at 120 columns.
+This is not proof of native Windows collector rendering or narrow-terminal layout.

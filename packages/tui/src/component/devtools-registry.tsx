@@ -1010,4 +1010,4 @@ export function Button(props: {
 }
 
 /** Mounted only in the Vault tab, where the operator can bind an existing name to this project. */
-function ProjectRegistryVault(){const route=useRoute(),projects=useProjects();const projectID=()=>route.data.type==="session"?projects.owner(route.data.sessionID):undefined;return <RegistryVault projectID={projectID()}/>}
+function ProjectRegistryVault(){const route=useRoute(),projects=useProjects();const projectID=()=>route.data.type==="session"?projects.owner(route.data.sessionID):undefined;return <RegistryVault projectID={projectID()} sessionID={route.data.type === "session" ? route.data.sessionID : undefined}/>}
