@@ -39,7 +39,7 @@ test("real Console tool guard wraps both PTY adapters before read/write and prev
     },
     write: plain.write,
   }
-  const run = (effect: any) =>
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.runPromise(
       effect.pipe(
         Effect.provideService(Pty.Service, plain as any),
@@ -52,7 +52,7 @@ test("real Console tool guard wraps both PTY adapters before read/write and prev
             }),
         } as any),
         Effect.provideService(Location.Service, { directory: "/tmp/project" } as any),
-      ),
+      ) as Effect.Effect<A, E>,
     )
   const scope = {
     sessionID: "ses_fixture",
@@ -78,7 +78,12 @@ test("real Console tool guard wraps both PTY adapters before read/write and prev
     )
     A.select(scope)
     const execute = (action: string, text?: string) =>
-      run(registered.execute({ action, text }, { sessionID: "ses_fixture" }))
+      run(
+        registered.execute({ action, text }, { sessionID: "ses_fixture" }) as Effect.Effect<
+          { content: string },
+          unknown
+        >,
+      )
     await expect(execute("read")).rejects.toThrow()
     await expect(execute("write", "echo ok\n")).rejects.toThrow()
     expect(reads).toBe(0)

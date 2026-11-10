@@ -68,7 +68,8 @@ try {
                   env: { TERM: "xterm-256color" },
                 })
           const scope = { sessionID, directory: root, projectID: "prj_console_native", kind, ptyID: info.id }
-          const execute = (action: string, text?: string) => tool.execute({ action, text }, { sessionID })
+          const execute = (action: string, text?: string): Effect.Effect<{ content: string }, unknown> =>
+            tool.execute({ action, text }, { sessionID })
           try {
             A.select(scope)
             if (kind === "persistent") yield* persistent.resize(info.id, 80, 24)
