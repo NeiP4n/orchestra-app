@@ -131,7 +131,7 @@ describe("McpForgeTool", () => {
       const preview = yield* run(tools, "server-preview", {
         action: "preview",
         name: "docs",
-        server: { type: "remote", url: "https://docs.example.com/mcp" },
+        server: { type: "remote", url: "https://8.8.8.8/mcp" },
       })
       expect(text(preview)).toContain("registered as it is")
       expect(text(preview)).toContain('"type": "remote"')
@@ -139,11 +139,26 @@ describe("McpForgeTool", () => {
       const saved = yield* run(tools, "server-save", {
         action: "save",
         name: "docs",
-        server: { type: "remote", url: "https://docs.example.com/mcp" },
+        server: { type: "remote", url: "https://8.8.8.8/mcp" },
       })
-      expect(saved.status).toBe("completed")
+      expect(saved.status, saved.error?.message).toBe("completed")
       expect(text(saved)).toContain("Registered docs")
-      expect(patches.at(-1)?.mcpServers?.docs).toEqual({ type: "remote", url: "https://docs.example.com/mcp" })
+      expect(patches.at(-1)?.mcpServers?.docs).toEqual({ type: "remote", url: "https://8.8.8.8/mcp" })
+    }),
+  )
+
+  it.effect("refuses a private existing remote server without registering a config patch", () =>
+    Effect.gen(function* () {
+      const tools = yield* setup
+      patches.length = 0
+      const saved = yield* run(tools, "private-server-save", {
+        action: "save",
+        name: "private-docs",
+        server: { type: "remote", url: "http://169.254.169.254/mcp" },
+      })
+      expect(saved.status).toBe("error")
+      expect(saved.error?.message).toContain("Refusing to fetch")
+      expect(patches).toEqual([])
     }),
   )
 
@@ -154,7 +169,7 @@ describe("McpForgeTool", () => {
         patches.length = 0
         const target = path.join(directory, "echo.mjs")
         const saved = yield* run(tools, "save", { ...designed, action: "save", path: target })
-        expect(saved.status).toBe("completed")
+        expect(saved.status, saved.error?.message).toBe("completed")
         expect(text(saved)).toContain(`Wrote ${target}.`)
 
         const source = yield* Effect.promise(() => Bun.file(target).text())
