@@ -2915,3 +2915,21 @@ dispatch, trust-based acceptance, lessons lost with the session).
 The loop is the product's definition of "another level": a self-improving
 agent OS whose approach cannot silently rot, because every station is a
 mechanism (a gate, a record, a check) rather than a paragraph of advice.
+
+## Portable project configuration - `packages/core/src/project-template.ts`
+
+A separate config-only format, not the team roster preset or a project backup.
+The closed version-1 schema includes metadata/minimum version, destination folder
+variables, sessions/roles/models, browser definitions and reviewed links, exact
+rules/schedule instructions, provider and catalog MCP requirements, empty local
+Vault slots and name-only global requirements. It rejects unknown nested fields,
+secret patterns, absolute paths and URL credentials/query/fragment. It cannot
+prove arbitrary opaque text contains no private fact: exact preview review is
+still needed. Preview returns canonical JSON, digest, counts and exclusions.
+The digest binds content, never user consent. No runtime IDs, grants, messages,
+page data, DBs, cookies, credentials, executable MCP commands or startup scripts
+are fields. Schedule syntax checks are structural; ordinary destination trigger
+validation/permissions still govern activation.
+
+This first slice has no live project collector, import materializer, UI, Vault
+scope implementation or activation route. No template text is execution authority.
