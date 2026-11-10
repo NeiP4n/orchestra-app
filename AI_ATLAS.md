@@ -3006,3 +3006,14 @@ must name a role; only session-scoped rules may reference a session. This avoids
 flattening a narrow Orchestrator/role rule into a project-wide mandate at import.
 The metadata projection keeps these boundaries exactly. Global and society scopes
 cannot enter this project-only schema.
+
+Owner feedback: keep templates simple. ProjectTemplatesSimple is the replacement
+presentation: save current project / create from a named template, one confirmation,
+Russian copy and optional details, no path pickers or technical staging language.
+Its access adapter must prepare and revalidate behind the screen, bind one-time
+operation tokens and recover partial imports. No live adapter is connected yet, so
+this component is deliberately not mounted and the old advanced template tab is
+removed from Registry rather than shipping a nonworking or complicated flow. The
+underlying library API and advanced internal tests remain useful. Actual renderer
+click tests at 80/120 columns cover confirm/cancel/details with fixture callbacks;
+they do not prove live capture or project creation. Vault tab remains mounted.
