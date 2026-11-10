@@ -67,6 +67,12 @@ test("rejects unknown version, injected instructions, runtime fields and duplica
     "headers",
     "actions",
     "enabled",
+    "pageText",
+    "body",
+    "html",
+    "browserQueue",
+    "credential",
+    "vaultBinding",
   ]) {
     expect(B.parse(JSON.stringify({ ...data, templates: [{ ...data.templates[0], [field]: "untrusted" }] })).ok).toBe(
       false,
@@ -124,4 +130,20 @@ test("secret requirements carry names only; an unbound destination slot blocks t
   expect(B.parse(JSON.stringify(data)).ok).toBe(false)
   data.templates[0].secretSlots = ["github.token", "github.token"]
   expect(B.parse(JSON.stringify(data)).ok).toBe(false)
+})
+
+test("export discards page text and raw binding metadata even if attached to a runtime record", () => {
+  const polluted = {
+    ...source(),
+    pageText: "PRIVATE-PAGE-ACCOUNT-BODY",
+    browserQueue: { rows: [{ chat: "PRIVATE-CHAT", text: "PRIVATE-PAGE-ACCOUNT-BODY" }], eventIDs: [], droppedRows: 0 },
+    secretSlots: ["PRIVATE-SECRET-VALUE"],
+    vaultBinding: { password: "PRIVATE-SECRET-VALUE" },
+  }
+  const exported = B.fromTriggers([polluted])
+  expect(exported.ok).toBe(true)
+  const serialized = JSON.stringify(exported)
+  expect(serialized).not.toContain("PRIVATE-PAGE-ACCOUNT-BODY")
+  expect(serialized).not.toContain("PRIVATE-SECRET-VALUE")
+  if (exported.ok) expect(exported.value.templates[0]?.secretSlots).toEqual([])
 })
