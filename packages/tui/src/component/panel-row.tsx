@@ -23,6 +23,7 @@ export function Row(props: {
   return (
     <box
       flexDirection="row"
+      flexShrink={0}
       paddingLeft={1}
       paddingRight={1}
       backgroundColor={
