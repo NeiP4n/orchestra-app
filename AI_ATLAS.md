@@ -2915,3 +2915,135 @@ dispatch, trust-based acceptance, lessons lost with the session).
 The loop is the product's definition of "another level": a self-improving
 agent OS whose approach cannot silently rot, because every station is a
 mechanism (a gate, a record, a check) rather than a paragraph of advice.
+
+## Portable project configuration - `packages/core/src/project-template.ts`
+
+A separate config-only format, not the team roster preset or a project backup.
+The closed version-1 schema includes metadata/minimum version, destination folder
+variables, sessions/roles/models, browser definitions and reviewed links, exact
+rules/schedule instructions, provider and catalog MCP requirements, empty local
+Vault slots and name-only global requirements. It rejects unknown nested fields,
+secret patterns, absolute paths and URL credentials/query/fragment. It cannot
+prove arbitrary opaque text contains no private fact: exact preview review is
+still needed. Preview returns canonical JSON, digest, counts and exclusions.
+The digest binds content, never user consent. No runtime IDs, grants, messages,
+page data, DBs, cookies, credentials, executable MCP commands or startup scripts
+are fields. Schedule syntax checks are structural; ordinary destination trigger
+validation/permissions still govern activation.
+
+This first slice has no live project collector, import materializer, UI, Vault
+scope implementation or activation route. No template text is execution authority.
+
+`project-template-files.ts` adds a private create-only folder library and staged
+import: a source folder contains exactly one bounded regular `template.json`.
+Extra files, symlinks and hardlinked manifests fail; no recursive copy occurs.
+Save binds the reviewed digest to canonical bytes and refuses even an existing
+empty destination folder. Import checks stable minimum version, then stages under
+`.orchestra/template-imports/<name>/template.json`, returning an explicit checklist
+of empty/missing Vault slots, unopened browsers, model/role checks and paused
+schedules. It does not create live sessions, secrets, browser profiles or triggers.
+An update comparison covers all configuration sections, lists conflicts and
+preserves omitted existing entries; it does not apply updates. Source/destination
+folders must be controlled by the operator: this is not an OS-level sandbox
+against an attacker concurrently renaming ancestor directories. Actual live
+materialization, app library UI and Vault scopes remain separate unfinished work.
+
+### Explicit Vault scopes and empty template slots
+
+`credential-vault/index.ts` now supports explicit `global` and `project` entries.
+Global slots are discoverable in any project; local slots cannot be rebound to
+another project. Old entries keep legacy project/projectIDs visibility and are
+never silently upgraded to global. No plaintext read/decrypt API is added.
+Template local slot definitions create empty entries with no inherited session
+grants. Filling an empty slot uses the existing masked DPAPI collector, preserves
+its ID and does not grant use. Explicit scoped slots default to no allowed session;
+operator-owned `setAllowedSessionsFromOperator` grants exact session IDs. Legacy
+entries retain the previous exact-chat HTTP gate until explicitly restricted.
+Global visibility never bypasses that gate, project identity, saved site, SSRF,
+fixed-GET constraints or the session allowlist. Duplicate visible names fail as
+ambiguous rather than selecting an arbitrary global/local entry.
+
+Usage audit records only numeric time, opaque slot/project/session IDs, scope,
+fixed action and outcome. No value, ciphertext, URL, request or response is
+recorded. A bounded private regular-file sink rejects symlink/hardlink redirects;
+audit failure blocks the request. Scope/site/grant are checked before native use.
+Orchestra project removal calls local slot cleanup before deleting its project
+marker; globals and other project slots remain. Empty imports, access, cleanup
+and the real project-removal integration have fixture tests. Native Windows
+DPAPI behavior remains unverified here. UI scope/grant controls and template
+materialization are not yet connected; worker Vault tools remain main-only.
+
+The local Registry Vault UI now selects new-slot global/project scope explicitly,
+shows empty slots and scope badges, fills through masked input, and offers a
+two-click grant or immediate revoke for the current chat. It receives the exact
+route session/project, uses the scoped registry view, and leaves HTTP activation
+and worker tool permissions separate. Legacy project bindings remain visible only
+for legacy entries. Mouse tests cover explicit scope parameters and grant/revoke;
+a captured real test-renderer cell frame was visually inspected at 120 columns.
+This is not proof of native Windows collector rendering or narrow-terminal layout.
+
+ProjectTemplateSource.capture is a metadata-only projection port for the upcoming
+live source reader. Runtime IDs map to portable slots; source ownership and complete
+session membership must match. Browser saved links are explicit input and never
+read by opening Chrome. Local Vault definitions contain no values/grants, and only
+operator-selected globals become requirements. Unsupported schedule action plans,
+conditions, unlimited caps and legacy Vault scope fail the capture instead of being
+silently omitted. This port is not yet wired to live project readers or template UI.
+
+Registry > Шаблоны adds a local configuration library: preview an existing single-
+manifest folder, inspect the exact canonical JSON/hash and explicit warnings, check
+review, then save a new local copy, export a new folder or stage in an explicitly
+operator-selected local directory. It does not infer a local project path from a
+remote API project's directory. Every operation revalidates the reviewed hash and
+is create-only. The UI plainly labels staging as inactive and says live sessions,
+browsers and Vault entries are not created yet. Actual filesystem plus test-renderer
+mouse/input tests cover review gating, export, inactive staging and changed-source
+refusal. Source capture from live stores and live import materialization remain open.
+
+Portable rules may now explicitly retain project, project-defaults, orchestrator,
+role and session scope. Legacy v1 rules with session/null stay readable. Role rules
+must name a role; only session-scoped rules may reference a session. This avoids
+flattening a narrow Orchestrator/role rule into a project-wide mandate at import.
+The metadata projection keeps these boundaries exactly. Global and society scopes
+cannot enter this project-only schema.
+
+Owner feedback: keep templates simple. ProjectTemplatesSimple is the replacement
+presentation: save current project / create from a named template, one confirmation,
+Russian copy and optional details, no path pickers or technical staging language.
+Its access adapter must prepare and revalidate behind the screen, bind one-time
+operation tokens and recover partial imports. No live adapter is connected yet, so
+this component is deliberately not mounted and the old advanced template tab is
+removed from Registry rather than shipping a nonworking or complicated flow. The
+underlying library API and advanced internal tests remain useful. Actual renderer
+click tests at 80/120 columns cover confirm/cancel/details with fixture callbacks;
+they do not prove live capture or project creation. Vault tab remains mounted.
+
+ProjectTemplateReader.capture passively reads real KV and SessionStore metadata,
+not repairing Orchestra.main/sessions. It scans all owners, includes unclaimed
+in-tree sessions under the existing ownerOf rule, excludes foreign/nested/group
+sessions and child histories, and reads exact project/default/orchestrator/role/
+session rule scopes plus structural triggers. Linked Browser/Vault/integration
+metadata is an explicit input from its owning surface, not inferred credentials.
+No write, message, permission, memory, page or execution dependency exists in its
+port. Confirm must recapture/compare digest because this is not a transactional
+snapshot. Actual Orchestra+SQLite+Vault integration test creates a real project and
+checks metadata capture without new sessions, plus unit tests cover >1000 unrelated
+owner rows, repeated cursors, damaged rules/triggers and project changes. No public
+endpoint or simple UI adapter yet; this is backend collector groundwork.
+
+ProjectTemplateImport.prepare validates the exact reviewed bytes against destination
+roles/models and fresh slot identities, preserves every rule scope, refuses rule
+truncation, expired once schedules and unsupported internal action events. Prepared
+browser definitions are not opened and require fresh profiles/login. Local Vault
+slots stay empty with no agent grants; globals are unresolved name requirements.
+Every prepared trigger is paused with no nextAt, fired history or publishing yes.
+This is pure destination preparation, not live materialization or a commit. Actual
+cross-store commit/recovery and simple UI adapter remain open.
+
+Baseline probe: detached edcecd3e with its own frozen install reproduces the stale
+English 'complete ID' assertion in orchestra-team, independently of all template
+patches. Production already emits the Russian inaccessible-session/refresh-list/
+do-not-retry-old-ID guidance. The assertion now matches that exact complete text,
+not a weaker generic substring. Full orchestra-team suite: 49 pass, 340 assertions
+on this chain, including the real metadata collector integration. This is one
+suite, not full repository typecheck/CI.

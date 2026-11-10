@@ -79,6 +79,7 @@ export const Plugin = {
                     const saved = await vault.writeFromOperator(undefined, undefined, undefined, {
                       name: input.name!,
                       site: site.href,
+                      scope: "project",
                     })
                     return saved
                       ? `Saved Vault name: ${saved.name}. Value not returned; HTTP injection remains subject to the operator's exact-chat switch.`

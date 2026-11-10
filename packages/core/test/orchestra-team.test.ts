@@ -1,3 +1,4 @@
+import { ProjectTemplateReader } from "../src/project-template-reader"
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
 import { Mode } from "@orchestra/schema/mode"
@@ -36,6 +37,7 @@ import { SessionStore } from "@orchestra/core/session/store"
 import { SessionTable } from "@orchestra/core/session/sql"
 import { eq } from "drizzle-orm"
 import { Trigger } from "@orchestra/core/trigger"
+import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import { ScheduleView } from "@orchestra/core/schedule-view"
 import { ScheduleRequests } from "@orchestra/core/schedule-requests"
 import { KV } from "@orchestra/core/kv"
@@ -584,6 +586,24 @@ describe("Orchestra team", () => {
       expect((yield* orchestra.projects()).map((item) => item.id)).not.toContain(project.id)
     }).pipe(Effect.scoped),
   ),
+
+  it.live("forgetting a project removes only its local Vault definitions, never other project slots", () =>
+    Effect.gen(function* () {
+      const orchestra = yield* Orchestra.Service
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-vault-delete-")))
+      const first = yield* orchestra.create({ name: "Vault owner", directory: tmp.path })
+      const a = CredentialVault.local(String(first.id)), b = CredentialVault.local("prj_other_vault")
+      yield* Effect.promise(() => a.createEmptyLocalSlotsFromOperator([{ name: "service", type: "api-key", label: "Service" }]))
+      yield* Effect.promise(() => b.createEmptyLocalSlotsFromOperator([{ name: "other", type: "login", label: "Other" }]))
+      try {
+        yield* orchestra.remove(first.id)
+        expect(yield* Effect.promise(() => a.slots())).toEqual([])
+        expect((yield* Effect.promise(() => b.slots())).map((slot) => slot.name)).toEqual(["other"])
+      } finally {
+        yield* Effect.promise(() => b.removeProjectSlots("prj_other_vault"))
+      }
+    }),
+  )
 
   it.live("does not resolve a removed project's main session as a live orchestrator", () =>
     Effect.gen(function* () {
@@ -2093,7 +2113,7 @@ describe("Orchestra team", () => {
             },
           )
           .pipe(Effect.flip)).message,
-      ).toContain("complete ID")
+      ).toBe("Сессия не существует или недоступна: ses. Обновите sessions list; не повторяйте отправку по старому ID.")
 
       // A mode narrows how a session works without changing its role. Planning removes the
       // editing tools from the request and still denies an edit that reaches the permission
@@ -2381,3 +2401,29 @@ it.live("local trigger window applies operator pause/resume/export through the r
       }
     }
   }),30_000)
+
+
+it.live("template reader captures real project metadata without reading messages, creating sessions or carrying grants", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-template-live-reader-")))
+    const orchestra = yield* Orchestra.Service
+    const kv = yield* KV.Service
+    const store = yield* SessionStore.Service
+    const project = yield* orchestra.create({ name: "Template source", directory: tmp.path })
+    const main = yield* orchestra.main(project.id)
+    const [slot] = yield* Effect.promise(() => CredentialVault.local(project.id).createEmptyLocalSlotsFromOperator([{ name: "service", type: "api-key", label: "Service" }]))
+    yield* kv.set("rules/orchestrator:" + project.id, [{ id: "r1", text: "Review the result.", by: "operator", at: 1 }])
+    const before = (yield* store.list({ directoryPrefix: AbsolutePath.make(tmp.path) })).map((row) => row.id)
+    const result = yield* ProjectTemplateReader.capture({ kv, getSession: (id) => store.get(Session.ID.make(id)), listSessionsInTree: (directory) => store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }) }, project.id,
+      { name: "Reusable factory", description: "Config only", minOrchestraVersion: "1.0.0" },
+      { browsers: [], vault: [slot], selectedGlobalSlotIDs: new Set(), providers: [], mcp: [] })
+    expect(result.bundle.sessions.some((row) => row.role === Orchestra.agent)).toBe(true)
+    expect(result.bundle.rules.some((row) => row.scope === "orchestrator" && row.text === "Review the result.")).toBe(true)
+    expect(result.bundle.vault.local).toEqual([{ name: "service", type: "api-key", label: "Service" }])
+    expect(result.text).not.toContain(main.id)
+    expect(result.text).not.toContain(project.id)
+    expect(result.text).not.toContain(slot.id)
+    expect((yield* store.list({ directoryPrefix: AbsolutePath.make(tmp.path) })).map((row) => row.id)).toEqual(before)
+    yield* Effect.promise(() => CredentialVault.local(project.id).removeProjectSlots(project.id))
+  }).pipe(Effect.scoped),
+)
