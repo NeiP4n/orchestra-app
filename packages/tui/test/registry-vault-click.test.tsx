@@ -12,7 +12,7 @@ import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 test("Vault add mouse click opens injected native collector once without supplying any secret", async () => {
   let calls = 0
   const access = { list: async () => [], writeFromOperator: async () => { calls++; return undefined }, deleteFromOperator: async () => {} }
-  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig()}><ThemeProvider mode="dark" source={emptyThemeSource}><Keymap.Provider><RegistryVault access={access} /></Keymap.Provider></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: 88, height: 18 })
+  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({ language: "ru" })}><ThemeProvider mode="dark" source={emptyThemeSource}><Keymap.Provider><RegistryVault access={access} /></Keymap.Provider></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: 88, height: 18 })
   app.renderer.start()
   try {
     await app.waitForFrame((frame) => frame.includes("+ Добавить запись"))
