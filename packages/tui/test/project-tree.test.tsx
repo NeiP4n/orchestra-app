@@ -807,3 +807,33 @@ test("in the Browser view a project lists its browser sessions and can add more"
   await setup.mockMouse.click(again.x + 2, again.y)
   await setup.waitForFrame((frame) => frame.includes("Browser 2"))
 })
+
+test("the narrow compact header keeps every tab clickable on one row", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project], worker, "compact", { width: 140 })
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("Worker task"))
+  const header = (frame: string) => frame.split("\n").find((line) => line.includes("✎") || line.includes("›_")) ?? ""
+  const first = header(setup.captureCharFrame())
+  expect(first).toContain("Projects")
+  expect(first).toContain("✎")
+  expect(first).toContain("›_")
+  expect(first).toContain("◎")
+  expect(first).toContain("+")
+  expect(first).toContain("‹")
+  // Inactive tabs use icons so even the narrow header retains every action.
+  expect(first).not.toContain("Console")
+  expect(first).not.toContain("Browser")
+  for (const [icon, label] of [["›_", "Console"], ["◎", "Browser"], ["✎", "Notes"], ["◉", "Projects"]]) {
+    const frame = setup.captureCharFrame()
+    const row = frame.split("\n").findIndex((line) => line === header(frame))
+    const x = header(frame).indexOf(icon)
+    expect(x).toBeGreaterThanOrEqual(0)
+    await setup.mockMouse.click(x, row)
+    await setup.waitForFrame((frame) => header(frame).includes(label))
+    const current = header(setup.captureCharFrame())
+    expect(current).toContain("+")
+    expect(current).toContain("‹")
+  }
+})

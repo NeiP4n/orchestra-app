@@ -5,11 +5,15 @@ import { adoptBrowserChat, collapseDuplicateChats, emptyBrowserSessions } from "
 
 const read = (file: string) => readFileSync(path.join(import.meta.dir, "..", "src", file), "utf8")
 
-test("the left panel offers Console and Browser tabs that wrap on a narrow panel", () => {
+test("the left panel offers Console and Browser tabs with active labels on a narrow panel", () => {
   const tree = read("component/project-tree.tsx")
   expect(tree).toMatch(/tab="console"/)
   expect(tree).toMatch(/tab="browser"/)
-  expect(tree).toMatch(/flexDirection="row" flexWrap="wrap"/)
+  expect(tree).toContain("const iconOnly = () => props.width < 40")
+  for (const tab of ["projects", "notes", "console", "browser"]) {
+    expect(tree).toContain(`label={!iconOnly() || notes.tab() === "${tab}" ?`)
+  }
+  expect(tree).toContain('flexDirection="row" height={1}')
   expect(read("context/notes.tsx")).toMatch(/NotesTab = "projects" \| "notes" \| "console" \| "browser"/)
 })
 
