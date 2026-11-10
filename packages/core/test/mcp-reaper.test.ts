@@ -1,9 +1,12 @@
-import { expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { spawn } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { McpReaper } from "@orchestra/core/mcp/reaper"
+
+const originalState = process.env.ORCHESTRA_STATE_DIR
+afterEach(() => expect(process.env.ORCHESTRA_STATE_DIR).toBe(originalState))
 
 const alive = (pid: number) => {
   try {
@@ -20,6 +23,7 @@ const until = async (done: () => boolean) => {
 
 test("a service that died without closing its MCP servers has them killed by the next one, and only them", async () => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-reaper-"))
+  const previousState = process.env.ORCHESTRA_STATE_DIR
   process.env.ORCHESTRA_STATE_DIR = state
   const forgotten = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
   const innocent = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
@@ -42,6 +46,8 @@ test("a service that died without closing its MCP servers has them killed by the
   } finally {
     innocent.kill()
     forgotten.kill()
+    if (previousState === undefined) delete process.env.ORCHESTRA_STATE_DIR
+    else process.env.ORCHESTRA_STATE_DIR = previousState
     fs.rmSync(state, { recursive: true, force: true })
   }
 })
@@ -89,6 +95,7 @@ test("does not kill a process whose command line does not name the expected comm
 
 test("writes the registry atomically, leaving valid JSON and no temp files", async () => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-reaper-atomic-"))
+  const previousState = process.env.ORCHESTRA_STATE_DIR
   process.env.ORCHESTRA_STATE_DIR = state
   try {
     McpReaper.track({ pid: 123456, server: "memory", command: "node" })
@@ -99,6 +106,8 @@ test("writes the registry atomically, leaving valid JSON and no temp files", asy
     ])
     expect(fs.readdirSync(state)).toEqual(["mcp-children.json"])
   } finally {
+    if (previousState === undefined) delete process.env.ORCHESTRA_STATE_DIR
+    else process.env.ORCHESTRA_STATE_DIR = previousState
     fs.rmSync(state, { recursive: true, force: true })
   }
 })
