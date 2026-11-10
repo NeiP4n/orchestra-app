@@ -33,8 +33,18 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
   if (!port) throw Error("Chrome failed to start")
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  const socket = Cdp.pageSocketUrl(targets)
+  const targets: unknown = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
+  if (!Array.isArray(targets)) throw Error("Invalid Chrome target list")
+  const pages = targets.map((raw: unknown) => {
+    if (typeof raw !== "object" || raw === null) throw Error("Invalid Chrome target")
+    const type = "type" in raw && typeof raw.type === "string" ? raw.type : undefined
+    const webSocketDebuggerUrl =
+      "webSocketDebuggerUrl" in raw && typeof raw.webSocketDebuggerUrl === "string"
+        ? raw.webSocketDebuggerUrl
+        : undefined
+    return { type, webSocketDebuggerUrl }
+  })
+  const socket = Cdp.pageSocketUrl(pages)
   if (!socket) throw Error("No page")
   client = await Cdp.connect((url) => new WebSocket(url) as unknown as Cdp.Socket, socket)
   await client.send("Runtime.evaluate", {
