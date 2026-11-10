@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { templateError, templateErrorKey } from "../src/project-template-errors"
+import { templateError, templateErrorKey, type TemplateErrorCode } from "../src/project-template-errors"
 test("public template errors carry bounded codes without exception contents", () => {
   for (const code of ["EACCES", "EPERM", "EROFS"]) {
     const error = Object.assign(new Error("PRIVATE_PATH /private/data and private_token"), { code })
@@ -18,7 +18,7 @@ test("public template errors carry bounded codes without exception contents", ()
 
 
 test("ownership failures have separate safe public reasons without echoing source identifiers", () => {
-  const messages = [
+  const messages: ReadonlyArray<readonly [string, TemplateErrorCode]> = [
     ["Project main session is not initialized.", "TEMPLATE_MAIN_UNSET"],
     ["Project main session is missing.", "TEMPLATE_MAIN_MISSING"],
     ["Project main session points to a child task.", "TEMPLATE_MAIN_CHILD"],
