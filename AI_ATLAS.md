@@ -3058,3 +3058,15 @@ preference exists. Templates now retain optional mainSession and browser.session
 links; these are remapped to fresh identities and checked for Orchestrator/one distinct
 BrowserAgent per browser at destination prep. Existing v1 without links remains readable.
 This read bridge still needs mounting through the live simple-screen adapter.
+
+Import recovery primitives: Vault.ensureImportedEmptySlotsFromOperator accepts only
+pre-reserved IDs/definitions, stamps the operation owner and atomically creates all
+missing empty slots. Retry accepts only the exact still-empty, no-grant slots owned
+by that operation; it refuses changed, filled, granted, foreign or name-conflicting
+entries and never resets them. ProjectTemplateMaterialize coordinates an immutable
+receipt under a required lock with explicit checkpoints and publish-last. Each store
+port must be idempotent and own collision checks. Every resume verifies all actual
+stores before publication, and a crash after publish/before checkpoint retries only
+an idempotent publish. Current failure-injection tests use fixture store ports;
+actual KV/Session/browser-store adapters and activation admission guard are still
+required before mounting the simple screen. This is not yet live materialization.
