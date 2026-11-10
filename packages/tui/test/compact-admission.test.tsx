@@ -1,3 +1,4 @@
+import { freeModel } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { createTestRenderer } from "@opentui/core/testing"
 import { InputRenderable } from "@opentui/core"
@@ -40,7 +41,7 @@ test.each([70, 120])(
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (url.pathname === "/api/provider") return json({ location, data: [{ id: "demo", name: "Demo" }] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "demo", name: "Demo Model", variants: [] }] })
+        return json({ location, data: [freeModel("model", "demo", "Demo Model")] })
       if (url.pathname === `/api/session/${sessionID}/model`) {
         mutations.push("model")
         modelRequested.resolve()

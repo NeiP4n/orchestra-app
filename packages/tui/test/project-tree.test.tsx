@@ -1,3 +1,4 @@
+import { freeModel, provider } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { SessionOwnerMetadataKey } from "@orchestra/schema/orchestra"
 import { SESSION_SIDEBAR_COMPACT_WIDTH } from "../src/ui/layout"
@@ -170,9 +171,9 @@ function render(
         return new Response(null, { status: 204 })
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
     },
   }).then((setup) =>
     Object.assign(setup, {

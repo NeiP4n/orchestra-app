@@ -1,3 +1,4 @@
+import { freeModel, provider } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { createAppFixture } from "./fixture/app"
 import { directory, json } from "./fixture/tui-client"
@@ -41,8 +42,8 @@ function render(state: string, layout?: "mobile", input: { width?: number; devto
       if (path === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (path === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
-      if (path === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
+      if (path === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
     },
   })
 }

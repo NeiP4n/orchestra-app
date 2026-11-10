@@ -1,3 +1,4 @@
+import { freeModel, provider } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { EmbeddedTerminalRenderable } from "@opentui/core"
 import { createTestRenderer } from "@opentui/core/testing"
@@ -507,8 +508,8 @@ test("automatic rename refreshes the displayed title before settling, even witho
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/session") return json({ data: [], cursor: {} })
       if (url.pathname === "/api/session/ses_rename" && request.method === "PATCH") {
         bodies.push(await request.json())
@@ -809,7 +810,7 @@ test("session startup prompt is submitted exactly once", async () => {
     if (url.pathname === "/api/model")
       return json({
         location,
-        data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }],
+        data: [freeModel("model", "provider", "Model")],
       })
     if (url.pathname === "/api/session/dummy/prompt") {
       bodies.push(await request.json())
@@ -868,8 +869,8 @@ test("home startup prompt is submitted exactly once", async () => {
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/session" && request.method === "POST") {
         const input: unknown = await request.json()
         if (typeof input !== "object" || input === null) throw new Error("Expected a session input")
@@ -926,8 +927,8 @@ test.each([false, true])("uses the resolved launch directory for new prompts (fa
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Remote Model", variants: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+        return json({ location, data: [freeModel("model", "provider", "Remote Model")] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/session" && request.method === "POST") {
         const input: unknown = await request.json()
         if (typeof input !== "object" || input === null) throw new Error("Expected a session input")
@@ -1157,13 +1158,13 @@ test("new session inherits the active session model", async () => {
       if (url.pathname === "/api/session/dummy/permission") return json({ data: [] })
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/model")
         return json({
           location,
           data: [
-            { id: "home-model", providerID: "provider", name: "Home Model", variants: [] },
-            { id: "session-model", providerID: "provider", name: "Session Model", variants: [] },
+            freeModel("home-model", "provider", "Home Model"),
+            freeModel("session-model", "provider", "Session Model"),
           ],
         })
     },
@@ -1213,7 +1214,7 @@ test("keeps the prompt display stable while a new location catalog loads", async
       }
       if (url.pathname === "/api/provider") {
         if (requestedDirectory === target) await providerCatalog.promise
-        return json({ location, data: [{ id: "provider", name: "Provider" }] })
+        return json({ location, data: [provider("provider", "Provider")] })
       }
       if (url.pathname === "/api/model") {
         if (requestedDirectory === target) {
