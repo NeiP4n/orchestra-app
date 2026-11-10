@@ -3,6 +3,11 @@ export * as McpManagerTool from "./mcp-manager.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Effect, Option, Schema } from "effect"
+import { CapabilityInspect } from "../../capabilities/inspect.js"
+import { CapabilityRegistry } from "../../capabilities/registry.js"
+import { Tool as ToolService } from "../../tool.js"
+import { Skill } from "../../skill.js"
+import { Config } from "../../config.js"
 import { operatorEnableRequest } from "../../mcp/disabled.js"
 import { McpAcquire } from "../../mcp/acquire.js"
 import { McpCatalog } from "../../mcp/catalog.js"
@@ -132,6 +137,27 @@ export const Plugin = {
             switch (input.action) {
               case "inspect": {
                 const rows = yield* guard(McpLifecycle.inspect(lifecycle))
+                const tools = yield* Effect.serviceOption(ToolService.Service)
+                const skills = yield* Effect.serviceOption(Skill.Service)
+                const config = yield* Effect.serviceOption(Config.Service)
+                const registered = Option.isSome(tools) ? yield* tools.value.list() : []
+                const nativeNames = new Set(McpCatalog.nativeAnalogues.flatMap((row) => [...row.nativeTools]))
+                const indexedSkills = Option.isSome(skills) ? yield* skills.value.list() : []
+                const documents = Option.isSome(config) ? yield* config.value.entries() : []
+                const plugins = documents.flatMap((row) => row.type === "document" ? row.info.plugins ?? [] : [])
+                  .map((row) => typeof row === "string" ? row : row.package)
+                  .filter((id): id is string => typeof id === "string")
+                  .map((value, index) => {
+                    const id = value.startsWith("-") ? value.slice(1) : value
+                    // Local specifiers or URLs can contain paths/credentials; never put them in the compact index.
+                    return { id: /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+(?:@[a-z0-9._-]+)?$/i.test(id)
+                      ? id : `configured-plugin-${index + 1}`, disabled: value.startsWith("-") }
+                  })
+                const capabilities = CapabilityInspect.inspect({ at: Date.now(), mcpEnabled: McpCatalog.mcpEnabled(process.env),
+                  mcp: rows.map((row) => ({ name: row.name, disabled: row.disabled, status: row.status, tools: row.tools })),
+                  native: registered.map((row) => row.id).filter((id) => nativeNames.has(id)),
+                  skills: indexedSkills.map((row) => String(row.id)), plugins,
+                })
                 const active = rows.filter((row) => row.status === "connected").length
                 const lines = rows.map((row) => {
                   const parts = [
@@ -196,6 +222,7 @@ export const Plugin = {
                           ...installable.map((entry) => `- ${entry.id}: ${entry.description}`),
                         ]
                       : []),
+                    ...CapabilityRegistry.summary(capabilities),
                     `No MCP server needed for these — native tools cover them:`,
                     ...McpCatalog.nativeAnalogues.map(
                       (analogue) => `- ${analogue.id}: ${analogue.description} (use ${analogue.nativeTools.join(", ")})`,
