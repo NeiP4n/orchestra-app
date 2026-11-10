@@ -6,7 +6,8 @@ import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
 import { SessionID } from "@orchestra/schema/session-id"
 import { AbsolutePath } from "./schema.js"
 import type { KV } from "./kv.js"
-import type { SessionStore } from "./session/store.js"
+import type { Session } from "@orchestra/schema/session"
+import type { Model } from "@orchestra/schema/model"
 import { ProjectTemplateV2Runtime as Runtime } from "./project-template-v2-runtime.js"
 import { ProcessSkills } from "./process-skills.js"
 import { ProcessSkillDefinitions as Definitions } from "./process-skill-definitions.js"
@@ -16,7 +17,11 @@ import { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 
 export interface Dependencies {
   kv: KV.Interface
-  store: SessionStore.Interface
+  store: {
+    get: (id: Session.ID) => Effect.Effect<Session.Info | undefined>
+    getStoredModel: (id: Session.ID) => Effect.Effect<Model.Ref | undefined>
+    list: (input: { directoryPrefix: AbsolutePath; parentID: null }) => Effect.Effect<readonly Session.Info[]>
+  }
   orchestra: {
     roles: (id?: OrchestraSchema.ProjectID) => Effect.Effect<ReadonlyArray<OrchestraSchema.Role>>
     playbook: (id: OrchestraSchema.ProjectID) => Effect.Effect<{ name: string; text: string } | undefined>
@@ -44,7 +49,8 @@ export function make(deps: Dependencies, projectID: string): Reader.Stores {
         throw Error("Project process import is not published")
     }
     const state = await run(Runtime.read(deps.kv, projectID))
-    if (!state) throw Error("Project process snapshot is missing or invalid; no partial v2 export was prepared")
+    if (!state && (await run(deps.kv.get(Runtime.PROJECT_PROCESS + projectID))) !== undefined)
+      throw Error("Project process snapshot is invalid; no partial v2 export was prepared")
     return state
   }
   const session = (id: string) =>
@@ -88,24 +94,28 @@ export function make(deps: Dependencies, projectID: string): Reader.Stores {
       if (id !== projectID) throw Error("Process owner differs")
       const state = await process()
       const live = await run(deps.orchestra.playbook(OrchestraSchema.ProjectID.make(id)))
+      if (!state) return { text: live?.text ?? null, recommendedRoles: [] }
       if ((live?.text ?? null) !== state.playbook) throw Error("Project playbook differs from its owner snapshot")
       return { text: state.playbook, recommendedRoles: state.recommendedRoles }
     },
     programs: async (id) => {
       if (id !== projectID) throw Error("Process owner differs")
-      return (await process()).programs
+      return (await process())?.programs ?? []
     },
     skills: async (input) => {
       if (input.projectID !== projectID) throw Error("Process owner differs")
       await process()
-      const registry = ProcessSkills.parse(await run(deps.kv.get(ProcessSkills.PREFIX + projectID)), projectID)
+      const raw = await run(deps.kv.get(ProcessSkills.PREFIX + projectID))
+      const registry = ProcessSkills.parse(raw, projectID)
+      const state = await process()
+      if (raw === undefined && !state) return { definitions: [], assignments: [] }
       if (!registry) throw Error("Project skill assignments are missing or invalid")
       const definitions = await run(
         Definitions.load(deps.kv, { projectID, registry, allowed: new Set(registry.skills.map((skill) => skill.id)) }),
       )
       if (!definitions || definitions.length !== registry.skills.length)
         throw Error("Project skill definitions are incomplete")
-      const state = await process()
+      if (!state) throw Error("Assigned project skills require their owning process snapshot")
       const marker = await run(deps.kv.get("orchestra/project-import/" + projectID))
       const receipt =
         typeof marker === "string" ? await run(deps.kv.get("orchestra/template-import/" + marker)) : undefined

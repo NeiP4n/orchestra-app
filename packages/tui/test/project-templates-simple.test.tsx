@@ -7,8 +7,8 @@ import { ThemeProvider } from "../src/context/theme"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import { emptyThemeSource } from "./fixture/fixture"
 import { TestTuiContexts } from "./fixture/tui-environment"
-for (const width of [80, 120])
-  test(`simple template flow at ${width} columns: one confirm, no path fields, details optional`, async () => {
+for (const width of [80, 120]) for (const version of [1, 2])
+  test(`simple template flow v${version} at ${width} columns: one confirm, no path fields, details optional`, async () => {
     const calls: string[] = []
     const access: ProjectTemplatesAccess = {
       list: async () => [{ id: "factory", name: "Фабрика" }],
@@ -19,7 +19,7 @@ for (const width of [80, 120])
       }),
       prepareCreate: async (id) => {
         expect(id).toBe("factory")
-        return { token: "create-token", name: "Фабрика", details: "Детали нового проекта." }
+        return { token: "create-token", name: "Фабрика", details: version === 2 ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: {} }) : "Детали нового проекта." }
       },
       confirmSave: async (token) => {
         calls.push(token)
@@ -61,8 +61,12 @@ for (const width of [80, 120])
       expect(calls).toEqual(["save-token"])
       await click("project-templates.create-factory")
       await app.waitForFrame((f) => f.includes("Создать «Фабрика»?"))
+      if (version === 2) {
+        expect(app.captureCharFrame()).toContain("назначенные навыки")
+        expect(app.captureCharFrame()).not.toContain("определения ролей, запасные модели")
+      } else expect(app.captureCharFrame()).toContain("не копируются")
       if (process.env.CAPTURE_SIMPLE_FRAME)
-        await Bun.write(process.env.CAPTURE_SIMPLE_FRAME + width, JSON.stringify(app.captureSpans()))
+        await Bun.write(process.env.CAPTURE_SIMPLE_FRAME + width + (version === 2 ? "-v2" : ""), JSON.stringify(app.captureSpans()))
       await click("project-templates.cancel")
       expect(calls).toEqual(["save-token"])
       await click("project-templates.create-factory")

@@ -11,7 +11,8 @@ import { NotesProvider } from "../src/context/notes"
 import { renderLocal } from "./fixture/local"
 import { json, directory } from "./fixture/tui-client"
 
-test("mounted connected screen uses generated HTTP actions and strictly persists reserved browser identities before completion", async () => {
+for (const templateID of ["factory", "process:factory"])
+  test(`mounted connected screen uses generated HTTP actions and strictly persists reserved browser identities before completion (${templateID})`, async () => {
   await using temporary = await tmpdir()
   const calls: string[] = [],
     manifest = {
@@ -27,7 +28,7 @@ test("mounted connected screen uses generated HTTP actions and strictly persists
         return json([{ id: "prj_source", name: "Factory", directory, main: "ses_main" }])
       if (url.pathname === "/api/orchestra/owner") return json({ ses_main: "prj_source" })
       if (url.pathname === "/api/orchestra/project-template/prj_source/browsers") return json(null)
-      if (url.pathname === "/api/orchestra/project-template") return json([{ id: "factory", name: "Factory" }])
+      if (url.pathname === "/api/orchestra/project-template") return json([{ id: templateID, name: "Factory" }])
       if (url.pathname === "/api/orchestra/project-template/prepare-save") {
         const body = await request.json()
         expect(body.projectID).toBe("prj_source")
@@ -42,10 +43,10 @@ test("mounted connected screen uses generated HTTP actions and strictly persists
       }
       if (url.pathname === "/api/orchestra/project-template/prepare-create") {
         const body = await request.json()
-        expect(body.templateID).toBe("factory")
+        expect(body.templateID).toBe(templateID)
         expect(body.settingsDirectory).toBe(directory)
         calls.push("prepare-create")
-        return json({ token: "pti_import", name: "Factory", details: "Config only" })
+        return json({ token: "pti_import", name: "Factory", details: templateID.startsWith("process:") ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: {} }) : "Config only" })
       }
       if (url.pathname === "/api/orchestra/project-template/confirm-create") {
         expect((await request.json()).token).toBe("pti_import")
@@ -96,6 +97,8 @@ test("mounted connected screen uses generated HTTP actions and strictly persists
   app.mockInput.pressEnter()
   await app.waitForFrame((f) => f.includes("Создать «Factory»"))
   expect(calls).not.toContain("confirm-create")
+  if (templateID.startsWith("process:")) expect(app.captureCharFrame()).toContain("назначенные навыки")
+  if (process.env.CAPTURE_CONNECTED_CONFIRM && templateID.startsWith("process:")) await Bun.write(process.env.CAPTURE_CONNECTED_CONFIRM, JSON.stringify(app.captureSpans()))
   await click("project-templates.confirm")
   await app.waitForFrame((f) => f.includes("Проект создан"))
   expect(calls).toEqual(["prepare-save", "confirm-save", "prepare-create", "confirm-create", "finish-create"])

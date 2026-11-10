@@ -7,6 +7,7 @@ export const registryEn = {
   "Ask questions about public GitHub repositories and read generated project documentation.": "Ask questions about public GitHub repositories and read generated project documentation.",
   "Inspect application errors, events, performance data, and debugging context from Sentry.": "Inspect application errors, events, performance data, and debugging context from Sentry.",
 
+  "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings.": "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings.",
   "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.",
   "Trigger {schedule}: {reason}": "Trigger {schedule}: {reason}",
@@ -131,7 +132,7 @@ export const registryEn = {
   "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.": "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
   " The list has not refreshed yet.": " The list has not refreshed yet.",
   "Project templates": "Project templates",
-  "Settings, rules, links and schedules. No chats, data or secrets.": "Settings, rules, links and schedules. No chats, data or secrets.",
+  "Project process: roles, skills, rules and settings. No chats, data or secrets.": "Project process: roles, skills, rules and settings. No chats, data or secrets.",
   "Save project as template": "Save project as template",
   "Open a project to save a template.": "Open a project to save a template.",
   "Create project from template": "Create project from template",
@@ -157,6 +158,7 @@ export const registryRu: Record<keyof typeof registryEn, string> = {
   "Ask questions about public GitHub repositories and read generated project documentation.": "Вопросы об открытых репозиториях GitHub и чтение сгенерированной документации проектов.",
   "Inspect application errors, events, performance data, and debugging context from Sentry.": "Ошибки приложения, события, данные производительности и контекст для отладки из Sentry.",
 
+  "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings.": "Включены роли, назначенные навыки, процесс и запасные модели. Скрипты сами не запускаются. Без данных проекта и глобальных настроек MCP.",
   "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Скиллы, определения ролей, запасные модели, файлы проекта и глобальные настройки MCP не копируются. Проверьте настройки нового проекта.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "Все импортированные триггеры приостановлены. Для браузерных проверок заново выберите страницу/чат и войдите в аккаунт. Зависимости указаны в подробностях.",
   "Trigger {schedule}: {reason}": "Триггер {schedule}: {reason}",
@@ -281,7 +283,7 @@ export const registryRu: Record<keyof typeof registryEn, string> = {
   "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.": "Проект создан. Заполните пустой Vault и войдите в браузеры. Расписания на паузе.",
   " The list has not refreshed yet.": " Список пока не обновился.",
   "Project templates": "Шаблоны проектов",
-  "Settings, rules, links and schedules. No chats, data or secrets.": "Настройки, правила, ссылки и расписания. Без чатов, данных и секретов.",
+  "Project process: roles, skills, rules and settings. No chats, data or secrets.": "Процесс проекта: роли, навыки, правила и настройки. Без чатов, данных и секретов.",
   "Save project as template": "Сохранить проект как шаблон",
   "Open a project to save a template.": "Откройте проект, чтобы сохранить шаблон.",
   "Create project from template": "Создать проект из шаблона",

@@ -1,3 +1,6 @@
+import { ProjectTemplateV2Runtime } from "@orchestra/core/project-template-v2-runtime"
+import { ProjectTemplateV2OwnerReader } from "@orchestra/core/project-template-v2-owner-reader"
+import { ProjectTemplateCoreRoles } from "@orchestra/core/project-template-core-roles"
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import path from "node:path"
 import { templateError } from "@orchestra/core/project-template-errors"
@@ -67,13 +70,25 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
 
     const kv = yield* KV.Service, store = yield* SessionStore.Service, database = yield* Database.Service
     const global = yield* Global.Service, app = yield* App.Metadata, locations = yield* LocationServiceMap.Service
-    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory:global.data,installedVersion:app.version,
-      live: settingsDirectory => ProjectTemplateLiveStores.make({kv,store,sessions,root:path.join(global.data,"template-projects"),installedVersion:app.version,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
-        availableRoles:async()=>new Set([Orchestra.agent,...(await Effect.runPromise(orchestra.roles())).map(role=>role.agent)]),
-        availableModels:()=>Effect.runPromise(Effect.gen(function*(){yield* Plugin.awaitActivation;const models=yield* Model.Service;const available=yield* models.available();return new Set(available.flatMap(model=>[`${model.providerID}/${model.id}`,`${model.providerID}/${model.id}#default`,...model.variants.map(variant=>`${model.providerID}/${model.id}#${variant.id}`)]))}).pipe(Effect.provide(locations.get(Location.Ref.make({directory:AbsolutePath.make(settingsDirectory)}))))),
-        browsers:ProjectTemplateBrowserStore.make(kv,global.data),vault:id=>CredentialVault.local(id,global.data),
-        bootstrap:(directory,name)=>Effect.runPromise(ProjectFilesBootstrap.initialize(directory,name,kv).pipe(Effect.provideService(Database.Service,database))),
-      })
+    const availableModels = (settingsDirectory: string) => Effect.runPromise(Effect.gen(function* () {
+      yield* Plugin.awaitActivation
+      const models = yield* Model.Service
+      const available = yield* models.available()
+      return new Set(available.flatMap(model => [`${model.providerID}/${model.id}`, `${model.providerID}/${model.id}#default`, ...model.variants.map(variant => `${model.providerID}/${model.id}#${variant.id}`)]))
+    }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(settingsDirectory) })))))
+    const coreRoles = async () => ProjectTemplateCoreRoles.current(await Effect.runPromise(orchestra.roles()))
+    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version,
+      processStores: projectID => ProjectTemplateV2OwnerReader.make({ kv, store, orchestra, coreRoles }, projectID),
+      live: settingsDirectory => ProjectTemplateLiveStores.make({ kv, store, sessions, root: path.join(global.data, "template-projects"), installedVersion: app.version, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        process: ProjectTemplateV2Runtime.make({ kv, dataDirectory: global.data, installedVersion: app.version,
+          destination: async () => ({ roles: [...await coreRoles(), ...(await Effect.runPromise(orchestra.roles())).filter(role => role.agent !== "team-browser-agent").map(ProjectTemplateCoreRoles.portable)], skills: [], models: await availableModels(settingsDirectory), programs: new Set(), mcp: new Map(), providers: new Set() }),
+          changed: () => Effect.runPromise(orchestra.reload()),
+        }),
+        availableRoles: async () => new Set([Orchestra.agent, ...(await Effect.runPromise(orchestra.roles())).map(role => role.agent)]),
+        availableModels: () => availableModels(settingsDirectory),
+        browsers: ProjectTemplateBrowserStore.make(kv, global.data), vault: id => CredentialVault.local(id, global.data),
+        bootstrap: (directory, name) => Effect.runPromise(ProjectFilesBootstrap.initialize(directory, name, kv).pipe(Effect.provideService(Database.Service, database))),
+      }),
     })
     const templateOperation = <A>(action:()=>Promise<A>)=>Effect.tryPromise({try:action,catch:error=>new InvalidRequestError(templateError(error))})
     return handlers

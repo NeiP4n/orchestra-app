@@ -33,6 +33,10 @@ export interface ProjectTemplatesAccess {
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
+const isProcessTemplate = (details: string) => {
+  try { const value = JSON.parse(details); return value?.format === "orchestra.project-template" && value.version === 2 }
+  catch { return false }
+}
 export function ProjectTemplatesSimple(props: {
   access: ProjectTemplatesAccess
   canSave: boolean
@@ -169,7 +173,7 @@ export function ProjectTemplatesSimple(props: {
       <box flexDirection="column">
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")}</text>
         <text fg={theme.text.muted} wrapMode="word">
-          {tr("Settings, rules, links and schedules. No chats, data or secrets.")}
+          {tr("Project process: roles, skills, rules and settings. No chats, data or secrets.")}
         </text>
       </box>
       <box flexDirection="column">
@@ -204,7 +208,7 @@ export function ProjectTemplatesSimple(props: {
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
-            <text fg={theme.text.muted} wrapMode="word">{tr("Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.")}</text>
+            <text fg={theme.text.muted} wrapMode="word">{tr(isProcessTemplate(current().details) ? "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings." : "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.")}</text>
             <Show when={current().triggerReview?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.")}</text>
             </Show>
