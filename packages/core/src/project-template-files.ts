@@ -63,8 +63,9 @@ export async function save(directory: string, name: string, serialized: string, 
 }
 function releaseVersion(value: string) {
   // Prerelease compatibility needs product policy, so it fails closed here rather than guessing ordering.
-  if (!/^\d+\.\d+\.\d+$/.test(value)) throw Error("A stable Orchestra version is required for compatibility review.")
-  return value.split('.').map(Number)
+  if (!/^\d+\.\d+\.\d+(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$/.test(value)) throw Error("A stable Orchestra version is required for compatibility review.")
+  // SemVer build metadata identifies the binary, not version precedence.
+  return value.split('+')[0].split('.').map(Number)
 }
 export function checkCompatibility(bundle: ProjectTemplate.Bundle, installedVersion: string) {
   const installed = releaseVersion(installedVersion), required = releaseVersion(bundle.minOrchestraVersion)

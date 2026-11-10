@@ -7,8 +7,8 @@ import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
 import { ServerFetch } from "../src/fetch"
 
-it.live(
-  "project template HTTP flow captures configuration, confirms once, and creates fresh inert real stores",
+for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
+  `project template HTTP save -> list -> create with ${version} captures configuration and creates fresh inert real stores`,
   () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("template-http-"))),
@@ -26,7 +26,7 @@ it.live(
       })
       const handler = yield* ServerFetch.make(
         {
-          app: { version: "1.0.0" },
+          app: { version },
           database: { path: ":memory:" },
           fs: { filewatcher: false },
           models: { fetch: false },
