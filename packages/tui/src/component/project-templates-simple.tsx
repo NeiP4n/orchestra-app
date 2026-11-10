@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
+import type { ProjectTemplateTriggerReview } from "@orchestra/core/project-template-trigger-review"
 import type { ProjectTemplateLinkReview } from "@orchestra/core/project-template-link-review"
 import { templateErrorKey } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
@@ -11,6 +12,12 @@ const linkReason: Record<ProjectTemplateLinkReview.Reason, string> = {
   credentials: "Login or password in the link", query: "Query parameters may contain private data", fragment: "Fragment may contain private data",
   local: "Local address belongs to the original machine", scheme: "Only public HTTP(S) links can be copied", secret: "Secret-like data in the link", invalid: "Invalid link",
 }
+const triggerReason: Record<ProjectTemplateTriggerReview.Item["reason"], string> = {
+  "browser-rebind": "Rebind page/chat and sign in again; starts paused.",
+  "browser-links-omitted": "Some links were omitted; choose page/chat and sign in again; starts paused.",
+  "time-review": "Check instruction and credential bindings; starts paused.",
+  "unsupported-event": "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.",
+}
 export interface ProjectTemplatesKeys {
   move: (delta: number) => void
   activate: () => void
@@ -21,9 +28,9 @@ export interface ProjectTemplatesKeys {
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
   list: () => Promise<readonly { id: string; name: string }[]>
-  prepareSave: () => Promise<{ token: string; name: string; details: string; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[] }>
+  prepareSave: () => Promise<{ token: string; name: string; details: string; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmSave: (token: string, omitUnsafeLinks?: boolean) => Promise<void>
-  prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string }>
+  prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
 export function ProjectTemplatesSimple(props: {
@@ -47,6 +54,7 @@ export function ProjectTemplatesSimple(props: {
     name: string
     details: string
     omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]
+    triggerReview?: readonly ProjectTemplateTriggerReview.Item[]
   }>()
   const run = async (action: () => Promise<void>, kind?: "save" | "create") => {
     if (busy()) return
@@ -196,6 +204,9 @@ export function ProjectTemplatesSimple(props: {
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
+            <Show when={current().triggerReview?.length}>
+              <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.")}</text>
+            </Show>
             <Show when={current().omittedLinks?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.")}</text>
             </Show>
@@ -206,6 +217,7 @@ export function ProjectTemplatesSimple(props: {
             </box>
             <Show when={details()}>
               <box flexDirection="column">
+                <For each={current().triggerReview}>{(item) => <text fg={theme.text.muted} wrapMode="word">{tr("Trigger {schedule}: {reason}", { schedule: item.schedule, reason: tr(triggerReason[item.reason]) })}{item.browser ? " " + tr("Browser {browser}", { browser: item.browser }) : ""}</text>}</For>
                 <For each={current().omittedLinks}>{(issue) => <text fg={theme.text.muted} wrapMode="word">{tr("Browser {browser}, saved link {link}: {reason}", { browser: issue.browser, link: issue.link, reason: tr(linkReason[issue.reason]) })}</text>}</For>
                 <text fg={theme.text.muted} wrapMode="word">{current().details}</text>
               </box>

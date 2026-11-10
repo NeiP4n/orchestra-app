@@ -18,7 +18,7 @@ export interface Bundle {
   rules: { session: string | null; text: string; scope?: "project" | "project-defaults" | "orchestrator" | "session" | "role"; role?: string }[]
   schedules: {
     slot: string
-    source: { kind: "cron" | "interval" | "once"; spec: string } |
+    source: { kind: "cron" | "interval" | "once"; spec: string; browser?: string } |
       { kind: "browser"; browser: string; match: string | null } |
       { kind: "execution.succeeded" | "execution.failed"; session: string }
     instruction: string
@@ -107,11 +107,13 @@ export function parse(serialized: string): Result<Bundle> {
       if (kind === 'browser') { const def = object(row.source, ['kind', 'browser', 'match']), browser = slot(def.browser); if (!browserNames.has(browser)) invalid(); source = { kind, browser, match: def.match === null ? null : text(def.match, 200) } }
       else if (kind === 'execution.succeeded' || kind === 'execution.failed') { const def = object(row.source, ['kind', 'session']); source = { kind, session: sessionRef(def.session) } }
       else {
-        const def = object(row.source, ['kind', 'spec']), k = choice(def.kind, ['cron', 'interval', 'once']), spec = text(def.spec, 120)
+        const bound = !!row.source && typeof row.source === 'object' && Object.hasOwn(row.source, 'browser')
+        const def = object(row.source, ['kind', 'spec', ...(bound ? ['browser'] : [])]), k = choice(def.kind, ['cron', 'interval', 'once']), spec = text(def.spec, 120)
         if (k === 'interval' && (!/^\d{1,5}$/.test(spec) || Number(spec) < 5)) invalid()
         if (k === 'cron' && (!/^[0-9*/ ,\-]+$/.test(spec) || spec.trim().split(/\s+/).length !== 5)) invalid()
         if (k === 'once' && (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?(?:Z|[+-]\d\d:\d\d)$/.test(spec) || !Number.isFinite(Date.parse(spec)))) invalid()
-        source = { kind: k, spec }
+        if (bound && (k !== 'interval' || Number(spec) < 60 || !browserNames.has(slot(def.browser)))) invalid()
+        source = { kind: k, spec, ...(bound ? { browser: slot(def.browser) } : {}) }
       }
       return { slot: slot(row.slot), source, instruction: text(row.instruction), maxPerHour: cap(row.maxPerHour, 12), maxPerDay: cap(row.maxPerDay, 100), missedPolicy: choice(row.missedPolicy, ['skip', 'run-once', 'catch-up']) }
     }); unique(schedules.map((row) => row.slot))

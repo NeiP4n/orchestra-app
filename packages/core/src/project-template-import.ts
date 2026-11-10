@@ -124,6 +124,7 @@ export function prepare(serialized: string, destination: Destination) {
         maxPerHour: row.maxPerHour,
         maxPerDay: row.maxPerDay,
         missedPolicy: row.missedPolicy,
+        ...("browser" in row.source && kind === "interval" ? { browserSessionID: destination.browsers[row.source.browser!] } : {}),
         ...(kind === "browser" && "match" in row.source && row.source.match ? { match: row.source.match } : {}),
       },
       {
@@ -147,7 +148,9 @@ export function prepare(serialized: string, destination: Destination) {
       enabled: false,
       nextAt: null,
       publishApproved: false,
-      pausedReason: "Импортирован из шаблона. Проверьте настройки и включите отдельно.",
+      pausedReason: kind === "browser" || "browser" in row.source
+        ? "Нужна привязка заново: откройте нужную страницу в новом браузере, войдите в аккаунт и проверьте чат/страницу. Затем включите отдельно. Вход и исходные ссылки не наследуются."
+        : "Импортирован из шаблона. Проверьте инструкцию и учётные данные, затем включите отдельно.",
     }
   })
   return {

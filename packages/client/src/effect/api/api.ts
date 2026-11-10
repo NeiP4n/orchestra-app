@@ -4710,6 +4710,13 @@ export type OrchestraProjectTemplatePrepareSaveOutput = {
   readonly token: string
   readonly name: string
   readonly details: string
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
   readonly omittedLinks?:
     | ReadonlyArray<{
         readonly browser: number
@@ -4745,6 +4752,13 @@ export type OrchestraProjectTemplatePrepareCreateOutput = {
   readonly token: string
   readonly name: string
   readonly details: string
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
   readonly omittedLinks?:
     | ReadonlyArray<{
         readonly browser: number

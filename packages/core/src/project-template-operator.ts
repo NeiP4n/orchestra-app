@@ -12,6 +12,7 @@ import { ProjectTemplateLibrary } from "./project-template-library.js"
 import { ProjectTemplateLiveStores as Live } from "./project-template-live-stores.js"
 import { ProjectTemplateBrowserStore as Browsers } from "./project-template-browser-store.js"
 import { CredentialVault } from "./credential-vault/index.js"
+import { ProjectTemplateTriggerReview } from "./project-template-trigger-review.js"
 import { AbsolutePath } from "./schema.js"
 import type { KV } from "./kv.js"
 import type { SessionStore } from "./session/store.js"
@@ -159,7 +160,7 @@ export function make(deps: Deps) {
           return json(value)
         }),
       )
-      return { token, name: value.name, details: preview.text, omittedLinks: preview.linkReview.issues }
+      return { token, name: value.name, details: preview.text, omittedLinks: preview.linkReview.issues, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle, preview.linkReview.issues) }
     },
     confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false) =>
       Flock.withLock(token, async () => {
@@ -205,7 +206,7 @@ export function make(deps: Deps) {
           if (!pending.done) {
             const receipt = await deps.live(settingsDirectory).readReceipt(previous)
             if (!receipt) throw Error("Pending import receipt is missing.")
-            return { token: receipt.id, name: receipt.name, details: receipt.template }
+            return { token: receipt.id, name: receipt.name, details: receipt.template, triggerReview: ProjectTemplateTriggerReview.fromText(receipt.template) }
           }
         } else if (previous !== undefined) throw Error("Pending import index is damaged.")
         const receipt = await deps.live(settingsDirectory).reserve(preview.text, preview.digest)
@@ -216,7 +217,7 @@ export function make(deps: Deps) {
           }),
         )
         await run(deps.kv.set(key, receipt.id))
-        return { token: receipt.id, name: receipt.name, details: preview.text }
+        return { token: receipt.id, name: receipt.name, details: preview.text, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle) }
       })
     },
     finishCreate: async (token: string) => {
@@ -235,7 +236,7 @@ export function make(deps: Deps) {
       if (!receipt || receipt.digest !== pending.digest) throw Error("Create reservation differs.")
       if (receipt.phase === "reserved") {
         const current = await library.preview(pending.libraryID)
-        if (current.digest !== pending.digest || pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)) throw Error("Template changed after preview.")
+        if (current.digest !== pending.digest) throw Error("Template changed after preview.")
       }
       const result = await live.resume(token)
       return {

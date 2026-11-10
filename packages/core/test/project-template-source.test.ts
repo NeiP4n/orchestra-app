@@ -43,3 +43,16 @@ test("saved link queries or a secret-bearing rule reject capture rather than str
   const s = source(); s.browsers[0].savedLinks = ["https://example.com/?token=private"]; expect(ProjectTemplateSource.capture(s, metadata).ok).toBe(false)
   s.browsers[0].savedLinks = []; s.rules[0].text = "password=hunter2"; const result = ProjectTemplateSource.capture(s, metadata); expect(result.ok).toBe(false); expect(JSON.stringify(result)).not.toContain("hunter2")
 })
+
+test("scheduled read-only browser checks keep exact interval and portable browser binding", () => {
+  const s = source()
+  s.schedules = [{ ...s.schedules[0], kind: "interval", spec: "60", browserSessionID: "br_PRIVATE", condition: { type: "time", kind: "interval", spec: "60" } }]
+  s.browsers[0].savedLinks = []
+  const captured = ProjectTemplateSource.capture(s, metadata)
+  expect(captured.ok).toBe(true)
+  if (captured.ok) expect(captured.value.bundle.schedules[0].source).toEqual({ kind: "interval", spec: "60", browser: "browser_1" })
+  s.schedules[0].browserSessionID = "foreign"
+  expect(ProjectTemplateSource.capture(s, metadata).ok).toBe(false)
+  s.schedules[0].browserSessionID = "br_PRIVATE"; s.schedules[0].spec = "5"; s.schedules[0].condition = { type: "time", kind: "interval", spec: "5" }
+  expect(ProjectTemplateSource.capture(s, metadata).ok).toBe(false)
+})

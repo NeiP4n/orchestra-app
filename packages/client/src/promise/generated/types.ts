@@ -14647,6 +14647,13 @@ export type OrchestraProjectTemplatePrepareSaveOutput = {
   token: string
   name: string
   details: string
+  triggerReview?:
+    | Array<{
+        schedule: number
+        browser?: number | undefined
+        reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
   omittedLinks?:
     | Array<{
         browser: number
@@ -14700,6 +14707,13 @@ export type OrchestraProjectTemplatePrepareCreateOutput = {
   token: string
   name: string
   details: string
+  triggerReview?:
+    | Array<{
+        schedule: number
+        browser?: number | undefined
+        reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
   omittedLinks?:
     | Array<{
         browser: number

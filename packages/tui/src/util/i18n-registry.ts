@@ -1,5 +1,13 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.",
+  "Trigger {schedule}: {reason}": "Trigger {schedule}: {reason}",
+  "Browser {browser}": "Browser {browser}",
+  "Rebind page/chat and sign in again; starts paused.": "Rebind page/chat and sign in again; starts paused.",
+  "Some links were omitted; choose page/chat and sign in again; starts paused.": "Some links were omitted; choose page/chat and sign in again; starts paused.",
+  "Check instruction and credential bindings; starts paused.": "Check instruction and credential bindings; starts paused.",
+  "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.": "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.",
+
   "Template was not saved.": "Template was not saved.",
   "Template was not saved. Retry the same save.": "Template was not saved. Retry the same save.",
   "Could not refresh the template list.": "Could not refresh the template list.",
@@ -134,6 +142,14 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "Все импортированные триггеры приостановлены. Для браузерных проверок заново выберите страницу/чат и войдите в аккаунт. Зависимости указаны в подробностях.",
+  "Trigger {schedule}: {reason}": "Триггер {schedule}: {reason}",
+  "Browser {browser}": "Браузер {browser}",
+  "Rebind page/chat and sign in again; starts paused.": "Заново выберите страницу/чат и войдите в аккаунт; запуск приостановлен.",
+  "Some links were omitted; choose page/chat and sign in again; starts paused.": "Некоторые ссылки пропущены; заново выберите страницу/чат и войдите в аккаунт; запуск приостановлен.",
+  "Check instruction and credential bindings; starts paused.": "Проверьте инструкцию и привязку учётных данных; запуск приостановлен.",
+  "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.": "Для внутреннего события нужен проверенный план локальных действий. Создание будет заблокировано.",
+
   "Template was not saved.": "Шаблон не сохранён.",
   "Template was not saved. Retry the same save.": "Шаблон не сохранён. Повторите это сохранение.",
   "Could not refresh the template list.": "Не удалось обновить список шаблонов.",

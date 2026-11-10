@@ -68,6 +68,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
         browsers,
       })
       expect(prepared.status).toBe(200)
+      expect(prepared.body.triggerReview).toEqual([])
       expect(prepared.body.details).not.toContain(project.id)
       expect(prepared.body.details).not.toContain(source)
       expect(prepared.body.details).not.toContain("PRIVATE_PAGE_CANARY")
@@ -93,6 +94,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
         settingsDirectory: source,
       })
       expect(create.status).toBe(200)
+      expect(create.body.triggerReview).toEqual([])
       expect(
         (yield* call("/api/orchestra/project-template/prepare-create", "POST", {
           templateID: library[0].id,
