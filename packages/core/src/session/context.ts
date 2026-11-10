@@ -1,4 +1,5 @@
-import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
+import { KV } from "../kv.js"
+import { SessionProjectOwner } from "./project-owner.js"
 export * as SessionContext from "./context.js"
 
 import { Dod } from "../dod.js"
@@ -102,6 +103,7 @@ const layer = Layer.effect(
     const skillInstructions = yield* SkillInstructions.Service
     const hubInstructions = yield* HubInstructions.Service
     const store = yield* SessionStore.Service
+    const kv = yield* KV.Service
     const registry = yield* Tool.Service
 
     const resolveModel = (session: SessionSchema.Info) => models.resolve(session, model.available)
@@ -202,7 +204,7 @@ const layer = Layer.effect(
           loaded.builtins,
           loaded.entries,
           loaded.canvas,
-          BrowserInstructions.make(session.location.directory, OrchestraSchema.sessionOwner(session.metadata)),
+          BrowserInstructions.make(session.location.directory, yield* SessionProjectOwner.resolve(kv, session)),
         ]),
         tools: loaded.tools,
       }
@@ -237,6 +239,7 @@ export const node = makeLocationNode({
   service: Service,
   layer,
   deps: [
+    KV.node,
     Agent.node,
     Model.node,
     Database.node,
