@@ -2609,7 +2609,7 @@ it.live("v2 live import persists process before publication and resumes without 
   const core = { agent:'orchestrator', name:'Coordinator', description:'Coordinate process', rules:'Wait for approval.', category:'Planning', readOnly:false }
   const local = { agent:'team-process-reviewer', name:'Review process', description:'Review work', rules:'  Keep exact process rules.\r\n', category:'Quality', readOnly:true, tools:['read','skill'], autoTools:false }
   const content = '# Process skill\nRead guide.md.\n'
-  const source = {format:'orchestra.project-template',version:2,name:'Process factory',description:'Process only',minOrchestraVersion:'1.0.0',variables:{projectName:'Imported process',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'reviewer',title:'Review',role:local.agent,model:null}],browsers:[],rules:[{scope:'role',role:local.agent,session:null,text:'Never publish without approval.'}],schedules:[],vault:{local:[],globalRequirements:[]},providers:[],mcp:[],process:{playbook:'Review the result before publishing.',recommendedRoles:[local.agent],roles:[core,local],skills:[{id:'review',name:'Review',entry:'SKILL.md',description:'Review work',files:[{path:'SKILL.md',content,sha256:ProjectTemplateV2.hash(content)},{path:'guide.md',content:'Check the result.\n',sha256:ProjectTemplateV2.hash('Check the result.\n')}],dependencies:[]}],skillAssignments:[{target:{kind:'project'},skills:['review']}],sessionModels:[{session:'main',models:[{provider:'demo',id:'free',variant:null},{provider:'demo',id:'backup',variant:'careful'}]},{session:'reviewer',models:[]}],programs:[]}}
+  const source = {format:'orchestra.project-template',version:2,name:'Process factory',description:'Process only',minOrchestraVersion:'1.0.0',variables:{projectName:'Imported process',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'reviewer',title:'Review',role:local.agent,model:null}],browsers:[],rules:[{scope:'role',role:local.agent,session:null,text:'Never publish without approval.'}],schedules:[],vault:{local:[],globalRequirements:[]},providers:[],mcp:[],process:{playbook:'Review the result before publishing.',recommendedRoles:[local.agent],roles:[core,local],skills:[{id:'review',name:'Review',entry:'SKILL.md',description:'Review work',files:[{path:'SKILL.md',content,sha256:ProjectTemplateV2.hash(content)},{path:'guide.md',content:'Check the result.\n',sha256:ProjectTemplateV2.hash('Check the result.\n')}],dependencies:[]}],skillAssignments:[{target:{kind:'project'},skills:['review']},{target:{kind:'role',role:local.agent},skills:[]},{target:{kind:'session',session:'main'},skills:['review']}],sessionModels:[{session:'main',models:[{provider:'demo',id:'free',variant:null},{provider:'demo',id:'backup',variant:'careful'}]},{session:'reviewer',models:[]}],programs:[]}}
   const preview = ProjectTemplateV2.preview(JSON.stringify(source)); if(!preview.ok) throw Error(preview.error)
   let changed=0,failOnce=true,failProcessOnce=true
   const process = ProjectTemplateV2Runtime.make({kv,dataDirectory:data,installedVersion:'1.0.0',destination:async()=>({roles:[core],skills:[],models:new Set(['demo/free','demo/backup#careful']),programs:new Set(),mcp:new Map(),providers:new Set()}),changed:async()=>{changed++;await Effect.runPromise(orchestra.reload())}})
@@ -2652,6 +2652,26 @@ it.live("v2 live import persists process before publication and resumes without 
   expect(yield* catalog.get(skillID,{sessionID:'ses_foreign',agent:'orchestrator'})).toBeUndefined()
   yield* Effect.promise(()=>adapter.resume(reserved.id))
   expect(yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})).toHaveLength(2)
+  const {ProjectTemplateV2OwnerReader}=yield* Effect.promise(()=>import('../src/project-template-v2-owner-reader'))
+  const {ProjectTemplateV2Reader}=yield* Effect.promise(()=>import('../src/project-template-v2-reader'))
+  const exported=yield* Effect.promise(()=>ProjectTemplateV2Reader.capture(ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core]},reserved.projectID),reserved.projectID,{name:'Roundtrip process',description:'Process only',minOrchestraVersion:'1.0.0'},{browsers:[],vault:[],selectedGlobalSlotIDs:new Set<string>(),providers:[],mcp:[]}))
+  expect(exported.bundle.process.playbook).toBe(source.process.playbook)
+  expect(exported.bundle.process.roles.find(role=>role.agent===localAgent)?.rules).toBe(local.rules)
+  expect(exported.bundle.process.skills[0].files).toEqual(source.process.skills[0].files)
+  expect(exported.bundle.process.skills[0].id).toBe(skillID)
+  expect(exported.bundle.process.sessionModels.find(row=>row.models.length>0)?.models).toEqual(source.process.sessionModels[0].models)
+  expect(exported.text).not.toContain(reserved.directory)
+  expect(exported.text).not.toContain(reserved.projectID)
+  expect(exported.text).not.toContain(main.id)
+  expect(exported.bundle.process.skillAssignments).toContainEqual({target:{kind:'role',role:localAgent},skills:[]})
+  const second=yield* Effect.promise(()=>adapter.reserve(exported.text,exported.digest))
+  yield* Effect.promise(()=>adapter.resume(second.id))
+  const third=yield* Effect.promise(()=>ProjectTemplateV2Reader.capture(ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core]},second.projectID),second.projectID,{name:'Roundtrip process',description:'Process only',minOrchestraVersion:'1.0.0'},{browsers:[],vault:[],selectedGlobalSlotIDs:new Set<string>(),providers:[],mcp:[]}))
+  expect(third.bundle.process.skills[0].files).toEqual(exported.bundle.process.skills[0].files)
+  expect(third.bundle.process.playbook).toBe(exported.bundle.process.playbook)
+  expect(third.bundle.process.roles.map(role=>({name:role.name,rules:role.rules,readOnly:role.readOnly,tools:role.tools}))).toEqual(exported.bundle.process.roles.map(role=>({name:role.name,rules:role.rules,readOnly:role.readOnly,tools:role.tools})))
+  expect(third.bundle.process.sessionModels.map(row=>JSON.stringify(row.models)).sort()).toEqual(exported.bundle.process.sessionModels.map(row=>JSON.stringify(row.models)).sort())
+  expect(yield* orchestra.roles()).toEqual(globalBefore)
   const broken=structuredClone(published);broken.process!.template=broken.process!.template.replace('Review the result before publishing.','Changed playbook.')
   yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reserved.id,JSON.parse(JSON.stringify(broken)))
   expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
