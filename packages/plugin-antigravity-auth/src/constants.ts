@@ -6,7 +6,17 @@ export const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g4
 /**
  * Client secret issued for the Antigravity OAuth application.
  */
-export const ANTIGRAVITY_CLIENT_SECRET = "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";
+// Kept for consumers of the existing export. No embedded credential or default.
+export const ANTIGRAVITY_CLIENT_SECRET = process.env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET;
+
+/** Resolve at use time so importing the plugin does not require an OAuth credential. */
+export function requireAntigravityClientSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const value = env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET;
+  if (!value?.trim()) {
+    throw new Error("Не задана ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET: настройте OAuth client secret для Google Antigravity.");
+  }
+  return value;
+}
 
 /**
  * Scopes required for Antigravity integrations.

@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "../constants";
+import { ANTIGRAVITY_CLIENT_ID, requireAntigravityClientSecret } from "../constants";
 import { formatRefreshParts, parseRefreshParts, calculateTokenExpiry } from "./auth";
 import { clearCachedAuth, storeCachedAuth } from "./cache";
 import { createLogger } from "./logger";
@@ -144,7 +144,7 @@ async function requestAccessToken(auth: OAuthAuthDetails): Promise<OAuthAuthDeta
         grant_type: "refresh_token",
         refresh_token: parts.refreshToken,
         client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: ANTIGRAVITY_CLIENT_SECRET,
+        client_secret: requireAntigravityClientSecret(),
       }),
     });
 

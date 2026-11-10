@@ -1,5 +1,5 @@
 import { generatePKCE } from "@openauthjs/openauth/pkce";
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET, ANTIGRAVITY_REDIRECT_URI, ANTIGRAVITY_SCOPES, ANTIGRAVITY_ENDPOINT, getAntigravityUserAgent, GEMINI_CLI_HEADERS, } from "../constants.js";
+import { ANTIGRAVITY_CLIENT_ID, requireAntigravityClientSecret, ANTIGRAVITY_REDIRECT_URI, ANTIGRAVITY_SCOPES, ANTIGRAVITY_ENDPOINT, getAntigravityUserAgent, GEMINI_CLI_HEADERS, } from "../constants.js";
 import { createLogger } from "../plugin/logger.js";
 import { calculateTokenExpiry } from "../plugin/auth.js";
 const log = createLogger("oauth");
@@ -118,7 +118,7 @@ export async function exchangeAntigravity(code, state) {
             },
             body: new URLSearchParams({
                 client_id: ANTIGRAVITY_CLIENT_ID,
-                client_secret: ANTIGRAVITY_CLIENT_SECRET,
+                client_secret: requireAntigravityClientSecret(),
                 code,
                 grant_type: "authorization_code",
                 redirect_uri: ANTIGRAVITY_REDIRECT_URI,

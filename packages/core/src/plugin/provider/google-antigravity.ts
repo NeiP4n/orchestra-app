@@ -1,3 +1,4 @@
+import { requireAntigravityClientSecret } from "./google-antigravity-env.js"
 import type { ServerResponse } from "node:http"
 import { define } from "@orchestra/plugin/effect/plugin"
 import { GeminiCloudCode } from "@orchestra/ai/protocols/gemini-cloudcode"
@@ -14,7 +15,6 @@ export const integrationID = Integration.ID.make("google-antigravity")
 export const methodID = Integration.MethodID.make("oauth")
 
 const clientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-const clientSecret = "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"
 const callbackPort = 51121
 const redirectURI = `http://localhost:${callbackPort}/oauth-callback`
 
@@ -155,6 +155,7 @@ function callbackError(params: URLSearchParams, state: string) {
 
 function exchangeCode(http: HttpClient.HttpClient, input: { readonly code: string; readonly verifier: string }) {
   return Effect.gen(function* () {
+    const clientSecret = yield* Effect.try(() => requireAntigravityClientSecret())
     const response = yield* http
       .execute(
         HttpClientRequest.post(tokenURL).pipe(
@@ -252,6 +253,7 @@ function resolveProjectAndMakeCredential(
 
 function refresh(http: HttpClient.HttpClient, credential: Credential.OAuth) {
   return Effect.gen(function* () {
+    const clientSecret = yield* Effect.try(() => requireAntigravityClientSecret())
     if (!credential.refresh) {
       return yield* Effect.fail(new Error("No refresh token available for Google Antigravity"))
     }
@@ -309,6 +311,7 @@ export function checkQuota(http: HttpClient.HttpClient, credential: Credential.O
 
 function authorize(http: HttpClient.HttpClient) {
   return Effect.gen(function* () {
+    yield* Effect.try(() => requireAntigravityClientSecret())
     const verifier = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")
     const challenge = Buffer.from(
       yield* Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))),

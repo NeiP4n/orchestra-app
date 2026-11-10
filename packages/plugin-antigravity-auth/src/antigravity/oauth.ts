@@ -2,7 +2,7 @@ import { generatePKCE } from "@openauthjs/openauth/pkce";
 
 import {
   ANTIGRAVITY_CLIENT_ID,
-  ANTIGRAVITY_CLIENT_SECRET,
+  requireAntigravityClientSecret,
   ANTIGRAVITY_REDIRECT_URI,
   ANTIGRAVITY_SCOPES,
   ANTIGRAVITY_ENDPOINT,
@@ -206,7 +206,7 @@ export async function exchangeAntigravity(
       },
       body: new URLSearchParams({
         client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: ANTIGRAVITY_CLIENT_SECRET,
+        client_secret: requireAntigravityClientSecret(),
         code,
         grant_type: "authorization_code",
         redirect_uri: ANTIGRAVITY_REDIRECT_URI,
