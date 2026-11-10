@@ -1869,6 +1869,10 @@ const layer: Layer.Layer<
       const pending = trigger.pendingFire
       if (!pending || pending.destination !== String(main) || (!trigger.enabled && trigger.pausedReason === "paused by the Orchestrator")) return false
       const source = pending.source
+      if (source.kind === "browser") {
+        const project = yield* get(source.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project || BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), source.spec, project.directory, String(project.id))) return false
+      }
       if (source.actions?.length) {
         // Local allowlisted actions are at-least-once across a process crash, never arbitrary effects.
         const result = yield* localActions(trigger, pending.firedAt)
@@ -1881,8 +1885,8 @@ const layer: Layer.Layer<
       }
       const ok = yield* sessions.synthetic({
         id: SessionMessage.ID.make(pending.messageID), sessionID: main,
-        description: `Trigger ${source.id} fired`, text: Trigger.render(source, pending.firedAt),
-        metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...(source.browserSessionID ? { browserSessionID: source.browserSessionID } : {}) },
+        description: `Trigger ${source.id} fired`, text: Trigger.render(source.kind === "browser" ? {...source, publishApproved: false, browserSessionID: source.spec} : source, pending.firedAt, pending.rows ? Trigger.renderRows(source, pending.rows) : undefined),
+        metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...((source.kind === "browser" ? source.spec : source.browserSessionID) ? { browserSessionID: source.kind === "browser" ? source.spec : source.browserSessionID } : {}) },
       }).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
       if (ok) {
         const acknowledged = Trigger.parse(yield* kv.atomicUpdate(key, (current) => TriggerDelivery.acknowledge(current, pending.fireId) as never))
@@ -2056,32 +2060,15 @@ const layer: Layer.Layer<
         let reserved = false
         const next = Trigger.parse(yield* kv.atomicUpdate(key, (current) => {
           const latest = Trigger.parse(current)
-          if (!latest || Trigger.browserDue(latest, now) !== "fire") return current
+          if (!latest || latest.pendingFire || Trigger.browserDue(latest, now) !== "fire") return current
           reserved = true
-          return Trigger.afterFire(latest, now) as never
+          return TriggerDelivery.reserveBrowser(current, now, String(project.main), rows) as never
         }))
         if (!reserved || !next) continue
         ScheduleView.sync(next, String(project.main))
         BrowserSchedule.sync({ ...next, browserSessionID: trigger.spec })
-        if (trigger.actions?.length) {
-          const result = yield* localActions(next, now)
-          yield* kv.atomicUpdate(key, (current) => {
-            const latest = Trigger.parse(current)
-            return latest ? { ...latest, errors: result.errors, ...(result.enabled ? {} : { enabled: false, pausedReason: result.pausedReason }) } as never : current
-          })
-          ScheduleView.sync(result, String(project.main))
-          continue
-        }
         BrowserSchedule.dispatched(trigger.id, now)
-        const ok = yield* sessions
-          .synthetic({
-            id: SessionMessage.ID.create(),
-            sessionID: project.main,
-            description: `Trigger ${trigger.id} fired`,
-            text: Trigger.render({ ...trigger, publishApproved: false, browserSessionID: trigger.spec }, now, Trigger.renderRows(trigger, rows)),
-            metadata: { source: "trigger", triggerID: trigger.id, publishApproved: false, browserSessionID: trigger.spec },
-          })
-          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        const ok = yield* deliverPending(key, next, project.main)
         if (!ok) BrowserSchedule.deliveryFailed(trigger.id)
         reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })
       }

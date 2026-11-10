@@ -410,7 +410,7 @@ const watcherStopFile = (sessionID: string) => path.join(Global.Path.data, "brow
 const watcherRecovery = BrowserWatchRecovery.make()
 const watcherReasons = new Map<string, string>()
 export const watcherReason = (sessionID: string) => watcherReasons.get(sessionID)
-/** Enabled durable triggers restore once at service startup. A user stop always wins until explicit enable/start. */
+/** Restore once per outage; a healthy watcher resets recovery. A user stop wins until explicit enable/start. */
 export async function watchRestore(sessionID: string): Promise<void> {
   await watcherRecovery.restore(sessionID, {
     ensure: async () => {

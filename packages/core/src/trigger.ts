@@ -210,7 +210,8 @@ export function parse(value: unknown): Info | undefined {
       typeof p.destination !== "string" || !p.destination || !p.source || p.source.pendingFire !== undefined) return undefined
     const source = parse(p.source)
     if (!source || source.id !== v.id || source.projectID !== v.projectID) return undefined
-    pendingFire = { fireId: p.fireId, messageID: p.messageID, destination: p.destination, scheduledAt: p.scheduledAt, firedAt: p.firedAt, source }
+    if (p.rows !== undefined && (source.kind !== "browser" || source.publishApproved || !Array.isArray(p.rows) || p.rows.length < 1 || p.rows.length > MAX_PENDING || p.rows.some(row => !row || typeof row.chat !== "string" || row.chat.length > 300 || typeof row.text !== "string" || row.text.length > 300))) return undefined
+    pendingFire = { fireId: p.fireId, messageID: p.messageID, destination: p.destination, scheduledAt: p.scheduledAt, firedAt: p.firedAt, source, ...(p.rows ? {rows: p.rows.map(row => ({chat: row.chat, text: row.text}))} : {}) }
   }
   return {
     ...(pendingFire ? { pendingFire } : {}),

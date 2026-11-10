@@ -8,28 +8,52 @@ export const LEASE_MS = 300_000
 export const leaseKey = (kind: string) => `orchestra/trigger-sweeper/${kind}`
 export function lease(current: unknown, owner: string, now: number) {
   const row = current as { owner?: string; until?: number } | undefined
-  return row?.owner && row.owner !== owner && Number(row.until) > now ? { owner: row.owner, until: Number(row.until) } : { owner, until: now + LEASE_MS }
+  return row?.owner && row.owner !== owner && Number(row.until) > now
+    ? { owner: row.owner, until: Number(row.until) }
+    : { owner, until: now + LEASE_MS }
 }
-export const acquire = (kv: KV.Interface, kind: string, owner: string, now: number) => kv.atomicUpdate(leaseKey(kind), (current) => lease(current, owner, now) as never).pipe(Effect.map((row) => (row as { owner?: string })?.owner === owner))
-export const release = (kv: KV.Interface, kind: string, owner: string) => kv.atomicUpdate(leaseKey(kind), (current) => (current as { owner?: string })?.owner === owner ? undefined : current)
+export const acquire = (kv: KV.Interface, kind: string, owner: string, now: number) =>
+  kv
+    .atomicUpdate(leaseKey(kind), (current) => lease(current, owner, now) as never)
+    .pipe(Effect.map((row) => (row as { owner?: string })?.owner === owner))
+export const release = (kv: KV.Interface, kind: string, owner: string) =>
+  kv.atomicUpdate(leaseKey(kind), (current) => ((current as { owner?: string })?.owner === owner ? undefined : current))
 export interface Pending {
   fireId: string
   messageID: string
   destination: string
   scheduledAt: number
   firedAt: number
-  /** Only fixed operator instruction/time triggers. Browser payloads stay volatile. */
+  /** Original reviewed trigger. Page rows, when present, remain separate untrusted data. */
   source: Trigger.Info
+  rows?: Trigger.Row[]
 }
 export const fireID = (id: string, scheduledAt: number) => `${id}:${scheduledAt}`
 export const messageID = (fireId: string) => `msg_trigger_${createHash("sha256").update(fireId).digest("hex")}`
 /** Single-key transaction reserves the due slot and durable delivery together. */
-export function reserve(current: unknown, expected: Trigger.Info, now: number, timezone: string, destination: string): unknown {
+export function reserve(
+  current: unknown,
+  expected: Trigger.Info,
+  now: number,
+  timezone: string,
+  destination: string,
+): unknown {
   const trigger = Trigger.parse(current)
-  if (!trigger || trigger.pendingFire || trigger.nextAt !== expected.nextAt || Trigger.due(trigger, now) !== "fire") return current
+  if (!trigger || trigger.pendingFire || trigger.nextAt !== expected.nextAt || Trigger.due(trigger, now) !== "fire")
+    return current
   const scheduledAt = trigger.nextAt!
   const fireId = fireID(trigger.id, scheduledAt)
-  return { ...Trigger.afterFire(trigger, now, timezone), pendingFire: { fireId, messageID: messageID(fireId), destination, scheduledAt, firedAt: now, source: trigger } satisfies Pending }
+  return {
+    ...Trigger.afterFire(trigger, now, timezone),
+    pendingFire: {
+      fireId,
+      messageID: messageID(fireId),
+      destination,
+      scheduledAt,
+      firedAt: now,
+      source: trigger,
+    } satisfies Pending,
+  }
 }
 /** Clear only this exact fire. An edit/delete/new reservation must never be overwritten. */
 export function acknowledge(current: unknown, fireId: string): unknown {
@@ -37,4 +61,31 @@ export function acknowledge(current: unknown, fireId: string): unknown {
   if (trigger?.pendingFire?.fireId !== fireId) return current
   const { pendingFire, ...rest } = trigger
   return rest
+}
+
+/** Browser reservation and counter advance share one durable transaction. Replay keeps the same inbox id. */
+export function reserveBrowser(
+  current: unknown,
+  now: number,
+  destination: string,
+  rows: readonly Trigger.Row[],
+): unknown {
+  const trigger = Trigger.parse(current)
+  if (!trigger || trigger.pendingFire || Trigger.browserDue(trigger, now) !== "fire" || rows.length === 0)
+    return current
+  const fireId = fireID(trigger.id, now)
+  return {
+    ...Trigger.afterFire(trigger, now),
+    pendingFire: {
+      fireId,
+      messageID: messageID(fireId),
+      destination,
+      scheduledAt: now,
+      firedAt: now,
+      source: { ...trigger, publishApproved: false, browserSessionID: undefined },
+      rows: rows
+        .slice(-Trigger.MAX_PENDING)
+        .map((row) => ({ chat: row.chat.slice(0, 300), text: row.text.slice(0, 300) })),
+    } satisfies Pending,
+  }
 }
