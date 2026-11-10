@@ -3,6 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
+import { ProcessSkillFileReceipt as Receipt } from "@orchestra/core/process-skill-file-receipt"
 import { ProcessSkillFiles as Files } from "@orchestra/core/process-skill-files"
 import { ProcessSkills } from "@orchestra/core/process-skills"
 import { ProcessSkillDefinitions as Definitions } from "@orchestra/core/process-skill-definitions"
@@ -112,7 +113,93 @@ test("concurrent materialization has one create-only winner", () =>
     expect(await readFile(path.join(plan.definitions[0].root, "SKILL.md"), "utf8")).toBe(skills[0].files[0].content)
   }))
 
+test("resumes a receipt-owned partial write without duplicates or replacing existing files", () =>
+  temporary(async (root) => {
+    const owner = { id: "pti_process_files", sourceDigest: V2.hash("portable process") }
+    const plan = Receipt.preview(root, registry, skills, owner)
+    await mkdir(plan.directory, { recursive: true, mode: 0o700 })
+    await writeFile(path.join(plan.directory, Receipt.MARKER), plan.marker, { mode: 0o600 })
+    const skillRoot = plan.definitions[0].root
+    await mkdir(skillRoot, { mode: 0o700 })
+    const entry = path.join(skillRoot, "SKILL.md")
+    await writeFile(entry, skills[0].files[0].content, { mode: 0o600 })
+    const before = await lstat(entry)
+    const result = await Receipt.ensure(root, registry, skills, owner, plan.digest)
+    expect(result).toEqual(plan)
+    expect((await lstat(entry)).ino).toBe(before.ino)
+    expect(await readFile(path.join(skillRoot, "references/check.md"), "utf8")).toBe(skills[0].files[1].content)
+    const repeated = await Promise.all([
+      Receipt.ensure(root, registry, skills, owner, plan.digest),
+      Receipt.ensure(root, registry, skills, owner, plan.digest),
+    ])
+    expect(repeated).toEqual([plan, plan])
+    expect((await lstat(entry)).ino).toBe(before.ino)
+  }))
+
+test("receipt recovery refuses foreign marker, changed or unlisted files and missing owner marker", () =>
+  temporary(async (root) => {
+    const owner = { id: "pti_owned", sourceDigest: V2.hash("process") }
+    const plan = Receipt.preview(root, registry, skills, owner)
+    await mkdir(plan.directory, { recursive: true })
+    await expect(Receipt.ensure(root, registry, skills, owner, plan.digest)).rejects.toThrow()
+    expect(await readdir(plan.directory)).toEqual([])
+    await writeFile(path.join(plan.directory, Receipt.MARKER), plan.marker)
+    const foreign = { ...owner, id: "pti_foreign" }
+    const other = Receipt.preview(root, registry, skills, foreign)
+    await expect(Receipt.ensure(root, registry, skills, foreign, other.digest)).rejects.toThrow()
+    await writeFile(path.join(plan.directory, "foreign.txt"), "Keep")
+    await expect(Receipt.ensure(root, registry, skills, owner, plan.digest)).rejects.toThrow("Foreign file")
+    expect(await readFile(path.join(plan.directory, "foreign.txt"), "utf8")).toBe("Keep")
+    await rm(path.join(plan.directory, "foreign.txt"))
+    await mkdir(plan.definitions[0].root)
+    await writeFile(path.join(plan.definitions[0].root, "SKILL.md"), "Changed content")
+    await expect(Receipt.ensure(root, registry, skills, owner, plan.digest)).rejects.toThrow()
+    expect(await readFile(path.join(plan.definitions[0].root, "SKILL.md"), "utf8")).toBe("Changed content")
+    expect(await readdir(plan.definitions[0].root)).toEqual(["SKILL.md"])
+  }))
+
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Skill.node, KV.node])))
+it.live("recovers the live definitions checkpoint and repeats only exact receipt-owned state", () =>
+  Effect.acquireRelease(
+    Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "process-receipt-live-"))),
+    (root) => Effect.promise(() => rm(root, { recursive: true, force: true })),
+  ).pipe(
+    Effect.flatMap((root) =>
+      Effect.gen(function* () {
+        const kv = yield* KV.Service
+        const catalog = yield* Skill.Service
+        const sessionID = "ses_receipt_live"
+        yield* kv.set("orchestra/project/" + projectID, {
+          id: projectID,
+          name: "Process",
+          main: sessionID,
+          directory: root,
+          created: 1,
+        })
+        yield* ProcessSkills.install(kv, registry)
+        const owner = { id: "pti_live", sourceDigest: V2.hash("process source") }
+        const plan = Receipt.preview(root, registry, skills, owner)
+        // Represents a crash after materialization, before definition registration.
+        yield* Effect.promise(() => Receipt.ensure(root, registry, skills, owner, plan.digest))
+        expect(yield* kv.get(Definitions.PREFIX + projectID)).toBeUndefined()
+        yield* Receipt.install(kv, root, registry, skills, owner, plan.digest)
+        const first = yield* kv.get(Definitions.PREFIX + projectID)
+        yield* Receipt.install(kv, root, registry, skills, owner, plan.digest)
+        expect(yield* kv.get(Definitions.PREFIX + projectID)).toEqual(first)
+        expect((yield* catalog.get(Skill.ID.make(id), { sessionID, agent: "build" }))?.content).toBe(
+          skills[0].files[0].content,
+        )
+        const foreign = { ...owner, id: "pti_foreign_live" }
+        const foreignPlan = Receipt.preview(root, registry, skills, foreign)
+        expect(
+          (yield* Receipt.install(kv, root, registry, skills, foreign, foreignPlan.digest).pipe(Effect.exit))._tag,
+        ).toBe("Failure")
+        expect(yield* kv.get(Definitions.PREFIX + projectID)).toEqual(first)
+      }),
+    ),
+  ),
+)
+
 it.live(
   "installs files and definitions while unpublished, then exposes them only when the owning receipt is published",
   () =>
