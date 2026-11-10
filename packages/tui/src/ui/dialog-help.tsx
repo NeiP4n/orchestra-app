@@ -1,3 +1,4 @@
+import { openUrl } from "@orchestra/util/open"
 import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
@@ -32,6 +33,15 @@ export function DialogHelp() {
           Press {shortcuts.get("command.palette.show")} to see all available actions and commands in any context.
         </text>
       </box>
+      <HoverAction
+        onClick={() =>
+          void openUrl(process.env.ORCHESTRA_DOCS_URL || "https://github.com/NeiP4n/orchestra-app#readme").catch(
+            () => {},
+          )
+        }
+      >
+        <text fg={theme.text.muted}>Documentation (README)</text>
+      </HoverAction>
       <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
         <HoverAction
           paddingLeft={3}

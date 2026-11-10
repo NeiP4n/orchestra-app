@@ -377,6 +377,17 @@ export function DialogModel(props: {
       options={options()}
       actions={[
         {
+          command: "model.dialog.default",
+          title: "По умолчанию",
+          hidden: !connected(),
+          onTrigger: (option) => {
+            const model = option.value
+            void client.api.config.update({ model: `${model.providerID}/${model.modelID}` })
+              .then(() => toast.show({variant:"success",message:`Default model: ${model.providerID}/${model.modelID}`}))
+              .catch(toast.error)
+          },
+        },
+        {
           command: "model.dialog.provider",
           title: connected() ? "Подключить" : "Интеграции",
           selection: "none",

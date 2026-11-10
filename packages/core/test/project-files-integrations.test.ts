@@ -9,8 +9,7 @@ import { ProjectFilesIntegrations } from "@orchestra/core/project-files/files-in
 // Same pattern as the core test: the framework functions carry the
 // Database.Service requirement, but no S3 syncer/restorer touches the
 // database, so the cast is safe here.
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.runPromise(effect as Effect.Effect<A, E, never>)
+const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E, never>)
 
 const fixture = async (): Promise<string> => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "orchestra-project-files-integrations-"))
@@ -84,6 +83,40 @@ describe("ProjectFiles mcp.yaml", () => {
     expect(back.servers.local?.type).toBe("local")
     expect(back.servers.remote?.url).toBe("https://mcp.example.com/mcp")
     expect(back.servers.remote?.credential).toBe("mcp-key")
+  })
+
+  test("secret values under innocent field names and command arguments are rejected without echo or overwrite", async () => {
+    const dir = await fixture()
+    const safe = {
+      version: 1,
+      servers: {
+        good: {
+          type: "local",
+          command: ["npx", "x"],
+          env: { MODE: "production", API_KEY: { credential: "vault-project-key" } },
+        },
+      },
+    }
+    await run(ProjectFilesIntegrations.writeMcp(dir, safe))
+    const previous = await readFile(path.join(dir, ".orchestra", "mcp.yaml"), "utf8")
+    const secret = "sk-proj-NEVER-PRINT-THIS-KEY-12345678"
+    for (const server of [
+      { type: "local", command: ["npx", "x"], env: { CUSTOM: secret } },
+      { type: "remote", url: "https://example.invalid/mcp", headers: { "X-Custom": secret } },
+      { type: "local", command: ["tool", secret] },
+      { type: "local", command: ["tool", "--password", "opaque-value"] },
+      { type: "remote", url: "https://example.invalid/mcp?token=opaque-value" },
+      { type: "remote", url: "https://user:opaque-value@example.invalid/mcp" },
+      { type: "remote", url: "https://example.invalid/mcp", credential: secret },
+    ]) {
+      const error = await run(ProjectFilesIntegrations.writeMcp(dir, { version: 1, servers: { bad: server } })).then(
+        () => undefined,
+        (error) => error,
+      )
+      expect(error).toMatchObject({ _tag: "ProjectFiles.Error", kind: "invalid" })
+      expect(String(error)).not.toContain(secret)
+      expect(await readFile(path.join(dir, ".orchestra", "mcp.yaml"), "utf8")).toBe(previous)
+    }
   })
 
   test("a missing file is a loud missing error, not an empty file", async () => {
@@ -197,9 +230,11 @@ describe("ProjectFiles integrate", () => {
     await expect(run(ProjectFilesIntegrations.integrate(dir, { ...mcpSpec, name: "Bad_Name" }))).rejects.toMatchObject({
       kind: "invalid",
     })
-    await expect(run(ProjectFilesIntegrations.integrate(dir, { ...mcpSpec, when: "too short" }))).rejects.toMatchObject({
-      kind: "invalid",
-    })
+    await expect(run(ProjectFilesIntegrations.integrate(dir, { ...mcpSpec, when: "too short" }))).rejects.toMatchObject(
+      {
+        kind: "invalid",
+      },
+    )
     await expect(
       run(ProjectFilesIntegrations.integrate(dir, { ...catalogSpec, catalog: { entry: "no-such-server" } })),
     ).rejects.toMatchObject({ kind: "invalid" })
@@ -260,7 +295,10 @@ describe("ProjectFiles integrations registry", () => {
     expect(tracked).toContain("INTEGRATE.md")
     // Line endings follow the checkout (CRLF on Windows), so the file is
     // normalized before the per-line membership check.
-    const gitignore = (await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")).replaceAll("\r\n", "\n")
+    const gitignore = (await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")).replaceAll(
+      "\r\n",
+      "\n",
+    )
     for (const line of ProjectFiles.ProjectFilesRegistry.gitignoreLines()) {
       expect(gitignore).toContain(`${line}\n`)
     }
@@ -287,9 +325,7 @@ describe("ProjectFiles integrations registry", () => {
     const dir = await fixture()
     await run(ProjectFilesIntegrations.integrate(dir, restSpec))
     await writeSibling(dir, "native-skills/skills.json", "{not json\n")
-    const report = await run(
-      ProjectFiles.ProjectFilesSync.syncAll(dir, { kv: undefined as never }),
-    )
+    const report = await run(ProjectFiles.ProjectFilesSync.syncAll(dir, { kv: undefined as never }))
     const byFile = new Map(report.files.map((entry) => [entry.file, entry.status]))
     expect(byFile.get("mcp.yaml")).toBe("ok")
     expect(byFile.get("INTEGRATE.md")).toBe("ok")
@@ -302,9 +338,7 @@ describe("ProjectFiles integrations registry", () => {
     const dir = await fixture()
     await run(ProjectFilesIntegrations.integrate(dir, restSpec))
     await writeSibling(dir, "native-skills/skills.json", JSON.stringify({ version: 1, skills: [] }))
-    const report = await run(
-      ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
-    )
+    const report = await run(ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }))
     const byFile = new Map(report.entries.map((entry) => [entry.file, entry.status]))
     expect(byFile.get("native-skills/skills.json")).toBe("skipped")
     expect(byFile.get("INTEGRATE.md")).toBe("restored")
@@ -315,9 +349,7 @@ describe("ProjectFiles integrations registry", () => {
   test("restoreFromFiles reports a damaged skill registry as failed, not skipped", async () => {
     const dir = await fixture()
     await writeSibling(dir, "native-skills/skills.json", "{not json\n")
-    const report = await run(
-      ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }),
-    )
+    const report = await run(ProjectFiles.ProjectFilesRestore.restoreFromFiles(dir, { kv: undefined as never }))
     const entry = report.entries.find((item) => item.file === "native-skills/skills.json")
     expect(entry?.status).toBe("failed")
     expect(entry?.error).toContain("damaged")

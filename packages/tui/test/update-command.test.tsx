@@ -69,7 +69,7 @@ test("/upgrade opens the manual update dialog and checks for a newer version", a
   })
 
   await setup.ready
-  await setup.waitForFrame((frame) => frame.includes("Build · first model"))
+  await setup.waitForFrame((frame) => frame.includes("Build mode:auto · first model"))
   setup.mockInput.typeText("/upgrade")
   // Wait for slash-command autocomplete before Enter; otherwise the key can land on
   // the composer itself while the command list is still being rendered.

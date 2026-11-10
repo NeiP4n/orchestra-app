@@ -23,6 +23,7 @@ test("custom commands commit the captured agent, model and variant before execut
   }
   await using setup = await createAppFixture({
     state: state.path,
+    width: 160,
     config: {
       animations: false,
       keybinds: { "agent.cycle": "f6", "variant.cycle": "f7", "model.list": "f8" },
@@ -35,6 +36,18 @@ test("custom commands commit the captured agent, model and variant before execut
           location,
           data: ["build", "plan"].map((id) => ({ id, mode: "primary", hidden: false, permissions: [] })),
         })
+      if (url.pathname === "/api/integration")
+        return json({
+          location,
+          data: [
+            {
+              id: "demo",
+              name: "Demo",
+              methods: [{ id: "key", type: "key" }],
+              connections: [{ type: "credential", id: "fixture", label: "Test" }],
+            },
+          ],
+        })
       if (url.pathname === "/api/provider") return json({ location, data: [{ id: "demo", name: "Demo" }] })
       if (url.pathname === "/api/model")
         return json({
@@ -43,6 +56,7 @@ test("custom commands commit the captured agent, model and variant before execut
             id,
             providerID: "demo",
             name: `${id} model`,
+            enabled: true,
             variants: [{ id: "low" }, { id: "high" }],
             cost: [],
             time: { released: 0 },
@@ -61,23 +75,26 @@ test("custom commands commit the captured agent, model and variant before execut
   })
   try {
     await setup.ready
-    await setup.waitForFrame((frame) => frame.includes("Build · first model"))
+    await setup.waitForFrame((frame) => frame.includes("Build mode:auto · first model"))
     setup.mockInput.pressKey("F6")
-    await setup.waitForFrame((frame) => frame.includes("Plan ·"))
+    await setup.waitForFrame((frame) => frame.includes("Plan mode:auto ·"))
     setup.mockInput.pressKey("F8")
     await setup.waitForFrame(
-      (frame) => frame.includes("Select model") && setup.renderer.currentFocusedRenderable instanceof InputRenderable,
+      (frame) =>
+        frame.includes("All ·") &&
+        frame.includes("Search") &&
+        setup.renderer.currentFocusedRenderable instanceof InputRenderable,
     )
     await setup.mockInput.typeText("second")
-    await setup.renderOnce()
+    await setup.waitForFrame((frame) => frame.includes("second model") && frame.includes("All · 1 options"))
     setup.mockInput.pressEnter()
     await setup.waitForFrame((frame) => frame.includes("Select variant") && frame.includes("low"))
     await setup.mockInput.typeText("low")
-    await setup.renderOnce()
+    await setup.waitForFrame((frame) => frame.includes("low") && !frame.includes("high"))
     setup.mockInput.pressEnter()
     await setup.waitForFrame(
       (frame) =>
-        frame.includes("Plan · second model Demo · low") &&
+        frame.includes("Plan mode:auto · second model Demo · low") &&
         setup.renderer.currentFocusedRenderable instanceof TextareaRenderable,
     )
     await setup.mockInput.typeText("/review selected input")
@@ -87,7 +104,7 @@ test("custom commands commit the captured agent, model and variant before execut
     expect(mutations).toEqual([{ type: "agent", body: { agent: "plan" } }])
 
     // A later local edit must not change the in-flight command's selection.
-    await waitForFrame(setup, (frame) => frame.includes("Plan · second model Demo · low"))
+    await waitForFrame(setup, (frame) => frame.includes("Plan mode:auto · second model Demo · low"))
     setup.mockInput.pressKey("F7")
     await waitForFrame(setup, (frame) => frame.includes("high"))
     agent.resolve(new Response(null, { status: 204 }))

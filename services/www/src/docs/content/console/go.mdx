@@ -17,7 +17,7 @@ The service is designed primarily for international users and provides stable gl
 ## How it works
 
 1. Sign in to the [Orchestra Console](https://opencode.ai/console), subscribe to `opencode-go` or Go Plus, add your billing details, and copy your API key.
-2. Run `/connect` in the TUI, select `opencode-go`, and paste your API key.
+2. Run `/auth` in the TUI, select `opencode-go`, and paste your API key.
 
    ```text
    /connect
@@ -405,7 +405,7 @@ You can also access Go models through the following API endpoints.
 
 </div>
 
-These AI SDK packages are for applications calling Go directly. To use Go in Orchestra, connect with `/connect` and set
+These AI SDK packages are for applications calling Go directly. To use Go in Orchestra, connect with `/auth` and set
 the [model](/models) using the format `opencode-go/<model-id>`:
 
 ```jsonc title="orchestra.jsonc"

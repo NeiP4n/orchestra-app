@@ -59,6 +59,7 @@ import { SessionTabsProvider, useSessionTabs } from "./context/session-tabs"
 import { LocationProvider, useLocation } from "./context/location"
 import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
+import { DialogIntegration } from "./component/dialog-integration"
 import { DialogModel } from "./component/dialog-model"
 import { DialogMode } from "./component/dialog-mode"
 import { DialogMcp } from "./component/dialog-mcp"
@@ -115,7 +116,6 @@ import { Toast, ToastProvider, useToast } from "./ui/toast"
 import { isFallbackTitle } from "@orchestra/util/session-title-fallback"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
-import { openUrl } from "@orchestra/util/open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { Config, ConfigProvider, useConfig } from "./config"
 import { newSessionLocation } from "./config/new-session-location"
@@ -198,14 +198,12 @@ const appBindingCommands = [
   "theme.switch_mode",
   "theme.mode.lock",
   "help.show",
-  "docs.open",
   "diff.open",
   "app.debug",
   "app.console",
   "terminal.suspend",
   "terminal.title.toggle",
   "app.toggle.animations",
-  "app.toggle.state-effects",
   "app.toggle.file_context",
   "app.toggle.diffwrap",
   "app.toggle.paste_summary",
@@ -1033,6 +1031,13 @@ function App() {
         run: () => sessionTabs.selectIndex(i),
       })),
       {
+        name: "integration.auth",
+        title: "Connect provider",
+        category: "Agent",
+        slash: { name: "auth" },
+        run: () => dialog.replace(() => <DialogIntegration />),
+      },
+      {
         name: "model.list",
         title: "Switch model",
         suggested: true,
@@ -1050,30 +1055,6 @@ function App() {
         slash: { name: "mode" },
         run: () => {
           dialog.replace(() => <DialogMode />)
-        },
-      },
-      {
-        name: "model.default",
-        title: "Set default model",
-        category: "Agent",
-        slash: { name: "default-model", aliases: ["default"] },
-        run: () => {
-          dialog.replace(() => (
-            <DialogModel
-              title={t("Default model for new sessions")}
-              onPick={(model) =>
-                void client.api.config
-                  .update({ model: `${model.providerID}/${model.modelID}` })
-                  .then(() =>
-                    toast.show({
-                      variant: "success",
-                      message: `Default model: ${model.providerID}/${model.modelID}`,
-                    }),
-                  )
-                  .catch(toast.error)
-              }
-            />
-          ))
         },
       },
       {
@@ -1341,16 +1322,6 @@ function App() {
         category: "System",
       },
       {
-        name: "docs.open",
-        title: "Open docs",
-        slash: { name: "docs" },
-        run: () => {
-          openUrl(process.env.ORCHESTRA_DOCS_URL || "https://github.com/NeiP4n/orchestra-app#readme").catch(() => {})
-          dialog.clear()
-        },
-        category: "System",
-      },
-      {
         name: "app.language",
         title: "Switch language",
         slash: { name: "language", aliases: ["lang"] },
@@ -1358,20 +1329,6 @@ function App() {
           void config
             .update((draft) => {
               draft.language = config.data.language === "ru" ? "en" : "ru"
-            })
-            .catch(toast.error)
-          dialog.clear()
-        },
-        category: "System",
-      },
-      {
-        name: "app.layout.mobile",
-        title: "Toggle mobile layout",
-        slash: { name: "mobile", aliases: ["phone"] },
-        run: () => {
-          void config
-            .update((draft) => {
-              draft.layout = mobile() ? "auto" : "mobile"
             })
             .catch(toast.error)
           dialog.clear()
@@ -1453,16 +1410,6 @@ function App() {
             .catch(toast.error)
           dialog.clear()
         },
-      },
-      {
-        name: "app.toggle.state-effects",
-        title: "Переключить сигналы состояния",
-        slash: { name: "state-effects" },
-        run: () => {
-          void config.update((draft) => { draft.stateEffects = !(config.data.stateEffects ?? true) }).catch(toast.error)
-          dialog.clear()
-        },
-        category: "System",
       },
       {
         name: "app.toggle.animations",

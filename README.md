@@ -28,7 +28,7 @@ Then open a new terminal and run `orchestra-app` (or `orchestra`).
 - **Hub & Tool Registry** — a comprehensive registry of CLI and MCP tools to install and enable for models; Nushell as a modern agent shell.
 - **Mini skills** — contextual action buttons above the prompt: Analyze, Plan, Debug, Review, Test.
 - **Shared rate limits** — agents targeting the same model or provider coordinate cooldown periods cooperatively.
-- **Mobile layout** — `/mobile` folds side panels to edge rails; enabled automatically in Termux and Android shells.
+- **Mobile layout** — Side panels fold to edge rails automatically in Termux and Android shells; use `layout: "mobile"` in the TUI config to force it.
 - **Bilingual UI** — Full English and Russian support (`/language`).
 
 ## Monorepo Architecture
@@ -62,3 +62,11 @@ MIT. See [LICENSE](LICENSE).
 ---
 
 Built with ChatGPT, Claude, and Orchestra.
+
+### TUI command changes
+
+- `/auth` opens provider connections; `/models` selects a model. In `/models`, `ctrl+d` saves the selected model as the default for new sessions.
+- `/freebuff` is the single Freebuff entry. Balance, timers, account switching and adding accounts are inside that dialog.
+- `/compat` is for tools from other agents, not provider authentication or the native tool registry (`/registry`).
+- `/help` contains the documentation link. `/docs`, `/default-model` (`/default`), `/mobile` (`/phone`) and `/state-effects` are removed.
+- Manual mobile layout and state pulses remain TUI configuration settings: `layout: "mobile"` and `stateEffects: false`.
