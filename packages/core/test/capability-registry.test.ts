@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { CapabilityRegistry as Registry } from "../src/capabilities/registry"
 import { CapabilityCatalog as Catalog } from "../src/capabilities/catalog"
-import { inspect } from "../src/capabilities/inspect"
+import { inspect, localToolIDs } from "../src/capabilities/inspect"
 import { all as hub } from "../src/hub/catalog/index"
 import { all as mcp } from "../src/mcp/catalog"
 
@@ -59,4 +59,21 @@ test("effective local metadata snapshot preserves OFF, distinguishes loaded/disc
   expect(snapshot.entries.every((row) => row.eligible === false)).toBe(true)
   const off = inspect({ at: 1, mcpEnabled: false, mcp: [], native: [], skills: [], plugins: [] })
   expect(off.entries.filter((row) => row.kind === "mcp").every((row) => row.state === "disabled")).toBe(true)
+})
+
+test("local inventory includes registered tools beyond analogue hints but not fleet namespaces", () => {
+  expect(
+    localToolIDs(
+      [
+        { id: "grep" },
+        { id: "budget" },
+        { id: "unknown-local-adapter" },
+        { id: "serena_find", options: { namespace: "serena" } },
+        { id: "custom_server_search", options: { namespace: "custom_server" } },
+        { id: "plugin_local", options: { namespace: "my-plugin" } },
+        { id: "grep" },
+      ],
+      ["serena", "custom.server"],
+    ),
+  ).toEqual(["grep", "budget", "unknown-local-adapter", "plugin_local"])
 })

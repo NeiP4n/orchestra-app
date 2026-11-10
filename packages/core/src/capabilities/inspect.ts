@@ -38,3 +38,17 @@ export function inspect(facts: Facts) {
     observed.set("plugin:" + plugin.id, { state: plugin.disabled ? "disabled" : "unknown" })
   return snapshot(rows, observed, facts.at)
 }
+
+/** Runtime-local registered methods, not the fixed native-analogue shortlist. Plugin methods
+ * registered into the same local tool registry are included; MCP namespaces stay separate. */
+export function localToolIDs(
+  tools: readonly { id: string; options?: { namespace?: string } }[],
+  mcpServers: readonly string[],
+): readonly string[] {
+  const namespaces = new Set(mcpServers.map((name) => name.replace(/[^a-zA-Z0-9_-]/g, "_")))
+  return [
+    ...new Set(
+      tools.filter((row) => !row.options?.namespace || !namespaces.has(row.options.namespace)).map((row) => row.id),
+    ),
+  ]
+}

@@ -141,7 +141,6 @@ export const Plugin = {
                 const skills = yield* Effect.serviceOption(Skill.Service)
                 const config = yield* Effect.serviceOption(Config.Service)
                 const registered = Option.isSome(tools) ? yield* tools.value.list() : []
-                const nativeNames = new Set(McpCatalog.nativeAnalogues.flatMap((row) => [...row.nativeTools]))
                 const indexedSkills = Option.isSome(skills) ? yield* skills.value.list() : []
                 const documents = Option.isSome(config) ? yield* config.value.entries() : []
                 const plugins = documents.flatMap((row) => row.type === "document" ? row.info.plugins ?? [] : [])
@@ -155,7 +154,7 @@ export const Plugin = {
                   })
                 const capabilities = CapabilityInspect.inspect({ at: Date.now(), mcpEnabled: McpCatalog.mcpEnabled(process.env),
                   mcp: rows.map((row) => ({ name: row.name, disabled: row.disabled, status: row.status, tools: row.tools })),
-                  native: registered.map((row) => row.id).filter((id) => nativeNames.has(id)),
+                  native: CapabilityInspect.localToolIDs(registered, [...rows.map((row) => row.name), ...McpCatalog.all.map((row) => row.id)]),
                   skills: indexedSkills.map((row) => String(row.id)), plugins,
                 })
                 const active = rows.filter((row) => row.status === "connected").length
