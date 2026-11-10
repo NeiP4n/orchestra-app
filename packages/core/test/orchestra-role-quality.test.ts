@@ -285,17 +285,17 @@ describe("shared team prompt", () => {
 
 describe("orchestrator triage and modes", () => {
   test("sizes the task before it dispatches a team", () => {
-    expect(PROMPT_ORCHESTRATOR).toContain("Task size — decide before you dispatch")
+    expect(PROMPT_ORCHESTRATOR).toContain("Task size - decide silently from the intended outcome, risks and dependencies")
     expect(PROMPT_ORCHESTRATOR).toContain("Quick: one file or one obvious change")
-    expect(PROMPT_ORCHESTRATOR).toContain("Pick the size the work needs and say which")
+    expect(PROMPT_ORCHESTRATOR).toContain("No task-size label, RFC, matrix or architecture proposal unless needed or requested")
     expect(PROMPT_ORCHESTRATOR).toContain("at most ten of your own tool calls orienting before the first dispatch")
     expect(PROMPT_ORCHESTRATOR).toContain("the first dispatch may be that investigation")
   })
 
   test("never shrinks a requested project to one simple task", () => {
     expect(PROMPT_ORCHESTRATOR).not.toContain("Default to the smaller size")
-    expect(PROMPT_ORCHESTRATOR).toContain("it is Deep: never shrink it to one simple task")
-    expect(PROMPT_ORCHESTRATOR).toContain("Deep work — how you run it")
+    expect(PROMPT_ORCHESTRATOR).toContain("A request for a whole working system is Deep; finish its actual scope rather than substituting a small demo")
+    expect(PROMPT_ORCHESTRATOR).toContain("Deep work - how you run it")
     expect(PROMPT_ORCHESTRATOR).toContain("Research first")
     expect(PROMPT_ORCHESTRATOR).toContain("Put every milestone on the DoD board")
     expect(PROMPT_ORCHESTRATOR).toContain("dispatch the next milestone that is now unblocked")
