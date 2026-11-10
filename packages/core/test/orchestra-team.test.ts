@@ -1873,7 +1873,7 @@ describe("Orchestra team", () => {
       const permissions: Array<(event: PermissionEvaluation) => Effect.Effect<void>> = []
       yield* TeamPlugin.Plugin.effect(host({
         agent: agentHost(agents),
-        session: { hook: ((name: string, callback: (event: never) => Effect.Effect<void>) => Effect.sync(() => {
+        session: { hook: ((name: string, callback: (event: unknown) => Effect.Effect<void, unknown>) => Effect.sync(() => {
           if (name === "context") contexts.push(callback as (event: SessionContext) => Effect.Effect<void>)
           if (name === "prompt") prompts.push(callback)
         }).pipe(Effect.as({ dispose: Effect.void }))) as never },
@@ -2009,7 +2009,7 @@ describe("Orchestra team", () => {
         host({
           agent: agentHost(agents),
           session: {
-            hook: ((name: string, callback: (event: never) => Effect.Effect<void>) =>
+            hook: ((name: string, callback: (event: unknown) => Effect.Effect<void, unknown>) =>
               Effect.sync(() => {
                 if (name === "context") contexts.push(callback as (event: SessionContext) => Effect.Effect<void>)
                 if (name === "prompt") prompts.push(callback as (event: { sessionID: Session.ID }) => Effect.Effect<void>)

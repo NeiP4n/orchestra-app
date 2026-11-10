@@ -21070,6 +21070,16 @@
                       "required": ["id", "name"],
                       "additionalProperties": false
                     }
+                  },
+                  "templateID": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": ["projectID", "browsers"],

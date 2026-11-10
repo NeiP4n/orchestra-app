@@ -122,7 +122,7 @@ describe("Process skill assignments", () => {
           yield* skills.reload()
           expect((yield* skills.list(context)).map((skill) => skill.id)).toEqual([ids[0]])
           yield* skills.transform((editor) => editor.add(info(ids[0])))
-          yield* kv.set(ProcessSkillDefinitions.PREFIX + projectID, { ...reviewed.snapshot, registryDigest: "corrupt" })
+          yield* kv.set(ProcessSkillDefinitions.PREFIX + projectID, JSON.parse(JSON.stringify({ ...reviewed.snapshot, registryDigest: "corrupt" })))
           expect(yield* skills.get(ids[0], context)).toBeUndefined()
           yield* kv.set(ProcessSkillDefinitions.PREFIX + projectID, JSON.parse(JSON.stringify(reviewed.snapshot)))
           yield* Effect.promise(() => writeFile(path.join(root, "guide.md"), "Changed after review"))
@@ -145,17 +145,17 @@ describe("Process skill assignments", () => {
         editor.add(info("global"))
         ids.forEach((id) => editor.add(info(id)))
       })
-      expect((yield* skills.list()).map((s) => s.id)).toEqual(["global"])
+      expect((yield* skills.list()).map((s) => s.id)).toEqual([Skill.ID.make("global")])
       expect(yield* skills.get(ids[0])).toBeUndefined()
-      expect((yield* skills.list(context)).map((s) => s.id)).toEqual(["global", ...ids])
+      expect((yield* skills.list(context)).map((s) => s.id)).toEqual([Skill.ID.make("global"), ...ids])
       expect(yield* skills.get(ids[1], context)).toEqual(info(ids[1]))
-      expect((yield* skills.list({ sessionID, agent: "review" })).map((s) => s.id)).toEqual(["global", ids[2], ids[3]])
+      expect((yield* skills.list({ sessionID, agent: "review" })).map((s) => s.id)).toEqual([Skill.ID.make("global"), ids[2], ids[3]])
       expect((yield* skills.list({ sessionID: "ses_process_main", agent: "review" })).map((s) => s.id)).toEqual([
-        "global",
+        Skill.ID.make("global"),
         ids[3],
       ])
-      expect((yield* skills.list({ sessionID: "ses_other_main", agent: "build" })).map((s) => s.id)).toEqual(["global"])
-      expect((yield* skills.list({ sessionID: "ses_unclaimed", agent: "build" })).map((s) => s.id)).toEqual(["global"])
+      expect((yield* skills.list({ sessionID: "ses_other_main", agent: "build" })).map((s) => s.id)).toEqual([Skill.ID.make("global")])
+      expect((yield* skills.list({ sessionID: "ses_unclaimed", agent: "build" })).map((s) => s.id)).toEqual([Skill.ID.make("global")])
       const guidance = yield* instructions.load([], context).pipe(Effect.flatMap(readInitial))
       expect(guidance.text).toContain(ids[0])
       const denied = yield* instructions

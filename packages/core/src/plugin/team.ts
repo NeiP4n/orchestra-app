@@ -183,6 +183,7 @@ export const Plugin = define({
     const federation = yield* Federation.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
+    const agents = yield* Agent.Service
     const team = { roles: yield* orchestra.scopedRoles() }
     yield* warnUnlistedRoles(team.roles)
     // A session's stored mode wins; without one, the role's default applies. `auto` is an
@@ -382,7 +383,7 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     yield* ctx.session.hook("prompt", (event) =>
       Effect.gen(function* () {
         const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
-        if (Option.isSome(current) && !(yield* orchestra.projectRoleAllowed(event.sessionID, current.value.agent)))
+        if (Option.isSome(current) && !(yield* orchestra.projectRoleAllowed(event.sessionID, (yield* agents.select(current.value.agent)).id)))
           return yield* new PromptInput.Rejected({ reason: "This process role belongs to another project or its project was removed.", source: "project-role" })
         exploring.delete(event.sessionID)
         if (isLimitReport(event.prompt.text ?? "")) limited.add(event.sessionID)
@@ -446,7 +447,9 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     // Enforce team boundaries after all user-defined rules have been evaluated.
     yield* ctx.permission.hook("evaluate", (event) =>
       Effect.gen(function* () {
-        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, event.agent))) {
+        const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
+        const selected = yield* agents.select(event.agent ?? Option.getOrUndefined(current)?.agent)
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, selected.id))) {
           event.effect = "deny"
           event.message = "This process role belongs to another project or its project was removed."
           return

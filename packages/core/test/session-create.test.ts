@@ -1212,7 +1212,7 @@ describe("Session.create", () => {
       const model = Model.Ref.make({ id: Model.ID.make("sonnet"), providerID: Provider.ID.anthropic })
       const absent = yield* sessions.create({ location, model })
       expect(yield* store.getStoredModel(absent.id)).toEqual(model)
-      expect((yield* store.get(absent.id))?.model?.variant).toBe("default")
+      expect((yield* store.get(absent.id))?.model?.variant).toBe(Model.VariantID.make("default"))
       const explicit = Model.Ref.make({ ...model, variant: Model.VariantID.make("default") })
       const selected = yield* sessions.create({ location, model: explicit })
       expect(yield* store.getStoredModel(selected.id)).toEqual(explicit)
