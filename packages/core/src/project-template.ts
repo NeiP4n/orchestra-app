@@ -25,6 +25,7 @@ export interface Bundle {
     maxPerHour: number
     maxPerDay: number
     missedPolicy: "skip" | "run-once" | "catch-up"
+    structuredCondition?: true
   }[]
   providers: { id: string; endpoint: string | null; credentialSlots: string[] }[]
   mcp: { name: string; catalog: string; credentialSlots: string[] }[]
@@ -102,7 +103,8 @@ export function parse(serialized: string): Result<Bundle> {
       return { session, text: ruleText, scope }
     })
     const schedules: Bundle['schedules'] = array(data.schedules, 20).map((v) => {
-      const row = object(v, ['slot', 'source', 'instruction', 'maxPerHour', 'maxPerDay', 'missedPolicy']), kind = (row.source as { kind?: unknown } | null)?.kind
+      const structured = !!v && typeof v === 'object' && Object.hasOwn(v, 'structuredCondition')
+      const row = object(v, ['slot', 'source', 'instruction', 'maxPerHour', 'maxPerDay', 'missedPolicy', ...(structured ? ['structuredCondition'] : [])]), kind = (row.source as { kind?: unknown } | null)?.kind
       let source: Bundle['schedules'][number]['source']
       if (kind === 'browser') { const def = object(row.source, ['kind', 'browser', 'match']), browser = slot(def.browser); if (!browserNames.has(browser)) invalid(); source = { kind, browser, match: def.match === null ? null : text(def.match, 200) } }
       else if (kind === 'execution.succeeded' || kind === 'execution.failed') { const def = object(row.source, ['kind', 'session']); source = { kind, session: sessionRef(def.session) } }
@@ -115,7 +117,8 @@ export function parse(serialized: string): Result<Bundle> {
         if (bound && (k !== 'interval' || Number(spec) < 60 || !browserNames.has(slot(def.browser)))) invalid()
         source = { kind: k, spec, ...(bound ? { browser: slot(def.browser) } : {}) }
       }
-      return { slot: slot(row.slot), source, instruction: text(row.instruction), maxPerHour: cap(row.maxPerHour, 12), maxPerDay: cap(row.maxPerDay, 100), missedPolicy: choice(row.missedPolicy, ['skip', 'run-once', 'catch-up']) }
+      if (structured && row.structuredCondition !== true) invalid()
+      return { ...(structured ? { structuredCondition: true as const } : {}), slot: slot(row.slot), source, instruction: text(row.instruction), maxPerHour: cap(row.maxPerHour, 12), maxPerDay: cap(row.maxPerDay, 100), missedPolicy: choice(row.missedPolicy, ['skip', 'run-once', 'catch-up']) }
     }); unique(schedules.map((row) => row.slot))
     const providers = array(data.providers, 30).map((v) => { const row = object(v, ['id', 'endpoint', 'credentialSlots']); return { id: id(row.id), endpoint: row.endpoint === null ? null : url(row.endpoint), credentialSlots: slots(row.credentialSlots) } }); unique(providers.map((row) => row.id))
     const mcp = array(data.mcp, 50).map((v) => { const row = object(v, ['name', 'catalog', 'credentialSlots']); return { name: slot(row.name), catalog: slot(row.catalog), credentialSlots: slots(row.credentialSlots) } }); unique(mcp.map((row) => row.name))

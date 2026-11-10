@@ -68,7 +68,7 @@ export function capture(source: Source, metadata: { name: string; description: s
         if (row.browserSessionID && (row.kind !== "interval" || Number(row.spec) < 60 || !browsers.has(row.browserSessionID))) throw Error()
         def = { kind: row.kind, spec: row.spec, ...(row.browserSessionID ? { browser: browsers.get(row.browserSessionID)! } : {}) }
       }
-      return { slot: `schedule_${index + 1}`, source: def, instruction: row.prompt, maxPerHour: row.maxPerHour, maxPerDay: row.maxPerDay, missedPolicy: row.missedPolicy ?? "skip" }
+      return { ...(row.condition ? { structuredCondition: true as const } : {}), slot: `schedule_${index + 1}`, source: def, instruction: row.prompt, maxPerHour: row.maxPerHour, maxPerDay: row.maxPerDay, missedPolicy: row.missedPolicy ?? (row.kind === "once" ? "run-once" : "skip") }
     })
     const local: ProjectTemplate.Bundle["vault"]["local"] = [], globalRequirements: string[] = []
     const selected = new Set(source.selectedGlobalSlotIDs)

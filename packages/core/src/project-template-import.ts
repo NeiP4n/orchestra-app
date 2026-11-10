@@ -116,8 +116,16 @@ export function prepare(serialized: string, destination: Destination) {
         kind === "browser"
           ? destination.browsers[(row.source as { browser: string }).browser]
           : (row.source as { spec: string }).spec
+    const expectedCondition = row.structuredCondition
+      ? kind === "browser"
+        ? { type: "browser" as const, event: "incoming-row" as const, sessionID: spec, ...("match" in row.source && row.source.match ? { match: row.source.match } : {}) }
+        : { type: "time" as const, kind: kind as "cron" | "interval" | "once", spec }
+      : undefined
+    const expectedBrowser = "browser" in row.source && kind === "interval" ? destination.browsers[row.source.browser!] : undefined
+    const expectedMatch = kind === "browser" && "match" in row.source ? row.source.match ?? undefined : undefined
     const created = Trigger.create(
       {
+        ...(expectedCondition ? { condition: expectedCondition } : {}),
         kind,
         spec,
         prompt: row.instruction,
@@ -138,6 +146,9 @@ export function prepare(serialized: string, destination: Destination) {
     if (!created.ok) throw Error("Schedule cannot be represented unchanged in the destination. Nothing was prepared.")
     const trigger = created.trigger
     if (
+      trigger.kind !== kind || trigger.spec !== spec || trigger.match !== expectedMatch ||
+      trigger.browserSessionID !== expectedBrowser || trigger.missedPolicy !== row.missedPolicy ||
+      JSON.stringify(trigger.condition) !== JSON.stringify(expectedCondition) ||
       trigger.prompt !== row.instruction ||
       trigger.maxPerHour !== row.maxPerHour ||
       trigger.maxPerDay !== row.maxPerDay
