@@ -16,3 +16,11 @@ export function mcpRegistryState(entries: readonly Entry[]) {
       .sort(),
   }
 }
+
+/** Toggling an installed adapter must not replace custom commands, endpoints or timeout settings
+ * with the catalog defaults. Newly installed adapters still use the selected catalog recipe. */
+export function mcpRegistryToggle(entries: readonly Entry[], id: string, requested: import("@orchestra/schema/mcp").ServerConfig | null) {
+  let existing: import("@orchestra/schema/mcp").ServerConfig | undefined
+  for (const entry of entries) if (entry.type === "document" && entry.info.mcp?.servers?.[id]) existing = entry.info.mcp.servers[id]
+  return existing && requested ? { ...existing, disabled: requested.disabled === true } : requested
+}
