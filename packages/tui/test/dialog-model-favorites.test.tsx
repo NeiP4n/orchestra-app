@@ -97,3 +97,15 @@ test("help keeps the README link after the docs command is removed", async () =>
     await Bun.write("/downloads/help-docs.spans.json", JSON.stringify(setup.captureSpans()))
   expect(setup.captureCharFrame()).toContain("Documentation (README)")
 })
+
+test("filtered model row remains selected and Enter applies it", async () => {
+  await using setup = await renderLocal({ models: [model("alpha"), model("beta")], fetch: serverConfig([]) })
+  setup.local.model.set({ providerID: "provider", modelID: "alpha" })
+  setup.dialog.replace(() => <DialogModel />)
+  await setup.waitForFrame((frame) => frame.includes("alpha") && frame.includes("beta"))
+  await setup.mockInput.typeText("beta")
+  await setup.waitForFrame((frame) => frame.includes("beta") && !frame.includes("alpha"))
+  setup.mockInput.pressEnter()
+  await setup.waitFor(() => setup.local.model.current()?.modelID === "beta")
+  expect(setup.local.model.current()).toMatchObject({ modelID: "beta" })
+})
