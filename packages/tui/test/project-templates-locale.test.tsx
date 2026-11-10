@@ -34,7 +34,7 @@ for (const language of ["en", "ru"] as const) test(`template labels, confirmatio
   const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({ language })}>
     <ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave access={{
       list: async () => [],
-      prepareSave: async () => { if (fail) throw Error("private diagnostic"); return { token: "preview", name: "Factory", details: "{}" } },
+      prepareSave: async () => { if (fail) throw Object.assign(Error("private diagnostic"), { _tag: "InvalidRequestError", kind: "TEMPLATE_PERMISSION" }); return { token: "preview", name: "Factory", details: "{}" } },
       confirmSave: async () => {}, prepareCreate: async () => { throw Error("unused") }, confirmCreate: async () => {},
     }} /></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: 80, height: 26 })
   app.renderer.start()
@@ -49,7 +49,9 @@ for (const language of ["en", "ru"] as const) test(`template labels, confirmatio
     fail = true
     await click("save")
     await app.waitForFrame((f) => f.includes(text("Could not finish. Nothing was replaced. Try again.")))
+    if (process.env.CAPTURE_TEMPLATE_ERRORS) await Bun.write(`${process.env.CAPTURE_TEMPLATE_ERRORS}-${language}.json`, JSON.stringify(app.captureSpans()))
     expect(app.captureCharFrame()).not.toContain("private diagnostic")
+    expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain(text("Template storage is not writable. Check application data folder permissions."))
     if (language === "en") expect(app.captureCharFrame()).not.toMatch(/[А-Яа-яЁё]/)
   } finally { app.renderer.destroy() }
 })

@@ -142,10 +142,11 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect(
         (yield* call("/api/orchestra/project/" + project.id, "PATCH", { name: "Changed after review" })).status,
       ).toBe(200)
-      expect(
-        (yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: stale.body.token, browsers }))
-          .status,
-      ).toBe(400)
+      const changed = yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: stale.body.token, browsers })
+      expect(changed.status).toBe(400)
+      expect(changed.body.kind).toBe("TEMPLATE_CHANGED")
+      expect(JSON.stringify(changed.body)).not.toContain(source)
+      expect(JSON.stringify(changed.body)).not.toContain(project.id)
       expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
       expect(
         (yield* call("/api/orchestra/project-template/prepare-save", "POST", {

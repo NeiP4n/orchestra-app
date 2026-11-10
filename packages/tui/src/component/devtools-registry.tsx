@@ -292,7 +292,7 @@ export function RegistryPanel(props: {
           {t("Registry")}
         </text>
         <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => props.onClose?.()}>
-          esc
+          {t("esc")}
         </text>
       </box>
 
