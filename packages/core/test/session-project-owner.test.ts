@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
+import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionProjectOwner as Owner } from "../src/session/project-owner"
 import { BrowserBridge } from "../src/browser/bridge"
 
@@ -29,7 +30,7 @@ test("ordinary main with KV owner and no metadata sees and starts its own publis
   expect(BrowserBridge.visible(browser, "/test3")).toEqual([])
   expect(BrowserBridge.ownerRefusal(browser, "brw_test", "/test3")).toContain("no verified")
   const owner = await Effect.runPromise(Owner.resolve(f.kv, session))
-  expect(owner).toBe("prj_test")
+  expect(owner).toBe(Orchestra.ProjectID.make("prj_test"))
   expect(BrowserBridge.visible(browser, "/test3", owner)).toEqual(browser)
   expect(BrowserBridge.resolve(browser, "Browser 1", "/test3", owner)).toEqual({ session: browser[0] })
   expect(BrowserBridge.ownerRefusal(browser, "brw_test", "/test3", owner)).toBeUndefined()
@@ -39,7 +40,7 @@ test("ordinary main with KV owner and no metadata sees and starts its own publis
 test("exact legacy Project.main works without marker but directory alone never grants access", async () => {
   const f = fixture()
   f.values.delete("orchestra/owner/ses_main")
-  expect(await Effect.runPromise(Owner.resolve(f.kv, { id: "ses_main" }))).toBe("prj_test")
+  expect(await Effect.runPromise(Owner.resolve(f.kv, { id: "ses_main" }))).toBe(Orchestra.ProjectID.make("prj_test"))
   expect(await Effect.runPromise(Owner.resolve(f.kv, { id: "ses_foreign" }))).toBeUndefined()
   f.values.set("orchestra/project/prj_second", {
     id: "prj_second",
@@ -53,8 +54,7 @@ test("exact legacy Project.main works without marker but directory alone never g
 
 test("conflicting, stale, malformed and moving owners fail closed without repair", async () => {
   for (const kind of ["conflict", "stale", "malformed", "moving"]) {
-    const f = fixture(),
-      before = JSON.stringify([...f.values])
+    const f = fixture()
     let session: any = { id: "ses_main" }
     if (kind === "conflict") session.metadata = { "orchestra:project-owner": { projectID: "prj_other" } }
     if (kind === "stale") f.values.delete("orchestra/project/prj_test")
@@ -71,7 +71,7 @@ test("a stable foreign owner remains foreign even in the same directory", async 
   f.values.set("orchestra/project/prj_foreign", { id: "prj_foreign", name: "Other", directory: "/test3", created: 2 })
   f.values.set("orchestra/owner/ses_worker", "prj_foreign")
   const owner = await Effect.runPromise(Owner.resolve(f.kv, { id: "ses_worker" }))
-  expect(owner).toBe("prj_foreign")
+  expect(owner).toBe(Orchestra.ProjectID.make("prj_foreign"))
   expect(BrowserBridge.visible(browser, "/test3", owner)).toEqual([])
   expect(BrowserBridge.ownerRefusal(browser, "brw_test", "/test3", owner)).toContain("another project")
 })
@@ -81,7 +81,7 @@ test("legacy scan pagination is bounded and re-reads the selected main", async (
   f.values.delete("orchestra/owner/ses_main")
   let calls = 0
   const paged = { ...f.kv, scan: () => Effect.succeed(++calls === 1 ? { entries: [], next: "next" } : { entries: [{ key: "orchestra/project/prj_test", value: f.values.get("orchestra/project/prj_test") }] }) }
-  expect(await Effect.runPromise(Owner.resolve(paged, {id: "ses_main"}))).toBe("prj_test")
+  expect(await Effect.runPromise(Owner.resolve(paged, {id: "ses_main"}))).toBe(Orchestra.ProjectID.make("prj_test"))
   const stale = { ...f.kv, get: () => Effect.succeed(undefined) }
   expect(await Effect.runPromise(Owner.resolve(stale, {id: "ses_main"}))).toBeUndefined()
   let loop = 0
