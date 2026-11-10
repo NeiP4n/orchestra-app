@@ -45,6 +45,9 @@ import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
 import { BrowserBridge } from "./browser/bridge.js"
 import { BrowserRuntime } from "./browser/runtime.js"
+import { ScheduleRequests } from "./schedule-requests.js"
+import { TriggerBundle } from "./trigger-bundle.js"
+import { TriggerBundleFiles } from "./trigger-bundle-files.js"
 import { BrowserWatcherLifetime } from "./browser/watcher-lifetime.js"
 import { BrowserSchedule } from "./browser/schedule.js"
 import { BrowserWatch } from "./browser/watch.js"
@@ -1825,6 +1828,42 @@ const layer: Layer.Layer<
         if (!trigger) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project?.main) continue
+        const command = ScheduleRequests.read(trigger.id, String(project.main))
+        if (command) {
+          if (command.action === "export") {
+            const bundle = TriggerBundle.fromTriggers([trigger])
+            if (!bundle.ok) ScheduleRequests.finish(command, false, "Этот тип триггера пока нельзя перенести. Браузер и его права не экспортируются.")
+            else {
+              const saved = yield* Effect.tryPromise(() => TriggerBundleFiles.save(project.directory, `trigger-${command.requestID}`, JSON.stringify(bundle.value))).pipe(Effect.result)
+              ScheduleRequests.finish(command, saved._tag === "Success", saved._tag === "Success" ? `Шаблон сохранён: ${saved.success}` : "Не удалось сохранить шаблон в проекте.")
+            }
+          } else {
+            const next = command.action === "pause" ? {...trigger, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(trigger, Date.now())
+            const browserID = trigger.kind === "browser" ? trigger.spec : trigger.browserSessionID
+            const refusal = command.action === "resume" && browserID ? BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), browserID, project.directory, String(project.id)) : undefined
+            if (!next || refusal) ScheduleRequests.finish(command, false, refusal ? "Браузер не принадлежит этому проекту. Проверьте привязку." : "Это расписание уже завершено; создайте новое.")
+            else {
+              const applied = Trigger.parse(yield* kv.atomicUpdate(entry.key, current => {
+                const latest = Trigger.parse(current)
+                if (!latest || latest.id !== trigger.id || latest.projectID !== String(project.id)) return current
+                return (command.action === "pause" ? {...latest, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(latest, Date.now()) ?? latest) as never
+              }))
+              if (!applied || applied.id !== trigger.id || applied.projectID !== String(project.id)) { ScheduleRequests.finish(command, false, "Триггер уже удалён или сменил владельца."); continue }
+              if (command.action === "resume" && !applied.enabled) { ScheduleRequests.finish(command, false, "Расписание уже завершено; создайте новое."); continue }
+              ScheduleView.sync(applied, String(project.main))
+              BrowserSchedule.sync(applied.kind === "browser" ? {...applied, browserSessionID:applied.spec} : applied)
+              if (trigger.kind === "browser") {
+                if (command.action === "resume") yield* Effect.promise(() => BrowserRuntime.watchActivate(trigger.spec))
+                else {
+                  const remaining = (yield* scanAll(Trigger.PREFIX)).flatMap(row => Trigger.parse(row.value) ?? [])
+                  yield* Effect.promise(() => BrowserWatcherLifetime.release({sessionID:trigger.spec, projectID:String(project.id), directory:project.directory, sessions:BrowserRuntime.sessions(), triggers:remaining, stop:BrowserRuntime.stopPageWatcher}))
+                }
+              }
+              ScheduleRequests.finish(command, true, command.action === "pause" ? "Триггер на паузе." : "Триггер включён.")
+            }
+          }
+          continue
+        }
         const limit = ScheduleView.hourlyLimitRequested(trigger.id, String(project.main))
         if (limit) {
           const updated = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {

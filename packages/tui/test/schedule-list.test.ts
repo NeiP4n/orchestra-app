@@ -39,13 +39,12 @@ test("schedule rows adapt at word boundaries and translate pause caps", () => {
   }
 })
 
-test("schedule section and rows collapse independently without changing schedule state", () => {
+test("sidebar is one quiet line opening a separate trigger window, not inline controls", () => {
   const source = readFileSync(new URL("../src/component/schedule-list.tsx", import.meta.url), "utf8")
-  expect(source).toContain("Расписания")
-  expect(source).toContain("setCollapsed((value) => !value)")
-  expect(source).toContain("[item.id]: !value[item.id]")
-  expect(source).toContain("when={expanded()[item.id]}")
-  expect(source).toContain("onSizeChange")
+  expect(source).toContain("Триггеры:")
+  expect(source).toContain("<DialogSchedules sessionID={props.sessionID}")
+  expect(source).not.toContain("requestRemoval")
+  expect(source).not.toContain("scheduleDetails")
   expect(source).not.toContain("Trigger.pause")
   expect(source).not.toContain("Trigger.resume")
 })
@@ -62,8 +61,7 @@ test("one-line status and at most three details do not repeat type or expose opa
   expect(lines).toContain("Причина паузы: лимит 6 запусков в час")
   expect(lines).toContain("Последний результат: не проверен; отправлено")
   const source = readFileSync(new URL("../src/component/schedule-list.tsx", import.meta.url), "utf8")
-  expect(source).toContain("const [collapsed, setCollapsed] = createSignal(true)")
-  expect(source).toContain("TextAttributes.DIM")
+  expect(source).toContain("<DialogSchedules")
   expect(source).not.toContain("TextAttributes.BOLD")
   expect(source).not.toContain("scheduleWrap(")
 })
