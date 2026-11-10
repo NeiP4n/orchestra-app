@@ -58,7 +58,8 @@ try {
     returnByValue: true,
   })
   if (checked.result.value.value !== hostile || checked.result.value.injected) throw Error("data changed or injected")
-  await Cdp.callPage(client, BrowserPage.clickExpression({ selector: "#go" }))
+  const clickResult: any = await Cdp.callPage(client, BrowserPage.clickExpression({ selector: "#go" }))
+  if (clickResult.result.value.text !== "Go") throw Error("Selector click changed label case")
   const clicked: any = await client.send("Runtime.evaluate", { expression: "window.clicked", returnByValue: true })
   if (clicked.result.value !== 1) throw Error("click failed")
   const missing: any = await Cdp.callPage(client, BrowserPage.clickExpression({ text: hostile }))
