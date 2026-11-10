@@ -2989,3 +2989,13 @@ read by opening Chrome. Local Vault definitions contain no values/grants, and on
 operator-selected globals become requirements. Unsupported schedule action plans,
 conditions, unlimited caps and legacy Vault scope fail the capture instead of being
 silently omitted. This port is not yet wired to live project readers or template UI.
+
+Registry > Шаблоны adds a local configuration library: preview an existing single-
+manifest folder, inspect the exact canonical JSON/hash and explicit warnings, check
+review, then save a new local copy, export a new folder or stage in an explicitly
+operator-selected local directory. It does not infer a local project path from a
+remote API project's directory. Every operation revalidates the reviewed hash and
+is create-only. The UI plainly labels staging as inactive and says live sessions,
+browsers and Vault entries are not created yet. Actual filesystem plus test-renderer
+mouse/input tests cover review gating, export, inactive staging and changed-source
+refusal. Source capture from live stores and live import materialization remain open.

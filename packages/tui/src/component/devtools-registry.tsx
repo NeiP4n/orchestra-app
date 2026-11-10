@@ -1,6 +1,8 @@
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
+import { RegistryTemplates } from "./registry-templates"
+import { useTuiApp } from "../context/runtime"
 import { RegistryVault } from "./registry-vault"
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -82,7 +84,7 @@ export function RegistryPanel(props: {
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
   const [pluginCount, setPluginCount] = createSignal<string>()
-  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault"] : ["plugins", "programs", "terminal", "vault"])
+  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault", "templates"] : ["plugins", "programs", "terminal", "vault", "templates"])
   const cycle = (delta: number) => {
     setArmed()
     const list = tabs()
@@ -300,7 +302,7 @@ export function RegistryPanel(props: {
                   ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
                   : item === "programs"
                     ? `${t("Programs")} ${counts().programs}`
-                    : item === "vault" ? "Vault" : `${t("AI terminal")}: ${counts().terminal}`}
+                    : item === "templates" ? "Шаблоны" : item === "vault" ? "Vault" : `${t("AI terminal")}: ${counts().terminal}`}
             </Button>
           )}
         </For>
@@ -315,6 +317,7 @@ export function RegistryPanel(props: {
         }}
       >
         <Switch>
+          <Match when={tab() === "templates"}><ProjectRegistryTemplates /></Match>
           <Match when={tab() === "vault"}><ProjectRegistryVault /></Match>
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
@@ -502,7 +505,7 @@ export function RegistryPanel(props: {
   )
 }
 
-type Tab = "ai" | "plugins" | "programs" | "terminal" | "vault"
+type Tab = "ai" | "plugins" | "programs" | "terminal" | "vault" | "templates"
 
 type AiToolsKeys = { move: (delta: number) => void; activate: () => void }
 type PluginToolsKeys = { move: (delta: number) => void; activate: () => void }
@@ -1011,3 +1014,5 @@ export function Button(props: {
 
 /** Mounted only in the Vault tab, where the operator can bind an existing name to this project. */
 function ProjectRegistryVault(){const route=useRoute(),projects=useProjects();const projectID=()=>route.data.type==="session"?projects.owner(route.data.sessionID):undefined;return <RegistryVault projectID={projectID()} sessionID={route.data.type === "session" ? route.data.sessionID : undefined}/>}
+
+function ProjectRegistryTemplates() { const app = useTuiApp(); return <RegistryTemplates version={app.version}/> }
