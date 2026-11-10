@@ -7,6 +7,7 @@ export const registryEn = {
   "Ask questions about public GitHub repositories and read generated project documentation.": "Ask questions about public GitHub repositories and read generated project documentation.",
   "Inspect application errors, events, performance data, and debugging context from Sentry.": "Inspect application errors, events, performance data, and debugging context from Sentry.",
 
+  "Roles, playbook and fallback models included. Legacy skills may be missing; skill folders are not copied. No automatic script execution.": "Roles, playbook and fallback models included. Legacy skills may be missing; skill folders are not copied. No automatic script execution.",
   "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings.": "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings.",
   "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.",
@@ -158,6 +159,7 @@ export const registryRu: Record<keyof typeof registryEn, string> = {
   "Ask questions about public GitHub repositories and read generated project documentation.": "Вопросы об открытых репозиториях GitHub и чтение сгенерированной документации проектов.",
   "Inspect application errors, events, performance data, and debugging context from Sentry.": "Ошибки приложения, события, данные производительности и контекст для отладки из Sentry.",
 
+  "Roles, playbook and fallback models included. Legacy skills may be missing; skill folders are not copied. No automatic script execution.": "Роли, процесс и запасные модели включены. Навыки старых проектов могут перенестись не полностью: папки навыков не копируются. Скрипты сами не запускаются.",
   "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings.": "Включены роли, назначенные навыки, процесс и запасные модели. Скрипты сами не запускаются. Без данных проекта и глобальных настроек MCP.",
   "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Скиллы, определения ролей, запасные модели, файлы проекта и глобальные настройки MCP не копируются. Проверьте настройки нового проекта.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "Все импортированные триггеры приостановлены. Для браузерных проверок заново выберите страницу/чат и войдите в аккаунт. Зависимости указаны в подробностях.",

@@ -15,11 +15,11 @@ for (const width of [80, 120]) for (const version of [1, 2])
       prepareSave: async () => ({
         token: "save-token",
         name: "Мой проект",
-        details: "Точный JSON и проверенные настройки.",
+        details: version === 2 ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: { skills: [] } }) : "Точный JSON и проверенные настройки.",
       }),
       prepareCreate: async (id) => {
         expect(id).toBe("factory")
-        return { token: "create-token", name: "Фабрика", details: version === 2 ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: {} }) : "Детали нового проекта." }
+        return { token: "create-token", name: "Фабрика", details: version === 2 ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: { skills: [] } }) : "Детали нового проекта." }
       },
       confirmSave: async (token) => {
         calls.push(token)
@@ -55,14 +55,15 @@ for (const width of [80, 120]) for (const version of [1, 2])
       expect(calls).toEqual([])
       expect(app.captureCharFrame()).not.toContain("Точный JSON")
       await click("project-templates.details")
-      expect(app.captureCharFrame()).toContain("Точный JSON")
+      expect(app.captureCharFrame()).toContain(version === 2 ? '"version":2' : "Точный JSON")
       await click("project-templates.confirm")
       await app.waitForFrame((f) => f.includes("Проект сохранён как шаблон"))
       expect(calls).toEqual(["save-token"])
       await click("project-templates.create-factory")
       await app.waitForFrame((f) => f.includes("Создать «Фабрика»?"))
       if (version === 2) {
-        expect(app.captureCharFrame()).toContain("назначенные навыки")
+        expect(app.captureCharFrame()).toContain("Роли, процесс и запасные модели включены.")
+        expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain("Навыки старых проектов могут перенестись не полностью")
         expect(app.captureCharFrame()).not.toContain("определения ролей, запасные модели")
       } else expect(app.captureCharFrame()).toContain("не копируются")
       if (process.env.CAPTURE_SIMPLE_FRAME)
