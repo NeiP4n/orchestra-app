@@ -176,3 +176,28 @@ it.effect("recommendation consumes durable evidence, refuses OFF/unknown cost, k
     expect((yield* Effect.exit(C.recommend(kv, { ...input, now: now + 60001 })))._tag).toBe("Failure")
   }),
 )
+
+it.effect("namespaced plugin adapter IDs are persisted and ranked without dropping their identity", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service,
+      ledger = L.make(kv),
+      plugin = "plugin:@vendor/plugin"
+    for (let i = 0; i < 5; i++) {
+      yield* ledger.record(scope, attempt(`plugin-${i}`, { toolID: plugin }))
+      yield* ledger.verify(scope, `plugin-${i}`, verified)
+    }
+    const view = R.snapshot(
+      [{ id: plugin, kind: "plugin", group: "files", requires: [], dangerous: "unknown" }],
+      new Map([[plugin, { state: "ready", permission: "allowed", credential: "ready", cost: "local-only" }]]),
+      now,
+    )
+    const result = yield* C.recommend(kv, {
+      scope,
+      decisionID: "plugin-decision",
+      snapshot: view,
+      now,
+      readOnlyIDs: new Set(),
+    })
+    expect(result.recommendedToolID).toBe(plugin)
+  }),
+)

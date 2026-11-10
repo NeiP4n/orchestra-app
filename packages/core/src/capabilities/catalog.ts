@@ -26,7 +26,7 @@ export function definitions(index: LocalIndex): readonly Definition[] {
         kind: "mcp",
         group: mcpGroup(row.id),
         requires: [...(row.requires ?? [])],
-        dangerous: row.realScreen === true,
+        dangerous: row.realScreen === true ? true : "unknown",
       }),
     ),
     ...[...new Set(index.native)].map(

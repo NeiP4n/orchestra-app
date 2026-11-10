@@ -77,3 +77,11 @@ test("local inventory includes registered tools beyond analogue hints but not fl
     ),
   ).toEqual(["grep", "budget", "unknown-local-adapter", "plugin_local"])
 })
+
+test("native search and CLI search share a method; MCP danger is not guessed safe", () => {
+  expect(Registry.nativeGroup("grep")).toBe(Registry.hubGroup("search"))
+  expect(Registry.nativeGroup("symbols")).toBe("code")
+  expect(Registry.nativeGroup("read")).toBe("files")
+  const rows = Catalog.definitions({ native: [], plugins: ["@vendor/plugin"], skills: [] })
+  expect(rows.find((row) => row.id === "mcp:context7")?.dangerous).toBe("unknown")
+})

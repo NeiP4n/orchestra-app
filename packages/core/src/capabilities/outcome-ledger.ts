@@ -35,7 +35,7 @@ interface State {
 }
 export const WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 const MAX_ROWS = 10000
-const id = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_.:/-]{1,160}$/.test(value)
+const id = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9_@.:/-]{1,160}$/.test(value)
 const nonnegative = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 function scopeValid(value: Scope) {
