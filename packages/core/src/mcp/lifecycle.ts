@@ -242,7 +242,7 @@ export interface ServerReport {
   readonly origin?: Origin
   /** Where the effective config is defined: the global file the manager can rewrite, or another source. */
   readonly definedIn?: "global" | "other"
-  readonly disabled?: boolean
+  readonly disabled: boolean
   readonly status: string
   readonly tools: readonly string[]
   readonly leases: readonly Lease[]
@@ -264,7 +264,7 @@ export const inspect = Effect.fn("McpLifecycle.inspect")(function* (access: Acce
       name,
       ...(serverConfig ? { origin: originOf(name, serverConfig) } : {}),
       ...(serverConfig ? { definedIn: name in global ? ("global" as const) : ("other" as const) } : {}),
-      ...(serverConfig ? { disabled: serverConfig.disabled === true } : {}),
+      disabled: serverConfig?.disabled === true,
       status: info?.status.status ?? "not_running",
       tools: tools.filter((tool) => String(tool.server) === name).map((tool) => tool.name),
       leases: yield* activeLeases(access, name),

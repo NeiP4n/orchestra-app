@@ -14,7 +14,8 @@ const patches: Patch[] = []
 let currentPlugins: string[] = ["plugin-alpha", "-plugin-beta"]
 
 const configLayer = Layer.succeed(Config.Service, {
-  entries: () => Effect.sync(() => [
+  entries: () =>
+    Effect.sync(() => [
     {
       type: "document" as const,
       path: AbsolutePath.make("/fake/orchestra.jsonc"),
@@ -76,14 +77,18 @@ it.effect("lists installed and disabled plugins", () =>
   }),
 )
 
-it.effect("enables a disabled plugin", () =>
+it.effect("requests operator approval without enabling a disabled plugin", () =>
   Effect.gen(function* () {
     const tools = yield* setup
     const result = yield* run(tools, "c2", { action: "enable", package: "plugin-beta" })
     const output = text(result)
-    expect(output).toContain('Plugin "plugin-beta" enabled')
-    expect(currentPlugins).toContain("plugin-beta")
-    expect(currentPlugins).not.toContain("-plugin-beta")
+    expect(output).toContain("Operator approval required")
+    expect(currentPlugins).not.toContain("plugin-beta")
+    expect(currentPlugins).toContain("-plugin-beta")
+    const writes = patches.length
+    const bypass = yield* run(tools, "c2-add", { action: "add", package: "plugin-beta" })
+    expect(text(bypass)).toContain("Operator approval required")
+    expect(patches).toHaveLength(writes)
   }),
 )
 

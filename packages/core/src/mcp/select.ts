@@ -208,13 +208,14 @@ export function rank(
   need: string,
   platform: NodeJS.Platform = process.platform,
   ratings?: ReadonlyMap<string, McpRatings.Rating>,
+  disabled: ReadonlySet<string> = new Set(),
 ): readonly Match[] {
   const wanted = translateNeed(need)
   if (wanted.length === 0) return []
   // Browser work must not rediscover another MCP browser through a generic desktop fallback.
   const documentation = wanted.some((token) => ["documentation", "docs", "library", "libraries"].includes(token))
   if (!documentation && matchNative(need).some((match) => match.analogue.id === "browser")) return []
-  const entries = McpCatalog.forPlatform(platform)
+  const entries = McpCatalog.forPlatform(platform).filter((entry) => !disabled.has(entry.id))
   const frequency = new Map<string, number>()
   for (const entry of entries)
     for (const token of tokens(`${entry.id} ${entry.name} ${entry.description} ${entry.usage}`))
@@ -395,6 +396,7 @@ export function buildChoiceCard(
 }
 
 export interface SelectOptions {
+  readonly disabled?: ReadonlySet<string>
   readonly platform?: NodeJS.Platform
   /** Persistent ratings to nudge the ranking; absent means no history yet. */
   readonly ratings?: ReadonlyMap<string, McpRatings.Rating>
@@ -409,7 +411,7 @@ export interface SelectOptions {
  * or a winner below the confidence threshold, is an ask — never a guess.
  */
 export function selectForTask(need: string, options: SelectOptions = {}): Decision {
-  const ranked = rank(need, options.platform, options.ratings)
+  const ranked = rank(need, options.platform, options.ratings, options.disabled)
   const native = matchNative(need)
   const best = ranked[0]
   const bestNative = native[0]
@@ -445,17 +447,20 @@ export function selectForTask(need: string, options: SelectOptions = {}): Decisi
       card: buildChoiceCard(need, ranked, native),
     }
   }
+  const chain = fallbackChain(best.entry.id).filter(
+    (link) => link.kind !== "mcp" || !options.disabled?.has(link.server),
+  )
   return {
     kind: "mcp",
     server: best.entry.id,
-    chain: fallbackChain(best.entry.id),
+    chain,
     confidence: best.confidence,
     reasons: best.reasons,
     explanation: [
       `${best.entry.id} fits "${need}" (score ${best.score}, confidence ${best.confidence.toFixed(2)}, matched: ${best.reasons.join(", ")}).`,
-      ...(fallbackChain(best.entry.id).length > 0
+      ...(chain.length > 0
         ? [
-            `If it is down, fall back to ${fallbackChain(best.entry.id)
+            `If it is down, fall back to ${chain
               .map((link) => (link.kind === "mcp" ? link.server : `native ${link.tools.join("/")}`))
               .join(" → ")}.`,
           ]
