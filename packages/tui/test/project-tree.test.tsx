@@ -555,7 +555,7 @@ test("deleting a session takes two clicks on its ×", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project])
-  const frame = await setup.waitForFrame((frame) => frame.includes("○ Worker task") && frame.includes("[write]") && frame.includes(" ✎  ×"))
+  await setup.waitForFrame((frame) => frame.includes("○ Worker task") && frame.includes("[write]") && frame.includes(" ✎  ×"))
   await clickAction(setup, `session-delete:${worker.id}`)
   await setup.waitForFrame((frame) => frame.includes("delete?"))
   expect(calls.some((call) => call.method === "DELETE")).toBe(false)
@@ -692,7 +692,7 @@ test("a session is moved to another category from the tree", async () => {
   await using setup = await render(state.path, calls, [project])
 
   // "# Build" is the tree's category heading; plain "Build" also names the prompt's agent.
-  const frame = await setup.waitForFrame((frame) => frame.includes("▾ Build") && frame.includes("[write]"))
+  await setup.waitForFrame((frame) => frame.includes("▾ Build") && frame.includes("[write]"))
   await clickAction(setup, `session-category:${worker.id}`)
   // the dialog starts from the current category
   await setup.waitForFrame((frame) => frame.includes("Session category"))
