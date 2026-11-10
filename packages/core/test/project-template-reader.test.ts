@@ -97,3 +97,25 @@ test("owner scan traverses beyond 1000 unrelated sessions without creating or re
   const result = await Effect.runPromise(ProjectTemplateReader.capture(f.stores, "prj_a", metadata, linked))
   expect(result.bundle.sessions).toHaveLength(2)
 })
+
+
+test("legacy child and deleted-session ownership markers do not poison a live top-level project export", async () => {
+  const f = fixture()
+  f.values.set("orchestra/owner/ses_child", "prj_a")
+  f.values.set("orchestra/owner/ses_deleted_worker", "prj_a")
+  const result = await Effect.runPromise(ProjectTemplateReader.capture(f.stores, "prj_a", metadata, linked))
+  expect(result.bundle.sessions.map(session => session.title)).toEqual(["Main", "Builder"])
+  expect(result.text).not.toContain("Child")
+  expect(f.values.get("orchestra/owner/ses_child")).toBe("prj_a")
+  expect(f.values.get("orchestra/owner/ses_deleted_worker")).toBe("prj_a")
+})
+
+test("a claimed main that is missing, a child, or belongs to another owner still blocks export", async () => {
+  for (const state of ["missing", "child", "foreign"]) {
+    const f = fixture()
+    if (state === "missing") f.sessions.delete("ses_main")
+    else if (state === "child") f.sessions.get("ses_main")!.parentID = "ses_parent"
+    else f.values.set("orchestra/owner/ses_main", "prj_b")
+    await expect(Effect.runPromise(ProjectTemplateReader.capture(f.stores, "prj_a", metadata, linked))).rejects.toThrow(state === "missing" ? "Project main session is missing" : state === "child" ? "Project main session points to a child task" : "Project main session belongs to another project")
+  }
+})
