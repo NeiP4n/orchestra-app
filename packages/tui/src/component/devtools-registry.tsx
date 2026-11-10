@@ -172,9 +172,9 @@ export function RegistryPanel(props: {
     setStale(!result.ok && Hub.HubActions.staleDatabase(result.output))
     // The note pins the command to rerun by hand, while the toast says why it failed.
     const reason = Hub.HubActions.failureReason(result.output)
-    setMessage(result.ok ? `${tool} ${verb}` : `${tool}: ${result.command || reason}`)
+    setMessage(result.ok ? t(verb === "installed" ? "{name} installed" : verb === "removed" ? "{name} removed" : "{name} updated", { name: tool }) : `${tool}: ${result.command || reason}`)
     toast.show({
-      message: result.ok ? `${tool} ${verb}` : `${tool} failed: ${reason}`,
+      message: result.ok ? t(verb === "installed" ? "{name} installed" : verb === "removed" ? "{name} removed" : "{name} updated", { name: tool }) : t("{name} failed: {reason}", { name: tool, reason }),
       variant: result.ok ? "success" : "error",
     })
     setBusy()
@@ -239,24 +239,24 @@ export function RegistryPanel(props: {
   Keymap.createLayer(() => ({
     mode: "modal",
     commands: [
-      { bind: "tab", title: "Next tab", group: "Registry", run: () => cycle(1) },
-      { bind: "shift+tab", title: "Previous tab", group: "Registry", run: () => cycle(-1) },
+      { bind: "tab", title: t("Next tab"), group: "Registry", run: () => cycle(1) },
+      { bind: "shift+tab", title: t("Previous tab"), group: "Registry", run: () => cycle(-1) },
       { bind: "up", title: t("Previous template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(-1) },
       { bind: "down", title: t("Next template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(1) },
       { bind: "return", title: t("Activate template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.activate() },
-      { bind: "up", title: "Previous AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.move(-1) },
-      { bind: "down", title: "Next AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.move(1) },
-      { bind: "return", title: "Install or remove AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
-      { bind: "up", title: "Previous plugin", group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(-1) },
-      { bind: "down", title: "Next plugin", group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(1) },
-      { bind: "return", title: "Enable or disable plugin", group: "Registry", enabled: pluginTab, run: () => pluginKeys?.activate() },
-      { bind: "up", title: "Previous tool", group: "Registry", enabled: programs, run: () => move(-1) },
-      { bind: "down", title: "Next tool", group: "Registry", enabled: programs, run: () => move(1) },
-      { bind: "left", title: "Previous page", group: "Registry", enabled: programs, run: () => turn(-1) },
-      { bind: "right", title: "Next page", group: "Registry", enabled: programs, run: () => turn(1) },
+      { bind: "up", title: t("Previous AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.move(-1) },
+      { bind: "down", title: t("Next AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.move(1) },
+      { bind: "return", title: t("Install or remove AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
+      { bind: "up", title: t("Previous plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(-1) },
+      { bind: "down", title: t("Next plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(1) },
+      { bind: "return", title: t("Enable or disable plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.activate() },
+      { bind: "up", title: t("Previous tool"), group: "Registry", enabled: programs, run: () => move(-1) },
+      { bind: "down", title: t("Next tool"), group: "Registry", enabled: programs, run: () => move(1) },
+      { bind: "left", title: t("Previous page"), group: "Registry", enabled: programs, run: () => turn(-1) },
+      { bind: "right", title: t("Next page"), group: "Registry", enabled: programs, run: () => turn(1) },
       {
         bind: "return",
-        title: "Install or remove tool",
+        title: t("Install or remove tool"),
         group: "Registry",
         enabled: programs,
         run: () => {
@@ -643,10 +643,10 @@ function PluginTools(props: {
     try {
       const enabled = entry.active ? await props.plugins.deactivate(entry.id) : await props.plugins.activate(entry.id)
       if (!enabled) {
-        toast.show({ message: `Unable to ${entry.active ? "disable" : "enable"} plugin ${entry.id}`, variant: "error" })
+        toast.show({ message: t(entry.active ? "Unable to disable plugin {name}" : "Unable to enable plugin {name}", { name: entry.id }), variant: "error" })
         return
       }
-      toast.show({ message: `${entry.id}: ${entry.active ? "disabled" : "enabled"}`, variant: "success" })
+      toast.show({ message: t(entry.active ? "{name}: disabled" : "{name}: enabled", { name: entry.id }), variant: "success" })
     } catch (error) {
       toast.show({ message: error instanceof Error ? error.message : String(error), variant: "error" })
     } finally {
@@ -689,7 +689,7 @@ function PluginTools(props: {
             }, 1)
           }}
         />
-        <text fg={theme.text.muted} flexShrink={0}>{`${entries().length} plugins`}</text>
+        <text fg={theme.text.muted} flexShrink={0}>{t(entries().length === 1 ? "{count} plugin" : "{count} plugins", { count: entries().length })}</text>
         <Button onClick={() => turn(-1)}>‹</Button>
         <text fg={theme.text.muted} flexShrink={0}>{`${currentPage() + 1}/${pages()}`}</text>
         <Button onClick={() => turn(1)}>›</Button>
