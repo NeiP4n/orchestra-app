@@ -175,7 +175,7 @@ const layer = Layer.effect(
           tools: Effect.succeed(toolsSnapshot),
           builtins: builtins.load(availableToolNames),
           discovery: discovery.load(route),
-          skills: skillInstructions.load(permissions),
+          skills: skillInstructions.load(permissions, { sessionID, agent: agent.info.id }),
           references: referenceInstructions.load(),
           mcp: mcpInstructions.load(permissions),
           entries: entries.load(sessionID),

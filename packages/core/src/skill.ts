@@ -8,6 +8,8 @@ import { Skill } from "@orchestra/schema/skill"
 import { Bus } from "./bus.js"
 import { Permission } from "./permission.js"
 import { State } from "./state.js"
+import { KV } from "./kv.js"
+import { ProcessSkills } from "./process-skills.js"
 
 export const DirectorySource = Skill.DirectorySource
 export type DirectorySource = Skill.DirectorySource
@@ -80,8 +82,8 @@ export type Editor = {
 }
 
 export interface Interface extends State.Transformable<Editor> {
-  readonly get: (id: ID) => Effect.Effect<Info | undefined>
-  readonly list: () => Effect.Effect<Info[]>
+  readonly get: (id: ID, context?: ProcessSkills.Context) => Effect.Effect<Info | undefined>
+  readonly list: (context?: ProcessSkills.Context) => Effect.Effect<Info[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Skill") {}
@@ -90,6 +92,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
+    const kv = yield* KV.Service
 
     const state = State.create<Data, Editor>({
       name: "skill",
@@ -116,11 +119,15 @@ const layer = Layer.effect(
     return Service.of({
       transform: state.transform,
       reload: state.reload,
-      get: Effect.fn("Skill.get")(function* (id) {
+      get: Effect.fn("Skill.get")(function* (id, context) {
+        if (ProcessSkills.reserved(id) && !(yield* ProcessSkills.allowed(kv, context)).has(id)) return undefined
         return state.get().skills.get(id)
       }),
-      list: Effect.fn("Skill.list")(function* () {
-        return Array.from(state.get().skills.values())
+      list: Effect.fn("Skill.list")(function* (context) {
+        const registered = Array.from(state.get().skills.values())
+        if (!registered.some((skill) => ProcessSkills.reserved(skill.id))) return registered
+        const allowed = yield* ProcessSkills.allowed(kv, context)
+        return registered.filter((skill) => !ProcessSkills.reserved(skill.id) || allowed.has(skill.id))
       }),
     })
   }),
@@ -129,5 +136,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Bus.node],
+  deps: [Bus.node, KV.node],
 })

@@ -3,6 +3,7 @@ export * as SkillInstructions from "./instructions.js"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Permission } from "../permission.js"
+import type { ProcessSkills } from "../process-skills.js"
 import { Skill } from "../skill.js"
 import { Instructions } from "../instructions/index.js"
 
@@ -70,7 +71,7 @@ const update = (previous: ReadonlyArray<Summary>, current: ReadonlyArray<Summary
 
 export interface Interface {
   /** Lists skills the given ruleset does not deny; callers pass the merged agent and Session permissions. */
-  readonly load: (permissions: Permission.Ruleset) => Effect.Effect<Instructions.List>
+  readonly load: (permissions: Permission.Ruleset, context?: ProcessSkills.Context) => Effect.Effect<Instructions.List>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SkillInstructions") {}
@@ -81,8 +82,8 @@ const layer = Layer.effect(
     const skills = yield* Skill.Service
 
     return Service.of({
-      load: Effect.fn("SkillInstructions.load")(function* (permissions) {
-        const available = Skill.available(yield* skills.list(), permissions)
+      load: Effect.fn("SkillInstructions.load")(function* (permissions, context) {
+        const available = Skill.available(yield* skills.list(context), permissions)
           .flatMap((skill) =>
             skill.description === undefined || skill.autoinvoke === false
               ? []

@@ -82,7 +82,7 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
         Effect.gen(function* () {
           const name = prepared.get(attachment.id)
           if (name !== undefined) return { id: attachment.id, name, mention: attachment.mention }
-          const skill = yield* skillService.get(attachment.id)
+          const skill = yield* skillService.get(attachment.id, { sessionID: request.session.id, agent: request.session.agent ?? "" })
           if (!skill) return yield* new SkillNotFoundError({ skill: attachment.id })
           prepared.set(skill.id, skill.name)
           return {
