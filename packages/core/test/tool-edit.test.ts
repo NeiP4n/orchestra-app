@@ -43,6 +43,7 @@ const makeEditFixture = () => {
   const fixture: {
     assertions: Permission.AssertInput[]
     writes: string[]
+    moves: { from: string; to: string }[]
     reads: number
     denyAction?: string
     afterRead: () => Effect.Effect<void>
@@ -50,6 +51,7 @@ const makeEditFixture = () => {
   } = {
     assertions: [],
     writes: [],
+    moves: [],
     reads: 0,
     afterRead: () => Effect.void,
     formatFile: () => Effect.succeed(false),
@@ -102,6 +104,8 @@ const withTool = <A, E, R>(
                 .pipe(
                   Effect.tap(() => Effect.sync(() => fixture.reads++).pipe(Effect.andThen(() => fixture.afterRead()))),
                 ),
+            move: (from, to) =>
+              files.move(from, to).pipe(Effect.tap(() => Effect.sync(() => fixture.moves.push({ from, to })))),
             write: (target, content) =>
               Effect.sync(() => fixture.writes.push(target)).pipe(Effect.andThen(files.write(target, content))),
           })),
@@ -119,6 +123,18 @@ const call = (input: typeof EditTool.Input.Type, id = "call-edit") => ({
   ...toolIdentity,
   call: { type: "tool-call" as const, id, name: "edit", input },
 })
+
+function assertAtomicWrite(fixture: { writes: string[]; moves: { from: string; to: string }[] }, target: string) {
+  return Effect.gen(function* () {
+    expect(fixture.writes).toHaveLength(1)
+    const temp = fixture.writes[0]!
+    expect(path.dirname(temp)).toBe(path.dirname(target))
+    expect(temp.startsWith(`${target}.${process.pid}.`)).toBe(true)
+    expect(temp.endsWith(".tmp")).toBe(true)
+    expect(fixture.moves).toEqual([{ from: temp, to: target }])
+    expect(yield* Effect.promise(() => fs.stat(temp).then(() => true, () => false))).toBe(false)
+  })
+}
 
 const it = testEffect(Layer.empty)
 
@@ -180,7 +196,7 @@ describe("EditTool", () => {
                   },
                 ],
               })
-              expect(edit.writes).toEqual([yield* Effect.promise(() => fs.realpath(target))])
+              yield* assertAtomicWrite(edit, yield* Effect.promise(() => fs.realpath(target)))
             }),
           ),
         ),
@@ -238,7 +254,7 @@ describe("EditTool", () => {
     }),
   )
 
-  it.live("edits an external symlink target with only its in-location permission", () =>
+  it.live("requires external-directory approval before editing an external symlink target", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => Promise.all([tmpdir(), tmpdir()])),
       ([active, outside]) => {
@@ -258,8 +274,9 @@ describe("EditTool", () => {
           Effect.andThen((result) =>
             Effect.sync(() => {
               expect(result.status).toBe("completed")
-              expect(edit.assertions.map((input) => input.action)).toEqual(["edit"])
-              expect(edit.assertions[0]?.resources).toEqual(["link.txt"])
+              expect(edit.assertions.map((input) => input.action)).toEqual(["external_directory", "edit"])
+              expect(edit.assertions[0]?.resources).toEqual([path.join(outside.path, "*").replaceAll("\\", "/")])
+              expect(edit.assertions[1]?.resources).toEqual([target.replaceAll("\\", "/")])
             }),
           ),
           Effect.andThen(Effect.promise(() => fs.readFile(target, "utf8"))),
@@ -270,6 +287,38 @@ describe("EditTool", () => {
         Effect.promise(() =>
           Promise.all([active[Symbol.asyncDispose](), outside[Symbol.asyncDispose]()]).then(() => undefined),
         ),
+    ),
+  )
+
+  it.live("denying external-directory access preserves the symlink and outside bytes", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => Promise.all([tmpdir(), tmpdir()])),
+      ([active, outside]) => {
+        const fixture = makeEditFixture()
+        fixture.denyAction = "external_directory"
+        const target = path.join(outside.path, "external.txt")
+        const link = path.join(active.path, "link.txt")
+        return Effect.promise(async () => {
+          await fs.writeFile(target, "before")
+          // File symlinks need elevated rights on Windows; directory junctions do not.
+          if (process.platform === "win32") await fs.symlink(outside.path, path.join(active.path, "outside"), "junction")
+          else await fs.symlink(target, link)
+        }).pipe(
+          Effect.andThen(withTool(active.path, fixture, (registry) =>
+            executeTool(registry, call(process.platform === "win32" ? { ...{ path: "link.txt", oldString: "before", newString: "after" }, path: "outside/external.txt" } : { path: "link.txt", oldString: "before", newString: "after" })),
+          )),
+          Effect.andThen((result) => Effect.gen(function* () {
+            expect(result.status).toBe("error")
+            expect(fixture.assertions.map((item) => item.action)).toEqual(["external_directory"])
+            expect(fixture.writes).toEqual([])
+            expect(fixture.moves).toEqual([])
+            expect(yield* Effect.promise(() => fs.readFile(target, "utf8"))).toBe("before")
+            const pointer = process.platform === "win32" ? path.join(active.path, "outside") : link
+            expect(yield* Effect.promise(() => fs.lstat(pointer).then((info) => info.isSymbolicLink()))).toBe(true)
+          })),
+        )
+      },
+      ([active, outside]) => Effect.promise(() => Promise.all([active[Symbol.asyncDispose](), outside[Symbol.asyncDispose]()])),
     ),
   )
 
@@ -636,7 +685,7 @@ describe("EditTool", () => {
           Effect.gen(function* () {
             expect(result).toMatchObject({ status: "completed", output: { replacements: 1 } })
             expect(yield* Effect.promise(() => fs.readFile(target, "utf8"))).toBe("after\n")
-            expect(edit.writes).toEqual([target])
+            yield* assertAtomicWrite(edit, target)
           }),
         ),
       )
