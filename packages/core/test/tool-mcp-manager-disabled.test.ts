@@ -62,6 +62,13 @@ it.effect("agent enable asks the operator, even with a model-supplied approved f
       },
     })
     expect(acquired.status).toBe("completed")
+    const inspected = yield* executeTool(tools, {
+      sessionID: Session.ID.make("ses_off_guard"), ...toolIdentity,
+      call: { type: "tool-call", id: "off-inspect", name: "mcp_manager", input: { action: "inspect" } },
+    })
+    expect(inspected.status).toBe("completed")
+    expect(JSON.stringify(inspected.output)).toContain("Capability methods and adapters")
+    expect(JSON.stringify(inspected.output)).toContain("Unknown cost is not free")
     expect(writes).toBe(0)
     expect(connects).toBe(0)
   }),
