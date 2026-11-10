@@ -40,6 +40,7 @@ import { llmClient } from "../../effect/app-node-platform.js"
 import { StepFailedError } from "../error.js"
 import { SessionRunnerRetry } from "./retry.js"
 import { mainSessionFallbackChain } from "./error-taxonomy.js"
+import { ProjectMetrics } from "../../project-files/metrics.js"
 import { SessionStep } from "./step.js"
 import { ToolOutput } from "../../tool-output.js"
 import { ToolPruning } from "../tool-pruning.js"
@@ -436,6 +437,7 @@ const layer = Layer.effect(
           // cache in SessionMemory), so a step that never touches a tool
           // never creates the session memory database.
           onToolSettled: toolSettledCapture(location.project.directory, sessionID, scrubText),
+          onUsageSettled: usageCapture(location.project.directory, {projectID:String(location.project.id),sessionID:String(sessionID),messageID:String(assistantMessageID),providerID:String(loaded.model.ref.providerID),modelID:String(loaded.model.ref.id)}),
           retry: (cause, error, proposed) =>
             retry.decide({
               cause,
@@ -822,3 +824,7 @@ export const node = makeLocationNode({
     Location.node,
   ],
 })
+
+/** Primary-step scalar sink, exported for an isolated no-provider integration test. */
+export const usageCapture = (directory:string, ids:Omit<ProjectMetrics.Receipt,"tokens"|"at">) =>
+  (tokens:ProjectMetrics.Receipt["tokens"]) => Effect.tryPromise(()=>ProjectMetrics.append(directory,{...ids,at:Date.now(),tokens})).pipe(Effect.ignore)

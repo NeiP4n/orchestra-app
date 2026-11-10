@@ -30,6 +30,7 @@ import { SessionRequestMeasurement } from "../request-measurement.js"
 import { SessionRunnerModel } from "./model.js"
 import { createLLMEventPublisher } from "./publish-llm-event.js"
 import { SessionRunnerRetry } from "./retry.js"
+import type { ProjectMetrics } from "../../project-files/metrics.js"
 import { SessionEscalate } from "./escalate.js"
 
 export type Outcome = Data.TaggedEnum<{
@@ -69,6 +70,7 @@ export interface Input {
    * input and output text. The session memory module records it as an
    * observation; a failure here must never fail the step.
    */
+  readonly onUsageSettled?: (tokens: ProjectMetrics.Receipt["tokens"]) => Effect.Effect<void>
   readonly onToolSettled?: (event: {
     readonly id: string
     readonly name: string
@@ -374,6 +376,12 @@ export const make = Effect.gen(function* () {
               snapshot,
               files,
             })
+        }
+
+        if (record.finish && !record.failure && input.onUsageSettled) {
+          const raw = record.finish.rawUsage
+          const known = (value: number | undefined) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null
+          yield* Effect.suspend(() => input.onUsageSettled!({input:known(raw?.nonCachedInputTokens),output:raw?.outputTokens === undefined || raw?.reasoningTokens === undefined ? null : known(Math.max(0,raw.outputTokens-raw.reasoningTokens)),reasoning:known(raw?.reasoningTokens),cacheRead:known(raw?.cacheReadInputTokens),cacheWrite:known(raw?.cacheWriteInputTokens)})).pipe(Effect.ignore)
         }
 
         // Settle the measured attempt for this step: completed with the SessionUsage-normalized

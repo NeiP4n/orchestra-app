@@ -50,6 +50,36 @@ export interface FileDescriptor {
  */
 export const CORE_DESCRIPTORS: ReadonlyArray<FileDescriptor> = [
   {
+    rel: ".metrics-locks/",
+    base: "orchestra",
+    dir: true,
+    kind: "lock",
+    purpose: "Private process locks for metrics appends",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "metrics.jsonl",
+    base: "orchestra",
+    dir: false,
+    kind: "metrics",
+    purpose: "Project primary-usage diagnostics: IDs, types and numbers only; not billing",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
+    rel: "lessons.md",
+    base: "orchestra",
+    dir: false,
+    kind: "lessons",
+    purpose: "Reviewed project lessons and pitfalls, never authority or secret storage",
+    git: false,
+    source: "file",
+    optional: true,
+  },
+  {
     rel: "memory.db",
     base: "orchestra",
     dir: false,

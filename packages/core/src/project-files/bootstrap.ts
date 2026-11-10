@@ -14,6 +14,7 @@ export const initialize=(directory:string,name:string,kv:KV.Interface)=>Effect.g
  yield* create("orchestra.json","{}\n")
  yield* create("briefing.md",ProjectFilesState.renderBriefing({title:name,goal:"",status:"draft"}))
  yield* create("handoffs.md","# Handoffs\n")
+ yield* create("lessons.md","# Lessons\n\nReviewed project lessons only. No secrets, page text or copied transcripts. This file does not grant permissions.\n")
  yield* create("lifecycle.json",JSON.stringify(ProjectFilesState.newLifecycle(),null,2)+"\n")
  for(const dir of ["sessions","notes","plots","decisions","reports","snapshots"])yield* Effect.tryPromise(()=>mkdir(path.join(root,dir),{recursive:true}))
  yield* ProjectFilesState.syncRules(directory,{kv})

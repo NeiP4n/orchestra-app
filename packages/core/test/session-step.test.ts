@@ -53,6 +53,7 @@ for (const fixture of [
       const files = [RelativePath.make("changed.ts")]
       let captures = 0
       let executions = 0
+      const metricReceipts: unknown[] = []
       const steps = yield* SessionStep.make.pipe(
         Effect.provide(
           Layer.mock(Snapshot.Service)({
@@ -104,6 +105,7 @@ for (const fixture of [
       )
       const result = yield* steps
         .attempt({
+          onUsageSettled: tokens => Effect.sync(()=>{metricReceipts.push(tokens)}),
           isLocationClosed: () => false,
           sessionID,
           assistantMessageID,
@@ -126,6 +128,7 @@ for (const fixture of [
           fallback: () => Effect.succeed(false),
         })
         .pipe(Effect.exit)
+      expect(metricReceipts).toEqual(fixture.finish === "stop" ? [{input:10,output:4,reasoning:2,cacheRead:3,cacheWrite:2}] : [])
       expect(Exit.isSuccess(result)).toBe(fixture.finish === "stop")
       expect(executions).toBe(fixture.toolChoice === "none" ? 0 : 1)
       if (Exit.isSuccess(result))
