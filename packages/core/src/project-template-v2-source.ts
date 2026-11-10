@@ -82,7 +82,7 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
         const after = await handle.stat(), current = await lstat(file)
         bytes += length
         if (bytes > V2.MAX_BYTES || length > 65536 || length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || await realpath(file) !== file) throw Error()
-        const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length))
+        const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length))
         if (content.includes("\0")) throw Error()
         output.push({ path: relative, content, sha256: V2.hash(content) })
       } finally { await handle.close() }

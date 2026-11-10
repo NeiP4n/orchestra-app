@@ -41,3 +41,11 @@ test("both codecs reject extra source files, links and changed reviewed bytes", 
     expect((await readFile(path.join(directory, "template.json"), "utf8"))).toBe(p.value.text)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+test("process library rejects Windows device directory names before writing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "v2-names-"))
+  try {
+    const p = V2.preview(JSON.stringify(processFixture())); if (!p.ok) throw Error(p.error)
+    for (const name of ["con", "nul", "prn", "aux", "com1", "lpt9"]) await expect(L.local(root).saveSerialized(p.value.text, name, p.value.digest)).rejects.toThrow()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})

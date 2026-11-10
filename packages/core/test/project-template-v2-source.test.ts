@@ -4,6 +4,7 @@ import path from "node:path"
 import os from "node:os"
 import { ProjectTemplateV2Source as S } from "../src/project-template-v2-source"
 import { ProjectTemplateSource as V1 } from "../src/project-template-source"
+import { ProjectTemplateV2 as V2 } from "../src/project-template-v2"
 import { processFixture } from "./project-template-v2.test"
 const fixture = () => {
   const source: V1.Source = {
@@ -59,5 +60,16 @@ test("bounded skill file reader captures exact selected definitions, not neighbo
     for (const name of ["../outside.md", ".env", "credentials.json", "references/../SKILL.md", "CON.md", "folder./guide.md"]) await expect(S.readSkillFiles(root, [name])).rejects.toThrow("cannot be captured safely")
     await writeFile(path.join(root, "binary.md"), Buffer.from([0xff, 0xfe]))
     await expect(S.readSkillFiles(root, ["binary.md"])).rejects.toThrow("cannot be captured safely")
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("definition byte fidelity preserves UTF-8 BOM, Cyrillic and CRLF instead of dropping the BOM", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "skill-unicode-"))
+  try {
+    const content = "\uFEFF# Навык\r\nПроверить заявку.\r\n"
+    await writeFile(path.join(root, "SKILL.md"), content)
+    const files = await S.readSkillFiles(root, ["SKILL.md"])
+    expect(files).toEqual([{ path: "SKILL.md", content, sha256: V2.hash(content) }])
+    expect(Buffer.from(files[0].content)).toEqual(Buffer.from(content))
   } finally { await rm(root, { recursive: true, force: true }) }
 })

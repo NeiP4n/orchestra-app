@@ -108,7 +108,8 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
       if (typeof f.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(f.sha256) || hash(content) !== f.sha256) invalid()
       return { path: relativePath(f.path), content, sha256: f.sha256 }
     })
-    unique(files.map((f) => f.path.toLowerCase()))
+    const paths = unique(files.map((f) => f.path.toLowerCase()))
+    if (paths.some((file) => paths.some((other) => other.startsWith(file + "/")))) invalid()
     const entry = relativePath(r.entry)
     if (!files.some((f) => f.path === entry)) invalid()
     return { id: id(r.id), name: text(r.name, 160), entry, files, dependencies: ids(r.dependencies), ...(has(r, "description") ? { description: text(r.description, 4096, true) } : {}), ...(has(r, "autoinvoke") ? { autoinvoke: bool(r.autoinvoke) } : {}) }
@@ -133,6 +134,7 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
   })
   const sessionModels = list(p.sessionModels, 100).map((value) => { const r = object(value, ["session", "models"]), session = id(r.session); if (!sessions.has(session)) invalid(); const models = list(r.models, 30).map(model); unique(models.map((m) => JSON.stringify(m))); return { session, models } })
   unique(sessionModels.map((r) => r.session))
+  if (sessionModels.length !== sessions.size) invalid()
   const programs = list(p.programs, 100).map((value) => { const r = object(value, ["id", "reason"]); return { id: id(r.id), reason: text(r.reason, 1024) } }); unique(programs.map((r) => r.id))
   return { playbook: p.playbook === null ? null : text(p.playbook), recommendedRoles, roles, skills, skillAssignments, sessionModels, programs }
 }

@@ -58,6 +58,8 @@ const cases: [string, (b: V2.Bundle) => void][] = [
   ["dangling session assignment", b => b.process.skillAssignments[2].target = { kind: "session", session: "missing" }],
   ["duplicate assignment target", b => b.process.skillAssignments.push(b.process.skillAssignments[0])],
   ["dangling fallback session", b => b.process.sessionModels[0].session = "missing"],
+  ["missing fallback snapshot", b => b.process.sessionModels = []],
+  ["file and directory collision", b => b.process.skills[0].files.push({ ...b.process.skills[0].files[0], path: "skill.md/guide.md" })],
   ["duplicate fallback target", b => b.process.sessionModels.push(b.process.sessionModels[0])],
   ["missing skill entry", b => b.process.skills[0].entry = "missing.md"],
   ["traversal", b => b.process.skills[0].files[0].path = "../SKILL.md"],

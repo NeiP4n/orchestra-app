@@ -6,7 +6,7 @@ import { ProjectTemplateFiles as Files } from "./project-template-files.js"
 /** Explicit process library until the main operator's live v2 installer is available.
  * Never pass v2 through the v1 materializer, nor advertise a stored document as an installed process. */
 export function local(dataDirectory: string) {
-  const name = (value: string) => { if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw Error("Select a simple process template name."); return value }
+  const name = (value: string) => { if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw Error("Select a simple process template name."); V2.relativePath(value); return value }
   const folder = async () => {
     if (!path.isAbsolute(dataDirectory)) throw Error("Absolute application data directory required.")
     const parent = path.resolve(dataDirectory), stat = await lstat(parent)
