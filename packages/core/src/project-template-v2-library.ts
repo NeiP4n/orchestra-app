@@ -3,8 +3,8 @@ import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 import { ProjectTemplateFiles as Files } from "./project-template-files.js"
-/** Explicit process library until the main operator's live v2 installer is available.
- * Never pass v2 through the v1 materializer, nor advertise a stored document as an installed process. */
+/** Self-contained process library used by the v2 operator and portable export/import.
+ * Stored documents are not installed processes; activation belongs to the reviewed live installer. */
 export function local(dataDirectory: string) {
   const name = (value: string) => { if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw Error("Select a simple process template name."); V2.relativePath(value); return value }
   const folder = async () => {

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, rm, mkdir, writeFile, readFile, symlink, link } from "node:fs/promises"
+import { mkdtemp, rm, mkdir, writeFile, readFile, readdir, symlink, link } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { ProjectTemplateV2Library as L } from "../src/project-template-v2-library"
@@ -47,5 +47,34 @@ test("process library rejects Windows device directory names before writing", as
   try {
     const p = V2.preview(JSON.stringify(processFixture())); if (!p.ok) throw Error(p.error)
     for (const name of ["con", "nul", "prn", "aux", "com1", "lpt9"]) await expect(L.local(root).saveSerialized(p.value.text, name, p.value.digest)).rejects.toThrow()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+
+test("process library transfers only reviewed self-contained bytes between separate installations", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "v2-transfer-"))
+  try {
+    const source = path.join(root, "laptop-a"), destination = path.join(root, "laptop-b"), transfer = path.join(root, "transfer")
+    for (const directory of [source, destination, transfer]) await mkdir(directory)
+    // Unrelated application state must never be discovered or copied by an export.
+    for (const name of ["cookies.json", "chats.db", "vault.enc", "accounts.json"])
+      await writeFile(path.join(source, name), "PRIVATE_MACHINE_STATE_CANARY")
+    const value = V2.preview(JSON.stringify(processFixture()))
+    if (!value.ok) throw Error(value.error)
+    await L.local(source).saveSerialized(value.value.text, "factory", value.value.digest)
+    const portable = await L.local(source).export("factory", transfer, "portable", value.value.digest)
+    expect(await readdir(portable.directory)).toEqual(["template.json"])
+    const bytes = await readFile(path.join(portable.directory, "template.json"), "utf8")
+    expect(bytes).not.toContain("PRIVATE_MACHINE_STATE_CANARY")
+    expect(bytes).not.toContain(source)
+    expect(bytes).not.toContain(destination)
+    await L.local(destination).remember(portable.directory, "factory", value.value.digest)
+    // Remove the first installation and transport medium. The second is independently readable.
+    await rm(source, { recursive: true })
+    await rm(transfer, { recursive: true })
+    const restarted = await L.local(destination).preview("factory")
+    expect(restarted).toEqual(value.value)
+    expect(restarted.bundle.process.skills[0]?.files).toEqual(processFixture().process.skills[0]?.files)
+    expect(await readdir(destination)).toEqual(["process-templates"])
   } finally { await rm(root, { recursive: true, force: true }) }
 })
