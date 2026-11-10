@@ -2947,3 +2947,28 @@ preserves omitted existing entries; it does not apply updates. Source/destinatio
 folders must be controlled by the operator: this is not an OS-level sandbox
 against an attacker concurrently renaming ancestor directories. Actual live
 materialization, app library UI and Vault scopes remain separate unfinished work.
+
+### Explicit Vault scopes and empty template slots
+
+`credential-vault/index.ts` now supports explicit `global` and `project` entries.
+Global slots are discoverable in any project; local slots cannot be rebound to
+another project. Old entries keep legacy project/projectIDs visibility and are
+never silently upgraded to global. No plaintext read/decrypt API is added.
+Template local slot definitions create empty entries with no inherited session
+grants. Filling an empty slot uses the existing masked DPAPI collector, preserves
+its ID and does not grant use. Explicit scoped slots default to no allowed session;
+operator-owned `setAllowedSessionsFromOperator` grants exact session IDs. Legacy
+entries retain the previous exact-chat HTTP gate until explicitly restricted.
+Global visibility never bypasses that gate, project identity, saved site, SSRF,
+fixed-GET constraints or the session allowlist. Duplicate visible names fail as
+ambiguous rather than selecting an arbitrary global/local entry.
+
+Usage audit records only numeric time, opaque slot/project/session IDs, scope,
+fixed action and outcome. No value, ciphertext, URL, request or response is
+recorded. A bounded private regular-file sink rejects symlink/hardlink redirects;
+audit failure blocks the request. Scope/site/grant are checked before native use.
+Orchestra project removal calls local slot cleanup before deleting its project
+marker; globals and other project slots remain. Empty imports, access, cleanup
+and the real project-removal integration have fixture tests. Native Windows
+DPAPI behavior remains unverified here. UI scope/grant controls and template
+materialization are not yet connected; worker Vault tools remain main-only.

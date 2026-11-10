@@ -2680,6 +2680,12 @@ const layer: Layer.Layer<
                     ),
                   { concurrency: 1, discard: true },
                 )
+                // Local Vault slots die with this project. Globals and other projects are not touched.
+                // Fail before deleting the project marker if secure-store cleanup is unavailable.
+                yield* Effect.promise(async () => {
+                  const { CredentialVault } = await import("./credential-vault/index.js")
+                  await CredentialVault.local(String(id)).removeProjectSlots(String(id))
+                })
                 yield* kv.remove(MAIN_INITIALIZING + id)
                 yield* kv.remove(PROJECT + id)
                 yield* kv.remove(TEAM_PLAN + id)

@@ -36,6 +36,7 @@ import { SessionStore } from "@orchestra/core/session/store"
 import { SessionTable } from "@orchestra/core/session/sql"
 import { eq } from "drizzle-orm"
 import { Trigger } from "@orchestra/core/trigger"
+import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import { ScheduleView } from "@orchestra/core/schedule-view"
 import { ScheduleRequests } from "@orchestra/core/schedule-requests"
 import { KV } from "@orchestra/core/kv"
@@ -584,6 +585,24 @@ describe("Orchestra team", () => {
       expect((yield* orchestra.projects()).map((item) => item.id)).not.toContain(project.id)
     }).pipe(Effect.scoped),
   ),
+
+  it.live("forgetting a project removes only its local Vault definitions, never other project slots", () =>
+    Effect.gen(function* () {
+      const orchestra = yield* Orchestra.Service
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-vault-delete-")))
+      const first = yield* orchestra.create({ name: "Vault owner", directory: tmp.path })
+      const a = CredentialVault.local(String(first.id)), b = CredentialVault.local("prj_other_vault")
+      yield* Effect.promise(() => a.createEmptyLocalSlotsFromOperator([{ name: "service", type: "api-key", label: "Service" }]))
+      yield* Effect.promise(() => b.createEmptyLocalSlotsFromOperator([{ name: "other", type: "login", label: "Other" }]))
+      try {
+        yield* orchestra.remove(first.id)
+        expect(yield* Effect.promise(() => a.slots())).toEqual([])
+        expect((yield* Effect.promise(() => b.slots())).map((slot) => slot.name)).toEqual(["other"])
+      } finally {
+        yield* Effect.promise(() => b.removeProjectSlots("prj_other_vault"))
+      }
+    }),
+  )
 
   it.live("does not resolve a removed project's main session as a live orchestrator", () =>
     Effect.gen(function* () {
