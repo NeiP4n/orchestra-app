@@ -241,9 +241,9 @@ export function RegistryPanel(props: {
     commands: [
       { bind: "tab", title: "Next tab", group: "Registry", run: () => cycle(1) },
       { bind: "shift+tab", title: "Previous tab", group: "Registry", run: () => cycle(-1) },
-      { bind: "up", title: "Предыдущее действие шаблона", group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(-1) },
-      { bind: "down", title: "Следующее действие шаблона", group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(1) },
-      { bind: "return", title: "Выполнить действие шаблона", group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.activate() },
+      { bind: "up", title: t("Previous template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(-1) },
+      { bind: "down", title: t("Next template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(1) },
+      { bind: "return", title: t("Activate template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.activate() },
       { bind: "up", title: "Previous AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.move(-1) },
       { bind: "down", title: "Next AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.move(1) },
       { bind: "return", title: "Install or remove AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
@@ -306,7 +306,7 @@ export function RegistryPanel(props: {
                   ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
                   : item === "programs"
                     ? `${t("Programs")} ${counts().programs}`
-                    : item === "vault" ? "Vault" : item === "templates" ? "Шаблоны" : `${t("AI terminal")}: ${counts().terminal}`}
+                    : item === "vault" ? "Vault" : item === "templates" ? t("Templates") : `${t("AI terminal")}: ${counts().terminal}`}
             </Button>
           )}
         </For>
@@ -499,7 +499,7 @@ export function RegistryPanel(props: {
         )}
       </Show>
       <text fg={theme.text.muted}>
-        {tab() === "templates" ? "tab вкладка · ↑↓ выбор · Enter действие · esc закрыть" : tab() === "programs"
+        {tab() === "templates" ? t("tab next tab · ↑↓ select · enter action · esc close") : tab() === "programs"
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
           : tab() === "plugins"
             ? t("tab next tab · ↑↓ select · enter enable/disable · esc close")

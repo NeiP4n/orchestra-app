@@ -15,7 +15,7 @@ for (const width of [80, 120]) {
       let keys: ProjectTemplatesKeys | undefined
       const app = await testRender(() => (
         <TestTuiContexts>
-          <ConfigProvider config={createTuiResolvedConfig()}>
+          <ConfigProvider config={createTuiResolvedConfig({ language: "ru" })}>
             <ThemeProvider mode="dark" source={emptyThemeSource}>
               <ProjectTemplatesSimple canSave={!empty} keys={(value) => { keys = value }} access={{
                 list: async () => empty ? [] : [{ id: "factory", name: "Фабрика" }],

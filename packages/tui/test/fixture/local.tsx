@@ -22,6 +22,7 @@ import { createTuiResolvedConfig } from "./tui-runtime"
 
 export async function renderLocal(
   input: {
+    language?: "en" | "ru"
     models?: ModelInfo[]
     agents?: AgentInfo[]
     sessions?: SessionInfo[]
@@ -63,7 +64,7 @@ export async function renderLocal(
     () => (
       <TestTuiContexts paths={{ state: temporary.path }}>
         <ArgsProvider {...input.args}>
-          <ConfigProvider config={createTuiResolvedConfig()}>
+          <ConfigProvider config={createTuiResolvedConfig({ language: input.language })}>
             <Keymap.Provider>
               <ThemeProvider mode="dark" source={{ discover: async () => ({}) }}>
                 <ToastProvider>
