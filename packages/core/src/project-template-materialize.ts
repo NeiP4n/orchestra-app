@@ -34,6 +34,9 @@ export const PHASES = [
 ] as const
 export interface Receipt {
   version: 1
+  createdAt: number
+  template: string
+  timezone: string
   id: string
   projectID: string
   name: string
@@ -53,6 +56,7 @@ export function make(ports: Ports) {
       ports.lock(reservation.id, async () => {
         if (
           reservation.version !== 1 ||
+          !Number.isFinite(reservation.createdAt) ||
           !/^pti_[A-Za-z0-9_-]{1,100}$/.test(reservation.id) ||
           !/^prj[A-Za-z0-9_-]+$/.test(reservation.projectID) ||
           !reservation.name.trim() ||

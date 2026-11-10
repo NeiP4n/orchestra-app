@@ -21,6 +21,9 @@ function fixture() {
   })
   const reservation: M.Receipt = {
     version: 1,
+    createdAt: 1,
+    template: p.value.text,
+    timezone: "Asia/Baku",
     id: "pti_new",
     projectID: "prj_new",
     name: "Factory",

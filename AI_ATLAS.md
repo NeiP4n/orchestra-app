@@ -3070,3 +3070,17 @@ stores before publication, and a crash after publish/before checkpoint retries o
 an idempotent publish. Current failure-injection tests use fixture store ports;
 actual KV/Session/browser-store adapters and activation admission guard are still
 required before mounting the simple screen. This is not yet live materialization.
+
+Live import store bridge (not mounted yet): ProjectTemplateLiveStores reserves all IDs
+and immutable source/plan in actual KV, creates fresh marked folders and regular DoD,
+uses real Session.create with explicit empty permissions/project/import ownership,
+create-only scoped rule/schedule rows and exact empty Vault ensures. Receipt recovery
+re-derives every writable definition from the closed source with current roles/models;
+changed receipt scopes cannot target global rules. Browser writes still require the
+owning store's strict ensure/verify ports. Regular file bootstrap requires the raw
+project owner row. Therefore the raw row is written under a pending import marker,
+then regular bootstrap must finish before the published receipt checkpoint. Orchestra
+list/get hide pending rows; an independent SessionHold guard blocks imported sessions
+until that checkpoint, including after restart, without replacing Society holds. Main
+repair preserves imported main titles. Actual KV/Session/DoD/Vault + regular bootstrap
+are exercised in orchestra-team; browser store remains fixture in that integration test.

@@ -1,6 +1,8 @@
 export * as Orchestra from "./orchestra.js"
 
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
+import { SessionHold } from "./session/hold.js"
+import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
 import { appendLog } from "@orchestra/util/append-log"
@@ -435,17 +437,40 @@ const layer: Layer.Layer<
       return read()
     }
 
+    const importReady = (projectID: string) => Effect.gen(function* () {
+      const id = yield* kv.get(ProjectTemplateLiveStores.PROJECT_IMPORT + projectID)
+      if (id === undefined) return true
+      if (typeof id !== "string") return false
+      const receipt = yield* kv.get(ProjectTemplateLiveStores.RECEIPT + id)
+      return isRecord(receipt) && receipt.phase === "published" && receipt.projectID === projectID
+    })
+    // This independent guard composes with Society holds and survives restart via KV.
+    const removeImportGuard = SessionHold.addGuard((sessionID) => Effect.gen(function* () {
+      const session = yield* sessionStore.get(SessionID.make(sessionID))
+      const id = session?.metadata?.[ProjectTemplateLiveStores.SESSION_IMPORT]
+      if (id === undefined) return false
+      if (typeof id !== "string") return true
+      const receipt = yield* kv.get(ProjectTemplateLiveStores.RECEIPT + id)
+      return !isRecord(receipt) || receipt.phase !== "published" || receipt.projectID !== session?.metadata?.[Orchestra.SessionOwnerMetadataKey]
+    }))
+    yield* Effect.addFinalizer(() => Effect.sync(removeImportGuard))
+
     const projects = Effect.fn("Orchestra.projects")(function* () {
       const all = (yield* scanAll(PROJECT))
         .flatMap((entry) => Option.toArray(decodeProject(entry.value)))
         .toSorted((a, b) => a.created - b.created)
-      for (const project of all) yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
-      return all
+      const ready: Project[] = []
+      for (const project of all) {
+        if (!(yield* importReady(project.id))) continue
+        yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
+        ready.push(project)
+      }
+      return ready
     })
 
     const get = Effect.fnUntraced(function* (id: ProjectID) {
       const project = decodeProject(yield* kv.get(PROJECT + id))
-      if (Option.isNone(project)) return yield* new ProjectNotFoundError({ projectID: id })
+      if (Option.isNone(project) || !(yield* importReady(id))) return yield* new ProjectNotFoundError({ projectID: id })
       return project.value
     })
 
@@ -722,7 +747,7 @@ const layer: Layer.Layer<
           }
           // Also repair a crash between saving the renamed project and renaming its main session.
           const title = `${project.name} · Orchestrator`
-          if (main.title !== title) {
+          if (main.title !== title && main.metadata?.[ProjectTemplateLiveStores.SESSION_IMPORT] === undefined) {
             yield* sessions.rename({ sessionID: main.id, title }).pipe(Effect.orDie)
             main = { ...main, title }
           }
