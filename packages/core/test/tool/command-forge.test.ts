@@ -31,12 +31,14 @@ describe("command forge", () => {
     expect(examples.some((item) => item.agent && !item.subagent)).toBe(true)
     // The model kind must be discoverable, but its starter cannot invent a configured provider/model.
     expect(CommandForgeTool.kinds.some((kind) => kind.id === "model")).toBe(true)
-    const pinned = load(CommandForgeTool.render({
-      name: "operator-model",
-      description: "serialize the documented provider/model syntax",
-      template: "Review $ARGUMENTS",
-      model: "provider/model",
-    }))
+    const pinned = load(
+      CommandForgeTool.render({
+        name: "operator-model",
+        description: "serialize the documented provider/model syntax",
+        template: "Review $ARGUMENTS",
+        model: "provider/model",
+      }),
+    )
     expect(pinned.model).toEqual({ providerID: "provider", model: "model" })
   })
 
@@ -49,7 +51,9 @@ describe("command forge", () => {
   })
 
   test("shell context must only read: writes are reported, reads and null redirects pass", () => {
-    expect(CommandForgeTool.writingShell("!`git diff --staged` !`git log -5 2>/dev/null` !`ls > /dev/null`")).toEqual([])
+    expect(CommandForgeTool.writingShell("!`git diff --staged` !`git log -5 2>/dev/null` !`ls > /dev/null`")).toEqual(
+      [],
+    )
     expect(CommandForgeTool.writingShell("!`git push` and !`rm -rf dist` and !`echo x > file.txt`")).toEqual([
       "git push",
       "rm -rf dist",
