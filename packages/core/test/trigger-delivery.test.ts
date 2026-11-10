@@ -74,3 +74,44 @@ test("browser dispatch survives serialize/restart with stable message id, fixed 
     }),
   ).toBeUndefined()
 })
+test("waiting browser rows and ingress dedup survive restart, reservation atomically drains only its rows", () => {
+  const made = Trigger.create(
+    { kind: "browser", spec: "browser_own", prompt: "review only" },
+    { id: "durable_queue", projectID: "p", now, existing: 0 },
+  )
+  if (!made.ok) throw Error(made.error)
+  const event = { sessionID: "browser_own", at: now, items: [{ chat: "inbox", text: "new row" }] }
+  let current = Trigger.parse(D.enqueueBrowser(made.trigger, event))!
+  expect(current.browserQueue?.rows).toEqual(event.items)
+  current = Trigger.parse(JSON.parse(JSON.stringify(current)))!
+  expect(D.enqueueBrowser(current, event)).toEqual(current)
+  expect(D.enqueueBrowser(current, { ...event, sessionID: "foreign" })).toEqual(current)
+  expect(D.enqueueBrowser({ ...current, enabled: false }, event)).toEqual({ ...current, enabled: false })
+  const pending = Trigger.parse(D.reserveBrowser(current, now, "ses_main"))!
+  expect(pending.pendingFire?.rows).toEqual(event.items)
+  expect(pending.browserQueue?.rows).toEqual([])
+  expect(pending.pendingFire?.source.browserQueue).toBeUndefined()
+  const second = { ...event, at: now + 1, items: [{ chat: "inbox", text: "later row" }] }
+  const whilePending = Trigger.parse(D.enqueueBrowser(pending, second))!
+  expect(whilePending.pendingFire?.rows).toEqual(event.items)
+  const acknowledged = Trigger.parse(D.acknowledge(whilePending, pending.pendingFire!.fireId))!
+  expect(acknowledged.browserQueue?.rows).toEqual(second.items)
+  expect(D.enqueueBrowser(acknowledged, event)).toEqual(acknowledged)
+})
+test("browser queue has bounded storage and explicit overflow count, malformed records fail closed", () => {
+  const made = Trigger.create(
+    { kind: "browser", spec: "browser_own", prompt: "review only" },
+    { id: "queue_cap", projectID: "p", now, existing: 0 },
+  )
+  if (!made.ok) throw Error(made.error)
+  let current = made.trigger
+  for (let i = 0; i < 50; i++)
+    current = Trigger.parse(
+      D.enqueueBrowser(current, { sessionID: "browser_own", at: now + i, items: [{ chat: "inbox", text: `row${i}` }] }),
+    )!
+  expect(current.browserQueue?.rows).toHaveLength(Trigger.MAX_PENDING)
+  expect(current.browserQueue?.droppedRows).toBe(40)
+  expect(current.browserQueue?.eventIDs).toHaveLength(32)
+  expect(Trigger.parse({ ...current, browserQueue: { ...current.browserQueue, rows: [{ text: 12 }] } })).toBeUndefined()
+  expect(Trigger.parse({ ...current, browserQueue: { ...current.browserQueue, droppedRows: -1 } })).toBeUndefined()
+})

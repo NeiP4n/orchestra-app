@@ -38,6 +38,7 @@ export interface Info {
   nextAt: number | null
   lastFiredAt?: number
   pendingFire?: TriggerDelivery.Pending
+  browserQueue?: TriggerDelivery.BrowserQueue
   missedPolicy?: "skip" | "run-once" | "catch-up"
   missedCount?: number
   missedCountAtLeast?: boolean
@@ -202,6 +203,8 @@ export function parse(value: unknown): Info | undefined {
   if (actionPlan.actions.some((a) => a.kind === "browser.read")) return undefined
   const errors = v.errors as TriggerActions.Errors | undefined
   if (errors && (!Number.isInteger(errors.consecutive) || errors.consecutive < 0 || !Number.isInteger(errors.total) || errors.total < errors.consecutive)) return undefined
+  const browserQueue = v.browserQueue as TriggerDelivery.BrowserQueue | undefined
+  if (browserQueue !== undefined && (v.kind !== "browser" || !browserQueue || !Array.isArray(browserQueue.rows) || browserQueue.rows.length > MAX_PENDING || browserQueue.rows.some(row => !row || typeof row.chat !== "string" || row.chat.length > 300 || typeof row.text !== "string" || row.text.length > 300) || !Array.isArray(browserQueue.eventIDs) || browserQueue.eventIDs.length > 32 || browserQueue.eventIDs.some(id => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)) || !Number.isSafeInteger(browserQueue.droppedRows) || browserQueue.droppedRows < 0)) return undefined
   let pendingFire: TriggerDelivery.Pending | undefined
   if (v.pendingFire !== undefined) {
     const p = v.pendingFire as TriggerDelivery.Pending | null
@@ -215,6 +218,7 @@ export function parse(value: unknown): Info | undefined {
   }
   return {
     ...(pendingFire ? { pendingFire } : {}),
+    ...(browserQueue ? { browserQueue } : {}),
     missedPolicy: v.missedPolicy === "catch-up" || v.missedPolicy === "run-once" ? v.missedPolicy : v.kind === "once" && v.missedPolicy === undefined ? "run-once" : "skip",
     ...(typeof v.missedCount === "number" && Number.isFinite(v.missedCount) ? { missedCount: Math.max(0, Math.floor(v.missedCount)) } : {}),
     ...(v.missedCountAtLeast === true ? { missedCountAtLeast: true } : {}),

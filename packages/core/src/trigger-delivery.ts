@@ -68,24 +68,57 @@ export function reserveBrowser(
   current: unknown,
   now: number,
   destination: string,
-  rows: readonly Trigger.Row[],
+  rows?: readonly Trigger.Row[],
 ): unknown {
   const trigger = Trigger.parse(current)
+  rows ??= trigger?.browserQueue?.rows ?? []
   if (!trigger || trigger.pendingFire || Trigger.browserDue(trigger, now) !== "fire" || rows.length === 0)
     return current
   const fireId = fireID(trigger.id, now)
   return {
     ...Trigger.afterFire(trigger, now),
+    ...(trigger.browserQueue ? { browserQueue: { ...trigger.browserQueue, rows: [] } } : {}),
     pendingFire: {
       fireId,
       messageID: messageID(fireId),
       destination,
       scheduledAt: now,
       firedAt: now,
-      source: { ...trigger, publishApproved: false, browserSessionID: undefined },
+      source: { ...trigger, browserQueue: undefined, publishApproved: false, browserSessionID: undefined },
       rows: rows
         .slice(-Trigger.MAX_PENDING)
         .map((row) => ({ chat: row.chat.slice(0, 300), text: row.text.slice(0, 300) })),
     } satisfies Pending,
+  }
+}
+
+export interface BrowserQueue {
+  rows: Trigger.Row[]
+  eventIDs: string[]
+  droppedRows: number
+}
+/** Accept only an exact live source. Replayed ingress after a partial KV failure cannot append twice. */
+export function enqueueBrowser(
+  current: unknown,
+  event: { sessionID: string; at: number; items: readonly Trigger.Row[] },
+): unknown {
+  const trigger = Trigger.parse(current)
+  if (!trigger || trigger.kind !== "browser" || !trigger.enabled || trigger.spec !== event.sessionID) return current
+  const eventID = createHash("sha256")
+    .update(JSON.stringify([event.sessionID, event.at, event.items]))
+    .digest("hex")
+  if (trigger.browserQueue?.eventIDs.includes(eventID)) return current
+  const incoming = event.items
+    .filter((row) => Trigger.matches(trigger, event.sessionID, row))
+    .map((row) => ({ chat: row.chat.slice(0, 300), text: row.text.slice(0, 300) }))
+  if (!incoming.length) return current
+  const rows = [...(trigger.browserQueue?.rows ?? []), ...incoming]
+  return {
+    ...trigger,
+    browserQueue: {
+      rows: rows.slice(-Trigger.MAX_PENDING),
+      eventIDs: [...(trigger.browserQueue?.eventIDs ?? []), eventID].slice(-32),
+      droppedRows: (trigger.browserQueue?.droppedRows ?? 0) + Math.max(0, rows.length - Trigger.MAX_PENDING),
+    } satisfies BrowserQueue,
   }
 }
