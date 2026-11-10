@@ -1,3 +1,4 @@
+import { ProjectTemplateReader } from "../src/project-template-reader"
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
 import { Mode } from "@orchestra/schema/mode"
@@ -2400,3 +2401,29 @@ it.live("local trigger window applies operator pause/resume/export through the r
       }
     }
   }),30_000)
+
+
+it.live("template reader captures real project metadata without reading messages, creating sessions or carrying grants", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-template-live-reader-")))
+    const orchestra = yield* Orchestra.Service
+    const kv = yield* KV.Service
+    const store = yield* SessionStore.Service
+    const project = yield* orchestra.create({ name: "Template source", directory: tmp.path })
+    const main = yield* orchestra.main(project.id)
+    const [slot] = yield* Effect.promise(() => CredentialVault.local(project.id).createEmptyLocalSlotsFromOperator([{ name: "service", type: "api-key", label: "Service" }]))
+    yield* kv.set("rules/orchestrator:" + project.id, [{ id: "r1", text: "Review the result.", by: "operator", at: 1 }])
+    const before = (yield* store.list({ directoryPrefix: AbsolutePath.make(tmp.path) })).map((row) => row.id)
+    const result = yield* ProjectTemplateReader.capture({ kv, getSession: (id) => store.get(Session.ID.make(id)), listSessionsInTree: (directory) => store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }) }, project.id,
+      { name: "Reusable factory", description: "Config only", minOrchestraVersion: "1.0.0" },
+      { browsers: [], vault: [slot], selectedGlobalSlotIDs: new Set(), providers: [], mcp: [] })
+    expect(result.bundle.sessions.some((row) => row.role === Orchestra.agent)).toBe(true)
+    expect(result.bundle.rules.some((row) => row.scope === "orchestrator" && row.text === "Review the result.")).toBe(true)
+    expect(result.bundle.vault.local).toEqual([{ name: "service", type: "api-key", label: "Service" }])
+    expect(result.text).not.toContain(main.id)
+    expect(result.text).not.toContain(project.id)
+    expect(result.text).not.toContain(slot.id)
+    expect((yield* store.list({ directoryPrefix: AbsolutePath.make(tmp.path) })).map((row) => row.id)).toEqual(before)
+    yield* Effect.promise(() => CredentialVault.local(project.id).removeProjectSlots(project.id))
+  }).pipe(Effect.scoped),
+)

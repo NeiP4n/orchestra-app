@@ -3017,3 +3017,16 @@ removed from Registry rather than shipping a nonworking or complicated flow. The
 underlying library API and advanced internal tests remain useful. Actual renderer
 click tests at 80/120 columns cover confirm/cancel/details with fixture callbacks;
 they do not prove live capture or project creation. Vault tab remains mounted.
+
+ProjectTemplateReader.capture passively reads real KV and SessionStore metadata,
+not repairing Orchestra.main/sessions. It scans all owners, includes unclaimed
+in-tree sessions under the existing ownerOf rule, excludes foreign/nested/group
+sessions and child histories, and reads exact project/default/orchestrator/role/
+session rule scopes plus structural triggers. Linked Browser/Vault/integration
+metadata is an explicit input from its owning surface, not inferred credentials.
+No write, message, permission, memory, page or execution dependency exists in its
+port. Confirm must recapture/compare digest because this is not a transactional
+snapshot. Actual Orchestra+SQLite+Vault integration test creates a real project and
+checks metadata capture without new sessions, plus unit tests cover >1000 unrelated
+owner rows, repeated cursors, damaged rules/triggers and project changes. No public
+endpoint or simple UI adapter yet; this is backend collector groundwork.
