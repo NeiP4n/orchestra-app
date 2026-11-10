@@ -101,7 +101,7 @@ export function recommend(input: Input): Result {
     new Set(input.candidates.map((row) => row.id)).size !== input.candidates.length ||
     input.candidates.some(
       (row) =>
-        !/^[A-Za-z0-9_.:/-]{1,160}$/.test(row.id) ||
+        !/^[A-Za-z0-9_@.:/-]{1,160}$/.test(row.id) ||
         [row.available, row.paid, row.needsKey, row.readOnly].some((v) => typeof v !== "boolean"),
     )
   )

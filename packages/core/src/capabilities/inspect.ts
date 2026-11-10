@@ -13,7 +13,12 @@ export interface Facts {
 /** Facts come from local metadata readers only. No probes, connects, installs or key-value reads.
  * Program presence and per-task grants are not supplied by this reader, so remain unknown. */
 export function inspect(facts: Facts) {
-  const rows = definitions({ native: facts.native, skills: facts.skills, plugins: facts.plugins.map((row) => row.id) })
+  const rows = definitions({
+    native: facts.native,
+    mcp: facts.mcp.map((row) => row.name),
+    skills: facts.skills,
+    plugins: facts.plugins.map((row) => row.id),
+  })
   const observed = new Map<string, Observed>()
   for (const row of rows.filter((row) => row.kind === "mcp")) {
     const server = facts.mcp.find((item) => "mcp:" + item.name === row.id)
