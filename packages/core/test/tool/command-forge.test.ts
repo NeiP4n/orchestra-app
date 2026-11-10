@@ -29,7 +29,15 @@ describe("command forge", () => {
     expect(examples.some((item) => item.template.includes("!`"))).toBe(true)
     expect(examples.some((item) => item.subagent)).toBe(true)
     expect(examples.some((item) => item.agent && !item.subagent)).toBe(true)
-    expect(examples.some((item) => item.model)).toBe(true)
+    // The model kind must be discoverable, but its starter cannot invent a configured provider/model.
+    expect(CommandForgeTool.kinds.some((kind) => kind.id === "model")).toBe(true)
+    const pinned = load(CommandForgeTool.render({
+      name: "operator-model",
+      description: "serialize the documented provider/model syntax",
+      template: "Review $ARGUMENTS",
+      model: "provider/model",
+    }))
+    expect(pinned.model).toEqual({ providerID: "provider", model: "model" })
   })
 
   test("descriptions and templates with quotes and colons survive the frontmatter", () => {
