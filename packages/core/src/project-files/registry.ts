@@ -49,6 +49,7 @@ export interface FileDescriptor {
  * belong to other subsystems but must still be listed in the index.
  */
 export const CORE_DESCRIPTORS: ReadonlyArray<FileDescriptor> = [
+  { rel: "reviewed-index.db", base: "orchestra", dir: false, kind: "retrieval-index", purpose: "Private rebuildable offline index of explicitly reviewed lesson, plan and tool cards", git: false, source: "derived", optional: true },
   {
     rel: ".metrics-locks/",
     base: "orchestra",
