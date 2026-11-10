@@ -103,7 +103,7 @@ export function compare(existing: ProjectTemplate.Bundle, incoming: ProjectTempl
   const rows = (bundle: ProjectTemplate.Bundle, section: typeof sections[number]): readonly unknown[] => {
     if (section === 'localVault') return bundle.vault.local
     if (section === 'globalVault') return bundle.vault.globalRequirements.map((name) => ({ name }))
-    if (section === 'metadata') return [{ name: 'metadata', title: bundle.name, description: bundle.description, minOrchestraVersion: bundle.minOrchestraVersion, variables: bundle.variables }]
+    if (section === 'metadata') return [{ name: 'metadata', title: bundle.name, description: bundle.description, minOrchestraVersion: bundle.minOrchestraVersion, variables: bundle.variables, mainSession: bundle.mainSession ?? null }]
     return bundle[section]
   }
   const key = (entry: unknown, index: number) => {

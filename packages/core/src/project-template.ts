@@ -11,9 +11,10 @@ export interface Bundle {
   description: string
   minOrchestraVersion: string
   variables: { projectName: string; folder: "${projectFolder}" }
+  mainSession?: string
   vault: { local: { name: string; type: "login" | "api-key" | "password"; label: string }[]; globalRequirements: string[] }
   sessions: { slot: string; title: string; role: string; model: { provider: string; id: string; variant: string | null } | null }[]
-  browsers: { slot: string; name: string; mode: "headless" | "window" | "capture"; links: string[] }[]
+  browsers: { slot: string; name: string; mode: "headless" | "window" | "capture"; links: string[]; session?: string }[]
   rules: { session: string | null; text: string; scope?: "project" | "project-defaults" | "orchestrator" | "session" | "role"; role?: string }[]
   schedules: {
     slot: string
@@ -69,7 +70,8 @@ function version(value: unknown): string { const s = text(value, 80); if (!/^\d+
 export function parse(serialized: string): Result<Bundle> {
   if (Buffer.byteLength(serialized) > MAX_BYTES) return { ok: false, error: "Project template exceeds the size limit." }
   try {
-    const data = object(JSON.parse(serialized), ['format', 'version', 'name', 'description', 'minOrchestraVersion', 'variables', 'vault', 'sessions', 'browsers', 'rules', 'schedules', 'providers', 'mcp'])
+    const raw: unknown = JSON.parse(serialized)
+    const data = object(raw, ['format', 'version', 'name', 'description', 'minOrchestraVersion', 'variables', 'vault', 'sessions', 'browsers', 'rules', 'schedules', 'providers', 'mcp', ...(raw && typeof raw === 'object' && Object.hasOwn(raw, 'mainSession') ? ['mainSession'] : [])])
     if (data.format !== 'orchestra.project-template' || data.version !== 1) invalid()
     const variables = object(data.variables, ['projectName', 'folder']); if (variables.folder !== '${projectFolder}') invalid()
     const vault = object(data.vault, ['local', 'globalRequirements'])
@@ -81,8 +83,11 @@ export function parse(serialized: string): Result<Bundle> {
       const row = object(v, ['slot', 'title', 'role', 'model']), model = row.model === null ? null : object(row.model, ['provider', 'id', 'variant'])
       return { slot: slot(row.slot), title: text(row.title, 160), role: id(row.role), model: model === null ? null : { provider: id(model.provider), id: id(model.id), variant: model.variant === null ? null : id(model.variant) } }
     }); unique(sessions.map((row) => row.slot))
-    const browsers = array(data.browsers, 50).map((v) => { const row = object(v, ['slot', 'name', 'mode', 'links']), links = array(row.links, 100).map(url); unique(links); return { slot: slot(row.slot), name: text(row.name, 160), mode: choice(row.mode, ['headless', 'window', 'capture']), links } }); unique(browsers.map((row) => row.slot))
+    const browsers = array(data.browsers, 50).map((v) => { const linked = !!v && typeof v === 'object' && Object.hasOwn(v, 'session'); const row = object(v, ['slot', 'name', 'mode', 'links', ...(linked ? ['session'] : [])]), links = array(row.links, 100).map(url); unique(links); return { slot: slot(row.slot), name: text(row.name, 160), mode: choice(row.mode, ['headless', 'window', 'capture']), links, ...(linked ? { session: slot(row.session) } : {}) } }); unique(browsers.map((row) => row.slot))
     const sessionNames = new Set(sessions.map((row) => row.slot)), browserNames = new Set(browsers.map((row) => row.slot))
+    if (browsers.some((browser) => browser.session && !sessionNames.has(browser.session))) invalid()
+    const mainSession = data.mainSession === undefined ? undefined : slot(data.mainSession)
+    if (mainSession && !sessionNames.has(mainSession)) invalid()
     const sessionRef = (v: unknown) => { const s = slot(v); if (!sessionNames.has(s)) invalid(); return s }
     const rules: Bundle['rules'] = array(data.rules, 100).map((v) => {
       const hasScope = !!v && typeof v === "object" && Object.hasOwn(v, "scope")
@@ -113,7 +118,7 @@ export function parse(serialized: string): Result<Bundle> {
     const providers = array(data.providers, 30).map((v) => { const row = object(v, ['id', 'endpoint', 'credentialSlots']); return { id: id(row.id), endpoint: row.endpoint === null ? null : url(row.endpoint), credentialSlots: slots(row.credentialSlots) } }); unique(providers.map((row) => row.id))
     const mcp = array(data.mcp, 50).map((v) => { const row = object(v, ['name', 'catalog', 'credentialSlots']); return { name: slot(row.name), catalog: slot(row.catalog), credentialSlots: slots(row.credentialSlots) } }); unique(mcp.map((row) => row.name))
     const declared = new Set([...local.map((row) => row.name), ...globalRequirements]); if ([...mcp, ...providers].some((row) => row.credentialSlots.some((name) => !declared.has(name)))) invalid()
-    return { ok: true, value: { format: 'orchestra.project-template', version: 1, name: text(data.name, 160), description: text(data.description, 2048), minOrchestraVersion: version(data.minOrchestraVersion), variables: { projectName: text(variables.projectName, 160), folder: '${projectFolder}' }, vault: { local, globalRequirements }, sessions, browsers, rules, schedules, providers, mcp } }
+    return { ok: true, value: { format: 'orchestra.project-template', version: 1, name: text(data.name, 160), description: text(data.description, 2048), minOrchestraVersion: version(data.minOrchestraVersion), variables: { projectName: text(variables.projectName, 160), folder: '${projectFolder}' }, ...(mainSession ? { mainSession } : {}), vault: { local, globalRequirements }, sessions, browsers, rules, schedules, providers, mcp } }
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
     return { ok: false, error: ['Secret-like value detected.', 'Absolute paths are not portable.', 'Saved URLs require HTTP(S)'].some((s) => message.startsWith(s)) ? message : 'Invalid project template configuration or unsupported fields.' }

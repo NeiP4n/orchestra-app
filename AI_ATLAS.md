@@ -3047,3 +3047,14 @@ do-not-retry-old-ID guidance. The assertion now matches that exact complete text
 not a weaker generic substring. Full orchestra-team suite: 49 pass, 340 assertions
 on this chain, including the real metadata collector integration. This is one
 suite, not full repository typecheck/CI.
+
+ProjectTemplateBrowser.capture bridges explicitly owned active browser definitions to
+persisted .tabs.json only, without importing BrowserRuntime or reading profiles/DOM.
+It retains all up to 100 saved URL entries rather than the runtime's eight-tab restore
+window, excludes saved titles, checks regular/no-follow/no-hardlink/size boundaries,
+and rejects URL credentials/query/fragment. A missing saved file means unopened,
+not a hidden browser launch. Fresh imports default to window mode when no portable
+preference exists. Templates now retain optional mainSession and browser.session slot
+links; these are remapped to fresh identities and checked for Orchestrator/one distinct
+BrowserAgent per browser at destination prep. Existing v1 without links remains readable.
+This read bridge still needs mounting through the live simple-screen adapter.
