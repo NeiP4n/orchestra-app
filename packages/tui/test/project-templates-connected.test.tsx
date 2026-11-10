@@ -21,6 +21,7 @@ test("mounted connected screen uses generated HTTP actions and strictly persists
       browsers: [{ id: "brw_import", name: "Inbox", chat: "ses_import", mode: "window" }],
     }
   await using app = await renderLocal({
+    language: "ru",
     fetch: async (url, request) => {
       if (url.pathname === "/api/orchestra/project")
         return json([{ id: "prj_source", name: "Factory", directory, main: "ses_main" }])

@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
+import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
 import { TextAttributes } from "@opentui/core"
@@ -26,11 +27,13 @@ export function ProjectTemplatesSimple(props: {
   scrollIntoView?: (id: string) => void
 }) {
   const theme = useTheme().surface("dialog")
+  const tr = useT()
   const [templates, setTemplates] = createSignal<readonly { id: string; name: string }[]>([])
   const [cursor, setCursor] = createSignal("save")
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
   const [message, setMessage] = createSignal("")
+  const [refreshFailed, setRefreshFailed] = createSignal(false)
   const [prepared, setPrepared] = createSignal<{
     kind: "save" | "create"
     token: string
@@ -44,7 +47,7 @@ export function ProjectTemplatesSimple(props: {
       await action()
     } catch {
       setPrepared()
-      setMessage("Не получилось завершить. Ничего не заменено. Попробуйте ещё раз.")
+      setMessage("Could not finish. Nothing was replaced. Try again.")
     } finally {
       setBusy(false)
     }
@@ -60,6 +63,7 @@ export function ProjectTemplatesSimple(props: {
       setPrepared()
       setDetails(false)
       setMessage("")
+      setRefreshFailed(false)
       if (kind === "save" && !props.canSave) return
       const result = kind === "save" ? await props.access.prepareSave() : await props.access.prepareCreate(id!)
       setPrepared({ kind, ...result })
@@ -77,19 +81,19 @@ export function ProjectTemplatesSimple(props: {
       } catch {
         // Keep this exact durable operation, never prepare a second project after partial commit.
         setPrepared(current)
-        setMessage("Не удалось завершить. Повторите это же подтверждение: продолжим без создания второй копии.")
+        setMessage("Could not finish. Confirm the same operation again to continue without creating a second copy.")
         return
       }
       setMessage(
         current.kind === "save"
-          ? "Проект сохранён как шаблон. Чаты, данные и секреты не сохранены."
-          : "Проект создан. Заполните пустой Vault и войдите в браузеры. Расписания на паузе.",
+          ? "Project saved as a template. Chats, data and secrets were not saved."
+          : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
       )
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
       try {
         await refresh()
       } catch {
-        setMessage(message() + " Список пока не обновился.")
+        setRefreshFailed(true)
       }
     })
   const actions = () => prepared()
@@ -144,30 +148,30 @@ export function ProjectTemplatesSimple(props: {
   return (
     <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
       <box flexDirection="column">
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Шаблоны проектов</text>
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")}</text>
         <text fg={theme.text.muted} wrapMode="word">
-          Настройки, правила, ссылки и расписания. Без чатов, данных и секретов.
+          {tr("Settings, rules, links and schedules. No chats, data or secrets.")}
         </text>
       </box>
       <box flexDirection="column">
-        <Action id="save" label="Сохранить проект как шаблон" disabled={!props.canSave || !!prepared()} />
+        <Action id="save" label={tr("Save project as template")} disabled={!props.canSave || !!prepared()} />
         <Show when={!props.canSave}>
-          <text fg={theme.text.muted} paddingLeft={3}>Откройте проект, чтобы сохранить шаблон.</text>
+          <text fg={theme.text.muted} paddingLeft={3}>{tr("Open a project to save a template.")}</text>
         </Show>
       </box>
       <box flexDirection="column" gap={1}>
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Сохранённые шаблоны · {templates().length}</text>
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Saved templates · {count}", { count: templates().length })}</text>
         <Show when={templates().length === 0}>
           <box flexDirection="column">
-            <Action id="create-empty" label="Создать проект из шаблона" disabled />
-            <text fg={theme.text.muted} paddingLeft={3} wrapMode="word">Шаблонов пока нет. Сохраните проект выше.</text>
+            <Action id="create-empty" label={tr("Create project from template")} disabled />
+            <text fg={theme.text.muted} paddingLeft={3} wrapMode="word">{tr("No templates yet. Save a project above.")}</text>
           </box>
         </Show>
         <For each={templates()}>
           {(template) => (
             <box flexDirection="column">
               <text fg={theme.text.base} paddingLeft={3} wrapMode="word">{template.name}</text>
-              <Action id={`create-${template.id}`} label="Создать проект из шаблона" disabled={!!prepared()} />
+              <Action id={`create-${template.id}`} label={tr("Create project from template")} disabled={!!prepared()} />
             </box>
           )}
         </For>
@@ -176,15 +180,15 @@ export function ProjectTemplatesSimple(props: {
         {(current) => (
           <box flexDirection="column" gap={1} paddingTop={1}>
             <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
-              {current().kind === "save" ? "Сохранить" : "Создать"} «{current().name}»?{" "}
+              {current().kind === "save" ? tr("Save") : tr("Create")} «{current().name}»?{" "}
               {current().kind === "save"
-                ? "Только настройки, без чатов, данных и секретов."
-                : "Vault будет пустым, браузеры без входа, расписания на паузе."}
+                ? tr("Settings only, without chats, data or secrets.")
+                : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? "Сохранить" : "Создать"} />
-              <Action id="cancel" label="Отмена" />
-              <Action id="details" label={details() ? "Скрыть подробности" : "Подробнее"} />
+              <Action id="confirm" label={current().kind === "save" ? tr("Save") : tr("Create")} />
+              <Action id="cancel" label={tr("Cancel")} />
+              <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>
             <Show when={details()}>
               <text fg={theme.text.muted} wrapMode="word">{current().details}</text>
@@ -193,12 +197,12 @@ export function ProjectTemplatesSimple(props: {
         )}
       </Show>
       <Show when={busy()}>
-        <text fg={theme.text.muted}>Подготовка…</text>
+        <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
       <Show when={message()}>
-        <text fg={theme.text.base} wrapMode="word">{message()}</text>
+        <text fg={theme.text.base} wrapMode="word">{tr(message())}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
       </Show>
-      <text fg={theme.text.muted}>↑↓ выбор · Enter действие</text>
+      <text fg={theme.text.muted}>{tr("↑↓ select · Enter action")}</text>
     </box>
   )
 }

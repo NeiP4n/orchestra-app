@@ -31,7 +31,7 @@ for (const width of [80, 120])
     const app = await testRender(
       () => (
         <TestTuiContexts>
-          <ConfigProvider config={createTuiResolvedConfig()}>
+          <ConfigProvider config={createTuiResolvedConfig({ language: "ru" })}>
             <ThemeProvider mode="dark" source={emptyThemeSource}>
               <ProjectTemplatesSimple access={access} canSave={true} />
             </ThemeProvider>
@@ -99,7 +99,7 @@ test("confirmation retries the same operation after partial failure and refresh 
   const app = await testRender(
     () => (
       <TestTuiContexts>
-        <ConfigProvider config={createTuiResolvedConfig()}>
+        <ConfigProvider config={createTuiResolvedConfig({ language: "ru" })}>
           <ThemeProvider mode="dark" source={emptyThemeSource}>
             <ProjectTemplatesSimple access={access} canSave={true} />
           </ThemeProvider>
