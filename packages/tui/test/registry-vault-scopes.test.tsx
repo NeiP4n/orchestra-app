@@ -10,7 +10,7 @@ import { TestTuiContexts } from "./fixture/tui-environment"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import type { CredentialVault } from "@orchestra/core/credential-vault/index"
 
-test("actual registry renders empty local/global slots, explicit scope selection and two-click current-chat grant/revoke", async () => {
+for (const columns of [80, 120]) test(`columns=${columns}: actual registry renders empty local/global slots, explicit scope selection and two-click current-chat grant/revoke`, async () => {
   const entries: CredentialVault.SlotInfo[] = [{ id: "local", name: "service", type: "api-key", label: "Service", scope: "project", projectID: "prj_a", state: "empty", allowedSessionIDs: [] }, { id: "global", name: "shared", type: "login", label: "Shared", scope: "global", state: "filled", allowedSessionIDs: [] }]
   const writes: unknown[] = [], grants: string[][] = []
   const access = {
@@ -19,7 +19,7 @@ test("actual registry renders empty local/global slots, explicit scope selection
     deleteFromOperator: async () => {},
     setAllowedSessionsFromOperator: async (id: string, allowed: string[], confirmed: boolean) => { expect(confirmed).toBe(true); grants.push(allowed); entries.find((v) => v.id === id)!.allowedSessionIDs = allowed },
   }
-  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig()}><ThemeProvider mode="dark" source={emptyThemeSource}><Keymap.Provider><RegistryVault access={access} projectID="prj_a" sessionID="ses_main" /></Keymap.Provider></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: 120, height: 26 })
+  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig()}><ThemeProvider mode="dark" source={emptyThemeSource}><Keymap.Provider><RegistryVault access={access} projectID="prj_a" sessionID="ses_main" /></Keymap.Provider></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: columns, height: 30 })
   app.renderer.start()
   const click = async (id: string) => { const box = app.renderer.root.findDescendantById(id)!; expect(box).toBeDefined(); await app.mockMouse.click(box.x + 2, box.y + Math.min(1, box.height - 1)); await app.renderOnce() }
   try {
@@ -37,7 +37,7 @@ test("actual registry renders empty local/global slots, explicit scope selection
     await app.waitForFrame((f) => f.includes("Подтвердить чат?"))
     await click("registry-vault.grant-local"); await app.waitForFrame((f) => f.includes("Отозвать чат"))
     expect(grants).toEqual([["ses_main"]])
-    if (process.env.CAPTURE_VAULT_FRAME) { await Bun.write(process.env.CAPTURE_VAULT_FRAME, app.captureCharFrame()); await Bun.write(process.env.CAPTURE_VAULT_FRAME + '.json', JSON.stringify(app.captureSpans())) }
+    if (process.env.CAPTURE_VAULT_FRAME) { await Bun.write(process.env.CAPTURE_VAULT_FRAME + columns, app.captureCharFrame()); await Bun.write(process.env.CAPTURE_VAULT_FRAME + columns + '.json', JSON.stringify(app.captureSpans())) }
     await click("registry-vault.grant-local"); await app.waitForFrame((f) => !f.includes("Отозвать чат")); expect(grants).toEqual([["ses_main"], []])
   } finally { app.renderer.destroy() }
 })
