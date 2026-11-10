@@ -13,7 +13,6 @@ import {
   Switch,
   type Accessor,
 } from "solid-js"
-import path from "node:path"
 import { EOL } from "node:os"
 import { writeTranscriptExport } from "../../util/transcript-export"
 import { useRoute, useRouteData } from "../../context/route"
