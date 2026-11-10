@@ -2747,6 +2747,7 @@ const layer: Layer.Layer<
                 yield* kv.remove(TEAM_PLAN + id)
                 yield* kv.remove(PROJECT_TEMPLATE + id)
                 yield* kv.remove("orchestra/process-skills/" + id)
+                yield* kv.remove("orchestra/process-skill-definitions/" + id)
                 yield* Effect.forEach(yield* scanAll(PROJECT_ROLE + id + "/"), entry => kv.remove(entry.key), { discard: true })
                 yield* PubSub.publish(changed, undefined)
                 yield* kv.remove(MOVE_PLAN + id)

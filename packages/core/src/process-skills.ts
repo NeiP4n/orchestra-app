@@ -112,13 +112,13 @@ const projectReady = Effect.fnUntraced(function* (kv: KV.Interface, projectID: s
 })
 
 /** Only explicit ownership or the project's exact main session counts, never a directory. */
-export const allowed = Effect.fn("ProcessSkills.allowed")(function* (kv: KV.Interface, context?: Context) {
+export const selection = Effect.fn("ProcessSkills.selection")(function* (kv: KV.Interface, context?: Context) {
   const result = new Set<string>()
-  if (!context) return result
+  if (!context) return undefined
   const owner = yield* kv.get("orchestra/owner/" + context.sessionID)
   let projectID: string | undefined
   if (owner !== undefined) {
-    if (typeof owner !== "string") return result
+    if (typeof owner !== "string") return undefined
     projectID = owner
   } else {
     let after: string | undefined
@@ -131,16 +131,16 @@ export const allowed = Effect.fn("ProcessSkills.allowed")(function* (kv: KV.Inte
           project.value.main === context.sessionID &&
           entry.key === "orchestra/project/" + project.value.id
         ) {
-          if (projectID) return result
+          if (projectID) return undefined
           projectID = project.value.id
         }
       }
       after = page.next
     } while (after)
   }
-  if (!projectID || !(yield* projectReady(kv, projectID))) return result
+  if (!projectID || !(yield* projectReady(kv, projectID))) return undefined
   const registry = parse(yield* kv.get(PREFIX + projectID), projectID)
-  if (!registry) return result
+  if (!registry) return undefined
   const byID = new Map(registry.skills.map((skill) => [skill.id, skill]))
   const add = (id: string) => {
     if (result.has(id)) return
@@ -158,5 +158,9 @@ export const allowed = Effect.fn("ProcessSkills.allowed")(function* (kv: KV.Inte
     )
       add(skill.id)
   }
-  return result
+  return { projectID, registry, allowed: result }
+})
+
+export const allowed = Effect.fn("ProcessSkills.allowed")(function* (kv: KV.Interface, context?: Context) {
+  return (yield* selection(kv, context))?.allowed ?? new Set<string>()
 })

@@ -1817,6 +1817,7 @@ describe("Orchestra team", () => {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-process-roles-")))
       const orchestra = yield* Orchestra.Service
       const sessions = yield* Session.Service
+      const kv = yield* KV.Service
       const first = yield* orchestra.create({ name: "Process A", directory: tmp.path })
       const second = yield* orchestra.create({ name: "Process B", directory: tmp.path })
       const id = `process-${createHash("sha256").update(first.id).digest("hex").slice(0, 16)}-1`
@@ -1840,7 +1841,11 @@ describe("Orchestra team", () => {
       expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(false)
       yield* orchestra.claim(worker.id, first.id)
       expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(true)
+      yield* kv.set("orchestra/process-skills/" + first.id, { version: 1, projectID: first.id, skills: [] })
+      yield* kv.set("orchestra/process-skill-definitions/" + first.id, { version: 1, projectID: first.id })
       yield* orchestra.remove(first.id)
+      expect(yield* kv.get("orchestra/process-skills/" + first.id)).toBeUndefined()
+      expect(yield* kv.get("orchestra/process-skill-definitions/" + first.id)).toBeUndefined()
       expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(false)
       expect((yield* orchestra.scopedRoles()).some(item => item.agent === role.agent)).toBe(false)
       expect(yield* orchestra.roles()).toEqual(globalBefore)
