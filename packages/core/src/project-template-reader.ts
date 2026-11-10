@@ -31,10 +31,9 @@ export interface Stores {
   getSession: (id: string) => Effect.Effect<SessionMetadata | undefined>
   listSessionsInTree: (directory: string) => Effect.Effect<readonly SessionMetadata[]>
 }
-export function capture(
+export function readSource(
   stores: Stores,
   projectID: string,
-  metadata: { name: string; description: string; minOrchestraVersion: string },
   linked: Pick<ProjectTemplateSource.Source, "browsers" | "vault" | "selectedGlobalSlotIDs" | "providers" | "mcp">,
 ) {
   return Effect.gen(function* () {
@@ -136,10 +135,20 @@ export function capture(
     // confirm adapter to recapture and compare the exact canonical digest before committing.
     const final = yield* stores.kv.get(`orchestra/project/${projectID}`)
     if (JSON.stringify(final) !== JSON.stringify(raw)) throw Error("Project changed during capture.")
-    const result = ProjectTemplateSource.capture(
-      { project, sessions, ownedSessionIDs: ids, rules, schedules, ...linked },
-      metadata,
-    )
+    return { project, sessions, ownedSessionIDs: ids, rules, schedules, ...linked } satisfies ProjectTemplateSource.Source
+  })
+}
+
+/** Existing v1 capture remains a strict projection of the same passive owned source. */
+export function capture(
+  stores: Stores,
+  projectID: string,
+  metadata: { name: string; description: string; minOrchestraVersion: string },
+  linked: Pick<ProjectTemplateSource.Source, "browsers" | "vault" | "selectedGlobalSlotIDs" | "providers" | "mcp">,
+) {
+  return Effect.gen(function* () {
+    const source = yield* readSource(stores, projectID, linked)
+    const result = ProjectTemplateSource.capture(source, metadata)
     if (!result.ok) throw Error(result.error)
     return result.value
   })
