@@ -2,6 +2,7 @@ export * as SkillFile from "./skill-file.js"
 
 import path from "path"
 import { Result, Schema, type SchemaIssue, SchemaParser } from "effect"
+import { LegacySkillExportInventory } from "../../legacy-skill-export-inventory.js"
 import { ConfigMarkdown } from "../markdown.js"
 import { AbsolutePath } from "../../schema.js"
 import { Skill } from "../../skill.js"
@@ -49,9 +50,11 @@ export function parse(directory: string, filepath: string, content: string): Par
   const opencodeAutoinvoke = metadataBoolean(frontmatter.metadata, "opencode/autoinvoke")
   const disableModelInvocation = booleanValue(frontmatter["disable-model-invocation"])
   const autoinvoke = opencodeAutoinvoke ?? (disableModelInvocation ? false : undefined)
+  const legacyExport = LegacySkillExportInventory.fromMetadata(frontmatter.metadata, directory, filepath, content)
   return {
     _tag: "Parsed",
     skill: {
+      ...(legacyExport === undefined ? {} : { legacyExport }),
       id: Skill.ID.make(id),
       name: Skill.Name.make(frontmatter.name ?? id),
       ...(frontmatter.description === undefined ? {} : { description: frontmatter.description }),

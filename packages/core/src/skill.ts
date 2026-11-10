@@ -26,7 +26,7 @@ export const Source = Skill.Source
 export type Source = Skill.Source
 
 export const Info = Skill.Info
-export type Info = Skill.Info & { readonly processFiles?: readonly string[] }
+export type Info = Skill.Info & { readonly processFiles?: readonly string[]; readonly legacyExport?: import("./legacy-skill-export-inventory.js").Inventory }
 export const ID = Skill.ID
 export type ID = Skill.ID
 export const Name = Skill.Name

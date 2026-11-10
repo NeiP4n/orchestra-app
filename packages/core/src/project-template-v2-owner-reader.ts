@@ -1,5 +1,6 @@
 export * as ProjectTemplateV2OwnerReader from "./project-template-v2-owner-reader.js"
 
+import { LegacySkillExportInventory } from "./legacy-skill-export-inventory.js"
 import { isDeepStrictEqual } from "node:util"
 import { Effect, Schema } from "effect"
 import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
@@ -28,6 +29,8 @@ export interface Dependencies {
   }
   /** The source-owning canonical reserved-role definitions, never inferred from generated prompts. */
   coreRoles: () => Promise<readonly V2.Role[]>
+  /** Existing source catalogs in each owned session location. Never global directory scans or chat usage. */
+  legacyCatalogs?: (input: { projectID: string; sessionIDs: readonly string[] }) => Promise<readonly LegacySkillExportInventory.Catalog[]>
 }
 /** Passive live adapters. No repair/create, model, messages, browser pages, filesystem sweeps or secret values. */
 export function make(deps: Dependencies, projectID: string): Reader.Stores {
@@ -108,7 +111,14 @@ export function make(deps: Dependencies, projectID: string): Reader.Stores {
       const raw = await run(deps.kv.get(ProcessSkills.PREFIX + projectID))
       const registry = ProcessSkills.parse(raw, projectID)
       const state = await process()
-      if (raw === undefined && !state) return { definitions: [], assignments: [] }
+      if (raw === undefined && !state) {
+        if (!deps.legacyCatalogs) return { definitions: [], assignments: [] }
+        const catalogs = await deps.legacyCatalogs(input)
+        if (catalogs.length !== input.sessionIDs.length || catalogs.some(catalog => !input.sessionIDs.includes(catalog.sessionID)) || new Set(catalogs.map(catalog => catalog.sessionID)).size !== catalogs.length)
+          throw Error("Legacy skill catalog source sessions differ from their project owner")
+        const inventory = await LegacySkillExportInventory.collect(catalogs)
+        return { definitions: inventory.definitions, assignments: inventory.assignments }
+      }
       if (!registry) throw Error("Project skill assignments are missing or invalid")
       const definitions = await run(
         Definitions.load(deps.kv, { projectID, registry, allowed: new Set(registry.skills.map((skill) => skill.id)) }),

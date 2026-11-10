@@ -1,3 +1,5 @@
+import { Skill } from "@orchestra/core/skill"
+import { SessionID } from "@orchestra/schema/session-id"
 import { ProjectTemplateV2Runtime } from "@orchestra/core/project-template-v2-runtime"
 import { ProjectTemplateV2OwnerReader } from "@orchestra/core/project-template-v2-owner-reader"
 import { ProjectTemplateCoreRoles } from "@orchestra/core/project-template-core-roles"
@@ -78,7 +80,18 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
     }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(settingsDirectory) })))))
     const coreRoles = async () => ProjectTemplateCoreRoles.current(await Effect.runPromise(orchestra.roles()))
     const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version,
-      processStores: projectID => ProjectTemplateV2OwnerReader.make({ kv, store, orchestra, coreRoles }, projectID),
+      processStores: projectID => ProjectTemplateV2OwnerReader.make({ kv, store, orchestra, coreRoles,
+        legacyCatalogs: async input => Promise.all(input.sessionIDs.map(async id => {
+          const info = await Effect.runPromise(store.get(SessionID.make(id)))
+          if (!info || info.id !== id) throw Error("Legacy source session disappeared")
+          const skills = await Effect.runPromise(Effect.gen(function* () {
+            yield* Plugin.awaitActivation
+            const catalog = yield* Skill.Service
+            return yield* catalog.list({ sessionID: id, agent: info.agent ?? Orchestra.agent })
+          }).pipe(Effect.provide(locations.get(info.location))))
+          return { sessionID: id, directory: info.location.directory, skills }
+        })),
+      }, projectID),
       live: settingsDirectory => ProjectTemplateLiveStores.make({ kv, store, sessions, root: path.join(global.data, "template-projects"), installedVersion: app.version, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         process: ProjectTemplateV2Runtime.make({ kv, dataDirectory: global.data, installedVersion: app.version,
           destination: async () => ({ roles: [...await coreRoles(), ...(await Effect.runPromise(orchestra.roles())).filter(role => role.agent !== "team-browser-agent").map(ProjectTemplateCoreRoles.portable)], skills: [], models: await availableModels(settingsDirectory), programs: new Set(), mcp: new Map(), providers: new Set() }),
