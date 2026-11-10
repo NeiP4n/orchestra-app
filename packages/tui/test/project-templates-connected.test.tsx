@@ -1,3 +1,5 @@
+import { onCleanup } from "solid-js"
+import { Keymap } from "../src/context/keymap"
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
@@ -56,13 +58,18 @@ test("mounted connected screen uses generated HTTP actions and strictly persists
       }
       return undefined
     },
-    view: () => (
+    view: () => {
+      // Match the actual Registry dialog's modal keyboard scope.
+      const pop = Keymap.use().mode.push("modal")
+      onCleanup(pop)
+      return (
       <ProjectsProvider>
         <NotesProvider>
           <RegistryPanel options={{ probe: () => true, terminalProbe: () => true, directory: temporary.path }} />
         </NotesProvider>
       </ProjectsProvider>
-    ),
+      )
+    },
   })
   app.route.navigate({ type: "session", sessionID: "ses_main" })
   app.renderer.start()
@@ -82,7 +89,10 @@ test("mounted connected screen uses generated HTTP actions and strictly persists
   expect(calls).toEqual(["prepare-save"])
   await click("project-templates.confirm")
   await app.waitForFrame((f) => f.includes("Проект сохранён"))
-  await click("project-templates.create-factory")
+  // The registry owns the modal key layer: keyboard selection must reach the mounted templates screen.
+  app.mockInput.pressArrow("down")
+  await app.renderOnce()
+  app.mockInput.pressEnter()
   await app.waitForFrame((f) => f.includes("Создать «Factory»"))
   expect(calls).not.toContain("confirm-create")
   await click("project-templates.confirm")
