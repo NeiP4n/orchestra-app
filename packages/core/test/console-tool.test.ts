@@ -1,20 +1,15 @@
-import { expect, test, mock } from "bun:test"
-import { Context, Effect, Schema } from "effect"
+import { expect, test } from "bun:test"
+import { Effect } from "effect"
 import { mkdtempSync, rmSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
 import { ConsoleAccess as A } from "../src/console-access"
-class Plain extends Context.Service<Plain, any>()("console-test/Plain") {}
-class Persistent extends Context.Service<Persistent, any>()("console-test/Persistent") {}
-class Sessions extends Context.Service<Sessions, any>()("console-test/Sessions") {}
-class Location extends Context.Service<Location, any>()("console-test/Location") {}
-class Failure extends Schema.TaggedError<Failure>()("ToolFailure", { message: Schema.String }) {}
-mock.module("../src/pty.js", () => ({ Pty: { Service: Plain } }))
-mock.module("../src/persistent-pty.js", () => ({ PersistentPty: { Service: Persistent } }))
-mock.module("../src/session.js", () => ({ Session: { Service: Sessions } }))
-mock.module("../src/location.js", () => ({ Location: { Service: Location } }))
-mock.module("@orchestra/ai", () => ({ ToolFailure: Failure }))
-const { ConsoleTool } = await import("../src/tool/plugin/console")
+import { Pty } from "../src/pty"
+import { PersistentPty } from "../src/persistent-pty"
+import { Session } from "../src/session"
+import { Location } from "../src/location"
+import { ConsoleTool } from "../src/tool/plugin/console"
+// Replace only services in this effect scope, never global modules used by other suites.
 test("real Console tool guard wraps both PTY adapters before read/write and prevents cross-project access", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "console-tool-")),
     prior = process.env.ORCHESTRA_STATE_DIR
@@ -47,16 +42,16 @@ test("real Console tool guard wraps both PTY adapters before read/write and prev
   const run = (effect: any) =>
     Effect.runPromise(
       effect.pipe(
-        Effect.provideService(Plain, plain),
-        Effect.provideService(Persistent, persistent),
-        Effect.provideService(Sessions, {
+        Effect.provideService(Pty.Service, plain as any),
+        Effect.provideService(PersistentPty.Service, persistent as any),
+        Effect.provideService(Session.Service, {
           get: (id: string) =>
             Effect.succeed({
               location: { directory: id === "ses_fixture" ? owner : "/other" },
               metadata: { "orchestra:project-owner": { projectID: project } },
             }),
-        }),
-        Effect.provideService(Location, { directory: "/tmp/project" }),
+        } as any),
+        Effect.provideService(Location.Service, { directory: "/tmp/project" } as any),
       ),
     )
   const scope = {
