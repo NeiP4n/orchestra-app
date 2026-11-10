@@ -372,38 +372,6 @@ export default Plugin.define({
       context.ui.dialog.set({ size: STATUS_DIALOG_SIZE })
     }
 
-    // /freebuff-use [email|#] — switch by argument, or open the picker without one.
-    const useAccount = async (input?: string) => {
-      const query = input?.trim()
-      if (!query) return openAccounts()
-      const list = await request<{ accounts: FreebuffAccount[] }>("accounts", {}).catch(() => undefined)
-      if (!list) {
-        context.ui.toast.show({ message: "Freebuff: accounts are unavailable", variant: "error" })
-        return
-      }
-      const index = Number(query)
-      const needle = query.toLowerCase()
-      const match =
-        Number.isInteger(index) && index >= 1 && index <= list.accounts.length
-          ? list.accounts[index - 1]
-          : list.accounts.find(
-              (account) =>
-                account.id === query ||
-                account.label.toLowerCase() === needle ||
-                account.label.toLowerCase().includes(needle),
-            )
-      if (!match) {
-        context.ui.toast.show({ message: `Freebuff: no account matching "${query}"`, variant: "warning" })
-        return
-      }
-      const result = await request<{ ok: boolean }>("use", { id: match.id }).catch(() => undefined)
-      context.ui.toast.show(
-        result?.ok
-          ? { message: `Freebuff: switched to ${match.label}`, variant: "success" }
-          : { message: "Freebuff: switch failed", variant: "error" },
-      )
-    }
-
     context.ui.slot({
       append: "app",
       render() {
@@ -420,36 +388,7 @@ export default Plugin.define({
                 void openStatus()
               },
             },
-            {
-              id: "freebuff.accounts",
-              title: "Freebuff accounts",
-              group: "Freebuff",
-              slash: { name: "freebuff-accounts" },
-              palette: true,
-              run() {
-                void openAccounts()
-              },
-            },
-            {
-              id: "freebuff.add",
-              title: "Connect another Freebuff account",
-              group: "Freebuff",
-              slash: { name: "freebuff-add" },
-              palette: true,
-              run() {
-                void addAccount()
-              },
-            },
-            {
-              id: "freebuff.use",
-              title: "Switch the active Freebuff account",
-              group: "Freebuff",
-              slash: { name: "freebuff-use", arguments: true },
-              palette: true,
-              run(input) {
-                void useAccount(input)
-              },
-            },
+
           ],
         }))
         return null

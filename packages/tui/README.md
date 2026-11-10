@@ -10,7 +10,7 @@ The terminal user interface for Orchestra, built on SolidJS and OpenTUI.
 - **Session Navigation**: Multi-tab workspace, session switching, and prompt coalescing visualization.
 - **Interactive Modals**: Dialogs for model selection, provider configuration, themes, experiments, and AI teams.
 - **Team & LAN Integration**: Displays team member activities, DoD board progress, and federated group statuses.
-- **Mobile Mode**: Responsive `/mobile` view that collapses sidebars for compact terminal and mobile (Termux) workflows.
+- **Mobile Mode**: Responsive automatic mobile view that collapses sidebars for compact terminal and mobile (Termux) workflows.
 
 ## Subsystems
 
@@ -25,3 +25,11 @@ The terminal user interface for Orchestra, built on SolidJS and OpenTUI.
 # Live TUI connected to background service
 bun run dev:live
 ```
+
+### TUI command changes
+
+- `/auth` opens provider connections; `/models` selects a model. In `/models`, `ctrl+d` saves the selected model as the default for new sessions.
+- `/freebuff` is the single Freebuff entry. Balance, timers, account switching and adding accounts are inside that dialog.
+- `/compat` is for tools from other agents, not provider authentication or the native tool registry (`/registry`).
+- `/help` contains the documentation link. `/docs`, `/default-model` (`/default`), `/mobile` (`/phone`) and `/state-effects` are removed.
+- Manual mobile layout and state pulses remain TUI configuration settings: `layout: "mobile"` and `stateEffects: false`.

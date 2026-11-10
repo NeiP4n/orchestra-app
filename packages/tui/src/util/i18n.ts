@@ -479,7 +479,6 @@ const ruExtra: Record<string, string> = {
   "Select up in input": "Выделить вверх",
   "Select word backward in input": "Выделить слово влево",
   "Select word forward in input": "Выделить слово вправо",
-  "Set default model": "Модель по умолчанию",
   "Share current session": "Поделиться текущей сессией",
   "Shell mode": "Режим терминала",
   "Show command palette": "Показать палитру команд",

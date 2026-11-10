@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
+import { DialogHelp } from "../src/ui/dialog-help"
 import { DialogModel } from "../src/component/dialog-model"
 import { model, renderLocal } from "./fixture/local"
 import { directory, json } from "./fixture/tui-client"
@@ -63,4 +64,36 @@ test("toggling a favorite drops it from the Feature section and writes the rest 
   expect(updates).toEqual([[]])
   const frame = await setup.waitForFrame((frame) => !frame.includes("Feature"))
   expect(frame).toContain("beta")
+})
+
+test("the model picker can save the selected default without a separate slash command", async () => {
+  const updates: unknown[] = []
+  const base = serverConfig([])
+  await using setup = await renderLocal({
+    models: [model("alpha")],
+    fetch: async (url, request) => {
+      if (url.pathname === "/api/experimental/config" && request.method === "PATCH") {
+        updates.push(await request.json())
+        return new Response(null, { status: 204 })
+      }
+      return base(url, request)
+    },
+  })
+  setup.dialog.replace(() => <DialogModel />)
+  await setup.waitForFrame((frame) => frame.includes("alpha") && frame.includes("По умолчанию"))
+  if (process.env.ORCHESTRA_CAPTURE_SCHEDULES)
+    await Bun.write("/downloads/model-default.spans.json", JSON.stringify(setup.captureSpans()))
+  setup.mockInput.pressKey("d", { ctrl: true })
+  await setup.waitFor(() => updates.length === 1)
+  expect(updates).toEqual([{ model: "provider/alpha" }])
+  expect(setup.renderer.isDestroyed).toBe(false)
+})
+
+test("help keeps the README link after the docs command is removed", async () => {
+  await using setup = await renderLocal({ models: [model("alpha")], fetch: serverConfig([]) })
+  setup.dialog.replace(() => <DialogHelp />)
+  await setup.waitForFrame((frame) => frame.includes("Documentation (README)"))
+  if (process.env.ORCHESTRA_CAPTURE_SCHEDULES)
+    await Bun.write("/downloads/help-docs.spans.json", JSON.stringify(setup.captureSpans()))
+  expect(setup.captureCharFrame()).toContain("Documentation (README)")
 })

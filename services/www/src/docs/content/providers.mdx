@@ -7,10 +7,10 @@ account first, then select a model.
 
 ## Setup
 
-Run `/connect`, choose a provider, and enter its credentials. Then run `/models` to select one of its models.
+Run `/auth`, choose a provider, and enter its credentials. Then run `/models` to select one of its models.
 
 ```text
-/connect
+/auth
 /models
 ```
 
@@ -20,7 +20,7 @@ Run `/connect`, choose a provider, and enter its credentials. Then run `/models`
 [console](https://opencode.ai/console), copy your API key, then connect it as **`opencode-go`**.
 
 ```text
-/connect
+/auth
 # Select `opencode-go`, then paste your API key.
 /models
 ```
@@ -457,7 +457,7 @@ GitHub Copilot supports device OAuth rather than manual API-key entry. Connect *
 GitHub Enterprise, finish the device flow, then open `/models`.
 
 ```text
-/connect
+/auth
 # Select GitHub Copilot, then Login with GitHub Copilot.
 /models
 ```

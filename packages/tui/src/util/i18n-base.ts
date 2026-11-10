@@ -40,7 +40,6 @@ const ru: Record<string, string> = {
   "Planning, Build, Quality… (empty removes it)": "Планирование, Сборка, Качество… (пусто — убрать)",
   "+ Project": "+ Проект",
   "Planning, Build, Quality": "Планирование, Сборка, Качество",
-  "Default model for new sessions": "Модель по умолчанию для новых сессий",
   // Server, UI, Theme and Tools panels
   Status: "Состояние",
   Connected: "Подключён",
@@ -959,7 +958,6 @@ const ru: Record<string, string> = {
   "Keyboard shortcuts": "Горячие клавиши",
   // Commands
   "Switch language": "Сменить язык",
-  "Toggle mobile layout": "Режим для телефона",
   "Switch panel layout": "Сменить раскладку панелей",
   "Open tool registry": "Открыть реестр инструментов",
   "Switch session": "Сменить сессию",
@@ -979,7 +977,6 @@ const ru: Record<string, string> = {
   "View debug info": "Отладочная информация",
   "Switch theme": "Сменить тему",
   Help: "Справка",
-  "Open docs": "Открыть документацию",
   "Exit the app": "Выйти",
   "Share session": "Поделиться сессией",
   "Rename session": "Переименовать сессию",
