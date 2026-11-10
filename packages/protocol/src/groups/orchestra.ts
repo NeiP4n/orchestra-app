@@ -11,7 +11,7 @@ const TemplateBrowserInput = Schema.Struct({
   chat: Schema.optional(Schema.String),
   mode: Schema.optional(Schema.Literals(["headless", "window", "capture"])),
 })
-const TemplatePrepared = Schema.Struct({ token: Schema.String, name: Schema.String, details: Schema.String })
+const TemplatePrepared = Schema.Struct({ token: Schema.String, name: Schema.String, details: Schema.String, triggerReview: Schema.optional(Schema.Array(Schema.Struct({ schedule: Schema.Number, browser: Schema.optional(Schema.Number), reason: Schema.Literals(["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]) }))), omittedLinks: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, link: Schema.Number, reason: Schema.Literals(["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]) }))) })
 const TemplateBrowsers = Schema.Struct({
   importID: Schema.String,
   projectID: Schema.String,
@@ -43,7 +43,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   )
   .add(
     HttpApiEndpoint.post("orchestra.projectTemplate.confirmSave", "/api/orchestra/project-template/confirm-save", {
-      payload: Schema.Struct({ token: Schema.String, browsers: Schema.Array(TemplateBrowserInput) }),
+      payload: Schema.Struct({ token: Schema.String, browsers: Schema.Array(TemplateBrowserInput), omitUnsafeLinks: Schema.optional(Schema.Boolean) }),
       success: HttpApiSchema.NoContent,
       error: InvalidRequestError,
     }),

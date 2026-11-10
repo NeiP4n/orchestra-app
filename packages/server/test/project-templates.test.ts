@@ -68,6 +68,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
         browsers,
       })
       expect(prepared.status).toBe(200)
+      expect(prepared.body.triggerReview).toEqual([])
       expect(prepared.body.details).not.toContain(project.id)
       expect(prepared.body.details).not.toContain(source)
       expect(prepared.body.details).not.toContain("PRIVATE_PAGE_CANARY")
@@ -93,6 +94,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
         settingsDirectory: source,
       })
       expect(create.status).toBe(200)
+      expect(create.body.triggerReview).toEqual([])
       expect(
         (yield* call("/api/orchestra/project-template/prepare-create", "POST", {
           templateID: library[0].id,
@@ -157,6 +159,41 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect(
         (yield* call("/api/orchestra/project-template/confirm-create", "POST", { token: "../foreign" })).status,
       ).toBe(400)
+      // Unsafe saved links are reviewed by ordinal/reason only, never URL/title/value.
+      const privateTabs = { tabs: [
+        { url: "https://example.com/portable", title: "PRIVATE_TITLE_CANARY" },
+        { url: "https://example.com/search?q=PRIVATE_QUERY_CANARY" },
+        { url: "https://example.com/#PRIVATE_FRAGMENT_CANARY" },
+        { url: "file:///PRIVATE_PATH_CANARY" },
+        { url: "http://localhost:3000/PRIVATE_LOCAL_CANARY" },
+        { url: "https://user:PRIVATE_PASSWORD_CANARY@example.com/" },
+      ] }
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "data/browser-profiles/brw_source.tabs.json"), JSON.stringify(privateTabs)))
+      const review = yield* call("/api/orchestra/project-template/prepare-save", "POST", { projectID: project.id, browsers })
+      expect(review.status).toBe(200)
+      expect(review.body.omittedLinks).toEqual([
+        { browser: 1, link: 2, reason: "query" }, { browser: 1, link: 3, reason: "fragment" },
+        { browser: 1, link: 4, reason: "scheme" }, { browser: 1, link: 5, reason: "local" },
+        { browser: 1, link: 6, reason: "credentials" },
+      ])
+      expect(JSON.stringify(review.body)).not.toContain("PRIVATE_")
+      expect(review.body.details).toContain("https://example.com/portable")
+      const refused = yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: review.body.token, browsers })
+      expect(refused.status).toBe(400)
+      expect(refused.body.kind).toBe("TEMPLATE_LINKS")
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
+      // Changing even an excluded URL invalidates confirmation; no implicit acceptance of a new list.
+      privateTabs.tabs[1].url = "https://example.com/search?q=CHANGED_PRIVATE_CANARY"
+      yield* Effect.promise(() => Bun.write(path.join(tmp.path, "data/browser-profiles/brw_source.tabs.json"), JSON.stringify(privateTabs)))
+      const replaced = yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: review.body.token, browsers, omitUnsafeLinks: true })
+      expect(replaced.status).toBe(400)
+      expect(replaced.body.kind).toBe("TEMPLATE_CHANGED")
+      const reviewedAgain = yield* call("/api/orchestra/project-template/prepare-save", "POST", { projectID: project.id, browsers })
+      expect((yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: reviewedAgain.body.token, browsers, omitUnsafeLinks: true })).status).toBe(204)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(2)
+      const diskTabs = yield* Effect.promise(() => Bun.file(path.join(tmp.path, "data/browser-profiles/brw_source.tabs.json")).json())
+      expect(diskTabs).toEqual(privateTabs)
+
     }),
   30_000,
 )

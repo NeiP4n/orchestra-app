@@ -116,14 +116,23 @@ export function prepare(serialized: string, destination: Destination) {
         kind === "browser"
           ? destination.browsers[(row.source as { browser: string }).browser]
           : (row.source as { spec: string }).spec
+    const expectedCondition = row.structuredCondition
+      ? kind === "browser"
+        ? { type: "browser" as const, event: "incoming-row" as const, sessionID: spec, ...("match" in row.source && row.source.match ? { match: row.source.match } : {}) }
+        : { type: "time" as const, kind: kind as "cron" | "interval" | "once", spec }
+      : undefined
+    const expectedBrowser = "browser" in row.source && kind === "interval" ? destination.browsers[row.source.browser!] : undefined
+    const expectedMatch = kind === "browser" && "match" in row.source ? row.source.match ?? undefined : undefined
     const created = Trigger.create(
       {
+        ...(expectedCondition ? { condition: expectedCondition } : {}),
         kind,
         spec,
         prompt: row.instruction,
         maxPerHour: row.maxPerHour,
         maxPerDay: row.maxPerDay,
         missedPolicy: row.missedPolicy,
+        ...("browser" in row.source && kind === "interval" ? { browserSessionID: destination.browsers[row.source.browser!] } : {}),
         ...(kind === "browser" && "match" in row.source && row.source.match ? { match: row.source.match } : {}),
       },
       {
@@ -137,6 +146,9 @@ export function prepare(serialized: string, destination: Destination) {
     if (!created.ok) throw Error("Schedule cannot be represented unchanged in the destination. Nothing was prepared.")
     const trigger = created.trigger
     if (
+      trigger.kind !== kind || trigger.spec !== spec || trigger.match !== expectedMatch ||
+      trigger.browserSessionID !== expectedBrowser || trigger.missedPolicy !== row.missedPolicy ||
+      JSON.stringify(trigger.condition) !== JSON.stringify(expectedCondition) ||
       trigger.prompt !== row.instruction ||
       trigger.maxPerHour !== row.maxPerHour ||
       trigger.maxPerDay !== row.maxPerDay
@@ -147,7 +159,9 @@ export function prepare(serialized: string, destination: Destination) {
       enabled: false,
       nextAt: null,
       publishApproved: false,
-      pausedReason: "Импортирован из шаблона. Проверьте настройки и включите отдельно.",
+      pausedReason: kind === "browser" || "browser" in row.source
+        ? "Нужна привязка заново: откройте нужную страницу в новом браузере, войдите в аккаунт и проверьте чат/страницу. Затем включите отдельно. Вход и исходные ссылки не наследуются."
+        : "Импортирован из шаблона. Проверьте инструкцию и учётные данные, затем включите отдельно.",
     }
   })
   return {
@@ -169,4 +183,9 @@ export function prepare(serialized: string, destination: Destination) {
     integrationRequirements: { providers: bundle.providers, mcp: bundle.mcp },
     started: false as const,
   }
+}
+
+/** Missing variant stays missing. Do not silently pick a model's literal `default` variant. */
+export function sessionModelRef(model: ProjectTemplate.Bundle["sessions"][number]["model"]) {
+  return model ? { providerID: model.provider, id: model.id, ...(model.variant === null ? {} : { variant: model.variant }) } : undefined
 }

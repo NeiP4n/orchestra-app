@@ -144,9 +144,7 @@ export function make(deps: Dependencies) {
     agent: s.role,
     location: { directory: r.directory },
     permissions: [],
-    model: s.model
-      ? { providerID: s.model.provider, id: s.model.id, variant: s.model.variant ?? "default" }
-      : undefined,
+    model: ProjectTemplateImport.sessionModelRef(s.model),
   })
   const verifySession = async (r: Materialize.Receipt, s: Materialize.Plan["sessions"][number]) => {
     const info = await run(deps.store.get(SessionID.make(s.id))),

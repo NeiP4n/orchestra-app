@@ -20895,6 +20895,99 @@
                     },
                     "details": {
                       "type": "string"
+                    },
+                    "triggerReview": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "schedule": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "browser": {
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": ["Infinity", "-Infinity", "NaN"]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]
+                              }
+                            },
+                            "required": ["schedule", "reason"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "omittedLinks": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "browser": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "link": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]
+                              }
+                            },
+                            "required": ["browser", "link", "reason"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": ["token", "name", "details"],
@@ -21071,6 +21164,16 @@
                       "required": ["id", "name"],
                       "additionalProperties": false
                     }
+                  },
+                  "omitUnsafeLinks": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": ["token", "browsers"],
@@ -21104,6 +21207,99 @@
                     },
                     "details": {
                       "type": "string"
+                    },
+                    "triggerReview": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "schedule": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "browser": {
+                                "anyOf": [
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": ["Infinity", "-Infinity", "NaN"]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]
+                              }
+                            },
+                            "required": ["schedule", "reason"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "omittedLinks": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "browser": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "link": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]
+                              }
+                            },
+                            "required": ["browser", "link", "reason"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": ["token", "name", "details"],

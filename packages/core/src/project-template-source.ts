@@ -55,7 +55,7 @@ export function capture(source: Source, metadata: { name: string; description: s
     })
     if (new Set(source.schedules.map((row) => row.id)).size !== source.schedules.length) throw Error()
     const schedules: ProjectTemplate.Bundle["schedules"] = source.schedules.map((row, index) => {
-      if (row.projectID !== source.project.id || row.localTest || row.browserSessionID || row.actions?.length || row.errors || row.maxPerHour === null) throw Error()
+      if (row.projectID !== source.project.id || row.localTest || row.actions?.length || row.errors || row.maxPerHour === null) throw Error()
       let def: ProjectTemplate.Bundle["schedules"][number]["source"]
       if (row.kind === "browser") {
         if ((row.condition && (row.condition.type !== "browser" || row.condition.sessionID !== row.spec || row.condition.match !== row.match)) || !browsers.has(row.spec)) throw Error()
@@ -65,9 +65,10 @@ export function capture(source: Source, metadata: { name: string; description: s
         def = { kind: row.condition.event, session: sessions.get(row.condition.sessionID)! }
       } else {
         if ((row.condition && (row.condition.type !== "time" || row.condition.kind !== row.kind || row.condition.spec !== row.spec)) || row.match) throw Error()
-        def = { kind: row.kind, spec: row.spec }
+        if (row.browserSessionID && (row.kind !== "interval" || Number(row.spec) < 60 || !browsers.has(row.browserSessionID))) throw Error()
+        def = { kind: row.kind, spec: row.spec, ...(row.browserSessionID ? { browser: browsers.get(row.browserSessionID)! } : {}) }
       }
-      return { slot: `schedule_${index + 1}`, source: def, instruction: row.prompt, maxPerHour: row.maxPerHour, maxPerDay: row.maxPerDay, missedPolicy: row.missedPolicy ?? "skip" }
+      return { ...(row.condition ? { structuredCondition: true as const } : {}), slot: `schedule_${index + 1}`, source: def, instruction: row.prompt, maxPerHour: row.maxPerHour, maxPerDay: row.maxPerDay, missedPolicy: row.missedPolicy ?? (row.kind === "once" ? "run-once" : "skip") }
     })
     const local: ProjectTemplate.Bundle["vault"]["local"] = [], globalRequirements: string[] = []
     const selected = new Set(source.selectedGlobalSlotIDs)

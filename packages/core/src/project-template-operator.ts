@@ -12,6 +12,7 @@ import { ProjectTemplateLibrary } from "./project-template-library.js"
 import { ProjectTemplateLiveStores as Live } from "./project-template-live-stores.js"
 import { ProjectTemplateBrowserStore as Browsers } from "./project-template-browser-store.js"
 import { CredentialVault } from "./credential-vault/index.js"
+import { ProjectTemplateTriggerReview } from "./project-template-trigger-review.js"
 import { AbsolutePath } from "./schema.js"
 import type { KV } from "./kv.js"
 import type { SessionStore } from "./session/store.js"
@@ -26,6 +27,7 @@ interface Save {
   digest: string
   text: string
   name: string
+  linkReview?: ProjectTemplateBrowser.Review
 }
 interface Create {
   kind: "create"
@@ -59,6 +61,7 @@ export function make(deps: Deps) {
       throw Error("Project import is not complete.")
   }
   const capture = async (projectID: string, browsers: readonly BrowserInput[]) => {
+    const linkReview: ProjectTemplateBrowser.Review = { issues: [], fingerprint: "" }
     await ready(projectID)
     const project = Schema.decodeUnknownSync(Orchestra.Project)(
       await run(deps.kv.get("orchestra/project/" + projectID)),
@@ -96,7 +99,7 @@ export function make(deps: Deps) {
         selected.add(id)
       } else selected.add(matches[0].id)
     }
-    return run(
+    const preview = await run(
       ProjectTemplateReader.capture(
         {
           kv: deps.kv,
@@ -115,6 +118,7 @@ export function make(deps: Deps) {
             deps.dataDirectory,
             projectID,
             browsers.map((row) => ({ ...row, projectID })),
+            linkReview,
           ),
           vault,
           selectedGlobalSlotIDs: selected,
@@ -123,6 +127,7 @@ export function make(deps: Deps) {
         },
       ),
     )
+    return { ...preview, linkReview }
   }
   const prepared = async (token: string) => {
     if (!/^(?:pts_|pti_)[A-Za-z0-9_-]{1,100}$/.test(token)) throw Error("Invalid prepared operation.")
@@ -147,6 +152,7 @@ export function make(deps: Deps) {
         digest: preview.digest,
         text: preview.text,
         name: preview.bundle.name,
+        linkReview: preview.linkReview,
       }
       await run(
         deps.kv.atomicUpdate(PREPARED + token, (current) => {
@@ -154,12 +160,13 @@ export function make(deps: Deps) {
           return json(value)
         }),
       )
-      return { token, name: value.name, details: preview.text }
+      return { token, name: value.name, details: preview.text, omittedLinks: preview.linkReview.issues, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle, preview.linkReview.issues) }
     },
-    confirmSave: async (token: string, browsers: readonly BrowserInput[]) =>
+    confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false) =>
       Flock.withLock(token, async () => {
         const pending = await prepared(token)
         if (pending.kind !== "save") throw Error("Wrong operation kind.")
+        if (pending.linkReview?.issues.length && !omitUnsafeLinks) throw Error("Saved links contain nonportable parameters. Review before saving.")
         let exists = false
         try {
           const existing = await library.preview(pending.libraryID)
@@ -171,7 +178,7 @@ export function make(deps: Deps) {
         if (!exists) {
           if (pending.phase === "saved") throw Error("Saved template is missing.")
           const current = await capture(pending.projectID, browsers)
-          if (current.digest !== pending.digest)
+          if (current.digest !== pending.digest || pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview))
             throw Error("Project changed after confirmation preview. Review it again.")
           await library.saveSerialized(pending.text, pending.libraryID, pending.digest)
         }
@@ -199,7 +206,7 @@ export function make(deps: Deps) {
           if (!pending.done) {
             const receipt = await deps.live(settingsDirectory).readReceipt(previous)
             if (!receipt) throw Error("Pending import receipt is missing.")
-            return { token: receipt.id, name: receipt.name, details: receipt.template }
+            return { token: receipt.id, name: receipt.name, details: receipt.template, triggerReview: ProjectTemplateTriggerReview.fromText(receipt.template) }
           }
         } else if (previous !== undefined) throw Error("Pending import index is damaged.")
         const receipt = await deps.live(settingsDirectory).reserve(preview.text, preview.digest)
@@ -210,7 +217,7 @@ export function make(deps: Deps) {
           }),
         )
         await run(deps.kv.set(key, receipt.id))
-        return { token: receipt.id, name: receipt.name, details: preview.text }
+        return { token: receipt.id, name: receipt.name, details: preview.text, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle) }
       })
     },
     finishCreate: async (token: string) => {

@@ -3370,7 +3370,7 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: `/api/orchestra/project-template/confirm-save`,
-              body: { token: input["token"], browsers: input["browsers"] },
+              body: { token: input["token"], browsers: input["browsers"], omitUnsafeLinks: input["omitUnsafeLinks"] },
               successStatus: 204,
               declaredStatuses: [400, 401],
               empty: true,

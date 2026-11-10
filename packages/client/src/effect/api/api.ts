@@ -4710,6 +4710,20 @@ export type OrchestraProjectTemplatePrepareSaveOutput = {
   readonly token: string
   readonly name: string
   readonly details: string
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  readonly omittedLinks?:
+    | ReadonlyArray<{
+        readonly browser: number
+        readonly link: number
+        readonly reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
 }
 export type OrchestraProjectTemplatePrepareSaveOperation<E = never> = (
   input: OrchestraProjectTemplatePrepareSaveInput,
@@ -4723,6 +4737,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
     readonly chat?: string | undefined
     readonly mode?: "headless" | "window" | "capture" | undefined
   }>
+  readonly omitUnsafeLinks?: boolean | undefined
 }
 export type OrchestraProjectTemplateConfirmSaveOutput = void
 export type OrchestraProjectTemplateConfirmSaveOperation<E = never> = (
@@ -4737,6 +4752,20 @@ export type OrchestraProjectTemplatePrepareCreateOutput = {
   readonly token: string
   readonly name: string
   readonly details: string
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  readonly omittedLinks?:
+    | ReadonlyArray<{
+        readonly browser: number
+        readonly link: number
+        readonly reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
 }
 export type OrchestraProjectTemplatePrepareCreateOperation<E = never> = (
   input: OrchestraProjectTemplatePrepareCreateInput,

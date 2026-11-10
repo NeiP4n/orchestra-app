@@ -1,5 +1,28 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.",
+  "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.",
+  "Trigger {schedule}: {reason}": "Trigger {schedule}: {reason}",
+  "Browser {browser}": "Browser {browser}",
+  "Rebind page/chat and sign in again; starts paused.": "Rebind page/chat and sign in again; starts paused.",
+  "Some links were omitted; choose page/chat and sign in again; starts paused.": "Some links were omitted; choose page/chat and sign in again; starts paused.",
+  "Check instruction and credential bindings; starts paused.": "Check instruction and credential bindings; starts paused.",
+  "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.": "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.",
+
+  "Template was not saved.": "Template was not saved.",
+  "Template was not saved. Retry the same save.": "Template was not saved. Retry the same save.",
+  "Could not refresh the template list.": "Could not refresh the template list.",
+  "Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.": "Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.",
+  "Save without blocked links": "Save without blocked links",
+  "Browser {browser}, saved link {link}: {reason}": "Browser {browser}, saved link {link}: {reason}",
+  "Login or password in the link": "Login or password in the link",
+  "Query parameters may contain private data": "Query parameters may contain private data",
+  "Fragment may contain private data": "Fragment may contain private data",
+  "Local address belongs to the original machine": "Local address belongs to the original machine",
+  "Only public HTTP(S) links can be copied": "Only public HTTP(S) links can be copied",
+  "Secret-like data in the link": "Secret-like data in the link",
+  "Invalid link": "Invalid link",
+
   "Install or toggle MCP": "Install or toggle MCP",
   "tab next tab · ↑↓ select · enter install/enable/disable · esc close": "tab next tab · ↑↓ select · enter install/enable/disable · esc close",
   "Enable MCP": "Enable MCP",
@@ -120,6 +143,29 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Скиллы, определения ролей, запасные модели, файлы проекта и глобальные настройки MCP не копируются. Проверьте настройки нового проекта.",
+  "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "Все импортированные триггеры приостановлены. Для браузерных проверок заново выберите страницу/чат и войдите в аккаунт. Зависимости указаны в подробностях.",
+  "Trigger {schedule}: {reason}": "Триггер {schedule}: {reason}",
+  "Browser {browser}": "Браузер {browser}",
+  "Rebind page/chat and sign in again; starts paused.": "Заново выберите страницу/чат и войдите в аккаунт; запуск приостановлен.",
+  "Some links were omitted; choose page/chat and sign in again; starts paused.": "Некоторые ссылки пропущены; заново выберите страницу/чат и войдите в аккаунт; запуск приостановлен.",
+  "Check instruction and credential bindings; starts paused.": "Проверьте инструкцию и привязку учётных данных; запуск приостановлен.",
+  "Internal event cannot be imported without a reviewed local action plan. Creation will be blocked.": "Для внутреннего события нужен проверенный план локальных действий. Создание будет заблокировано.",
+
+  "Template was not saved.": "Шаблон не сохранён.",
+  "Template was not saved. Retry the same save.": "Шаблон не сохранён. Повторите это сохранение.",
+  "Could not refresh the template list.": "Не удалось обновить список шаблонов.",
+  "Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.": "Некоторые сохранённые ссылки нельзя безопасно перенести. Сохраните без них или отмените. Исходные ссылки останутся в этом проекте.",
+  "Save without blocked links": "Сохранить без этих ссылок",
+  "Browser {browser}, saved link {link}: {reason}": "Браузер {browser}, сохранённая ссылка {link}: {reason}",
+  "Login or password in the link": "В ссылке есть логин или пароль",
+  "Query parameters may contain private data": "Параметры после ? могут содержать личные данные",
+  "Fragment may contain private data": "Часть после # может содержать личные данные",
+  "Local address belongs to the original machine": "Локальный адрес привязан к исходному компьютеру",
+  "Only public HTTP(S) links can be copied": "Переносятся только публичные HTTP(S)-ссылки",
+  "Secret-like data in the link": "В ссылке есть данные, похожие на секрет",
+  "Invalid link": "Некорректная ссылка",
+
   "Install or toggle MCP": "Установить или переключить MCP",
   "tab next tab · ↑↓ select · enter install/enable/disable · esc close": "tab вкладка · ↑↓ выбор · enter установить/включить/выключить · esc закрыть",
   "Enable MCP": "Включить MCP",

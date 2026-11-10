@@ -1,5 +1,7 @@
 export * as ProjectTemplateBrowser from "./project-template-browser.js"
 
+import { createHash } from "node:crypto"
+import { ProjectTemplateLinkReview as LinkReview } from "./project-template-link-review.js"
 import { constants } from "node:fs"
 import { lstat, open, realpath } from "node:fs/promises"
 import path from "node:path"
@@ -23,7 +25,10 @@ async function realDirectory(directory: string) {
 /** Reads only each explicitly named .tabs.json. No BrowserRuntime/Chrome/DOM/profile reader.
  * Fails rather than dropping unsafe links or silently limiting the saved list to eight tabs.
  * Default window mode is deliberate for a fresh unopened destination, not a claim about current Chrome. */
-export async function capture(dataDirectory: string, projectID: string, definitions: readonly Definition[]) {
+export interface Review { issues: LinkReview.Issue[]; fingerprint: string }
+export async function capture(dataDirectory: string, projectID: string, definitions: readonly Definition[], review?: Review) {
+  const fingerprint = createHash("sha256")
+  if (review) { review.issues = []; review.fingerprint = "" }
   if (
     !path.isAbsolute(dataDirectory) ||
     !projectID ||
@@ -41,7 +46,7 @@ export async function capture(dataDirectory: string, projectID: string, definiti
     return definitions.map((row) => project(row, projectID, []))
   }
   const result: ProjectTemplateSource.Source["browsers"][number][] = []
-  for (const row of definitions) {
+  for (const [browserIndex, row] of definitions.entries()) {
     const base = project(row, projectID, [])
     const file = path.join(directory, `${row.id}.tabs.json`)
     const before = await lstat(file).catch((error) => {
@@ -72,7 +77,7 @@ export async function capture(dataDirectory: string, projectID: string, definiti
       const tabs = Array.isArray(raw) ? raw : raw && typeof raw === "object" && "tabs" in raw ? raw.tabs : undefined
       if (!Array.isArray(tabs) || tabs.length > 100)
         throw Error("Saved link list is damaged or exceeds the transfer limit.")
-      const links = tabs.map((entry: unknown) => {
+      const links = tabs.flatMap((entry: unknown, linkIndex: number) => {
         const url =
           typeof entry === "string"
             ? entry
@@ -80,16 +85,14 @@ export async function capture(dataDirectory: string, projectID: string, definiti
               ? entry.url
               : undefined
         if (typeof url !== "string") throw Error("Saved link list is damaged.")
-        const parsed = new URL(url)
-        if (
-          !["https:", "http:"].includes(parsed.protocol) ||
-          parsed.username ||
-          parsed.password ||
-          parsed.search ||
-          parsed.hash
-        )
-          throw Error("Saved links contain nonportable parameters. Review before saving.")
-        return url
+        fingerprint.update(JSON.stringify([browserIndex, linkIndex, url]))
+        const reason = LinkReview.reason(url)
+        if (reason) {
+          if (!review) throw Error("Saved links contain nonportable parameters. Review before saving.")
+          review.issues.push({ browser: browserIndex + 1, link: linkIndex + 1, reason })
+          return []
+        }
+        return [url]
       })
       // All remaining source scanning and slot reference checks belong to ProjectTemplateSource.capture.
       result.push({ ...base, savedLinks: links })
@@ -98,6 +101,7 @@ export async function capture(dataDirectory: string, projectID: string, definiti
     }
   }
   await realDirectory(directory)
+  if (review) review.fingerprint = fingerprint.digest("hex")
   return result
 }
 function project(row: Definition, projectID: string, savedLinks: readonly string[]) {

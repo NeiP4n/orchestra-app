@@ -48,10 +48,43 @@ for (const language of ["en", "ru"] as const) test(`template labels, confirmatio
     await click("cancel")
     fail = true
     await click("save")
-    await app.waitForFrame((f) => f.includes(text("Could not finish. Nothing was replaced. Try again.")))
+    await app.waitForFrame((f) => f.includes(text("Template was not saved.")))
     if (process.env.CAPTURE_TEMPLATE_ERRORS) await Bun.write(`${process.env.CAPTURE_TEMPLATE_ERRORS}-${language}.json`, JSON.stringify(app.captureSpans()))
     expect(app.captureCharFrame()).not.toContain("private diagnostic")
+    expect(app.captureCharFrame()).not.toContain(text("Could not finish. Nothing was replaced. Try again."))
     expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain(text("Template storage is not writable. Check application data folder permissions."))
     if (language === "en") expect(app.captureCharFrame()).not.toMatch(/[А-Яа-яЁё]/)
+  } finally { app.renderer.destroy() }
+})
+
+for (const language of ["en", "ru"] as const) test(`blocked browser links have explicit redacted save choice in ${language}`, async () => {
+  const text = (key: string) => translate(language, key)
+  const calls: unknown[] = []
+  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({ language })}>
+    <ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave access={{
+      list: async () => [], prepareSave: async () => ({ token: "review", name: "Factory", details: "Safe configuration only.", omittedLinks: [{ browser: 1, link: 2, reason: "query" }, { browser: 1, link: 3, reason: "local" }], triggerReview: [{ schedule: 1, browser: 1, reason: "browser-links-omitted" }, { schedule: 2, reason: "time-review" }] }),
+      confirmSave: async (...args) => { calls.push(args) }, prepareCreate: async () => { throw Error("unused") }, confirmCreate: async () => {},
+    }} /></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: 90, height: 34 })
+  app.renderer.start()
+  const click = async (id: string) => { const node = app.renderer.root.findDescendantById(`project-templates.${id}`)!; await app.mockMouse.click(node.x + 2, node.y); await app.renderOnce() }
+  try {
+    await app.waitForFrame((f) => f.includes(text("Project templates")))
+    await click("save")
+    await app.waitForFrame((f) => f.includes(text("Save without blocked links")))
+    expect(calls).toEqual([])
+    await click("details")
+    await app.waitForFrame((f) => f.includes(text("Query parameters may contain private data")))
+    expect(app.captureCharFrame()).not.toContain("PRIVATE_CANARY")
+    expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain(text("Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration."))
+    expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain(text("Some links were omitted; choose page/chat and sign in again; starts paused."))
+    expect(app.captureCharFrame()).not.toContain(text("Could not finish. Nothing was replaced. Try again."))
+    await Bun.write(`/tmp/template-links-${language}-spans.json`, JSON.stringify(app.captureSpans()))
+    await click("cancel")
+    expect(calls).toEqual([])
+    await click("save")
+    await app.waitForFrame((f) => f.includes(text("Save without blocked links")))
+    await click("confirm")
+    await app.waitForFrame((f) => f.includes(text("Project saved as a template. Chats, data and secrets were not saved.")))
+    expect(calls).toEqual([["review", true]])
   } finally { app.renderer.destroy() }
 })

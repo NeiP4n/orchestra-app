@@ -116,3 +116,19 @@ test('main and BrowserAgent destination links are exact, not guessed from row or
  f.input.mainSession = 'browser_agent'; const bad = ProjectTemplate.preview(JSON.stringify(f.input)); if (!bad.ok) throw Error(); f.destination.reviewedDigest = bad.value.digest
  expect(() => ProjectTemplateImport.prepare(bad.value.text,f.destination)).toThrow('Orchestrator')
 })
+
+for (const bound of [false, true]) test(`browser watcher/interval survives omitted links, is fresh, signed out and paused (${bound})`, () => {
+  const f = fixture()
+  f.input.browsers[0].links = []
+  if (bound) f.input.schedules[0].source = { kind: "interval", spec: "60", browser: "inbox" }
+  const preview = ProjectTemplate.preview(JSON.stringify(f.input))
+  if (!preview.ok) throw Error(preview.error)
+  const plan = ProjectTemplateImport.prepare(preview.value.text, { ...f.destination, reviewedDigest: preview.value.digest })
+  expect(plan.schedules).toHaveLength(1)
+  expect(plan.schedules[0]).toMatchObject({ enabled: false, publishApproved: false, nextAt: null, projectID: "prj_new" })
+  expect(bound ? plan.schedules[0].browserSessionID : plan.schedules[0].spec).toBe("brw_new")
+  expect(plan.schedules[0].pausedReason).toContain("Нужна привязка заново")
+  expect(plan.schedules[0].pausedReason).toContain("войдите в аккаунт")
+  expect(plan.browsers[0]).toMatchObject({ id: "brw_new", savedLinks: [], login: "required", profile: "new", state: "not-opened" })
+  expect(plan.started).toBe(false)
+})
