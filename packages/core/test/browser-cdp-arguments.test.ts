@@ -42,7 +42,9 @@ test("CDP keeps data arguments separate, awaits the result, and releases its exa
     },
   }
   const call = BrowserDevtools.evalExpression("1+1")
-  expect(await Cdp.callPage(client, call, true)).toEqual({ result: { value: { ok: true, text: "2" } } })
+  expect(await Cdp.callPage<{ result: { value: { ok: boolean; text: string } } }>(client, call, true)).toEqual({
+    result: { value: { ok: true, text: "2" } },
+  })
   expect(calls.map((c) => c.method)).toEqual(["Runtime.evaluate", "Runtime.callFunctionOn", "Runtime.releaseObject"])
   expect(calls[1].params).toEqual({ ...call, objectId: "target-1", returnByValue: true, awaitPromise: true })
   expect(calls[2].params).toEqual({ objectId: "target-1" })

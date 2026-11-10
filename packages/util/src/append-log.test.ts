@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { closeSync, writeSync, mkdtempSync, rmSync, readFileSync, writeFileSync, symlinkSync, statSync } from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import { appendLog, openRotatingLog } from "./append-log"
+import { appendLog, openRotatingLog } from "./append-log.js"
 
 test("bounded log appends and rotates actual data through an open descriptor", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "append-log-")),
