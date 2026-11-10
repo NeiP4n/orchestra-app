@@ -1,12 +1,13 @@
 import { expect, describe, spyOn } from "bun:test"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
-import { Effect, Layer } from "effect"
+import { DateTime, Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { KV } from "@orchestra/core/kv"
 import { Orchestra } from "@orchestra/core/orchestra"
+import { SessionMessage } from "@orchestra/core/session/message"
 import { Session } from "@orchestra/core/session"
 import { Tool } from "@orchestra/core/tool"
 import { BrowserRuntime } from "@orchestra/core/browser/runtime"
@@ -45,7 +46,18 @@ function harness(directory: string, triggered = false) {
     Session.node.replace(
       Layer.mock(Session.Service, {
         messages: () =>
-          Effect.succeed(triggered ? [{ type: "user", metadata: { source: "trigger", triggerID: "trg_parent" } }] : []),
+          Effect.succeed(
+            triggered
+              ? [
+                  SessionMessage.Synthetic.make({
+                    id: SessionMessage.ID.make("msg_parent_trigger"),
+                    text: "trigger fired",
+                    time: { created: DateTime.makeUnsafe(1) },
+                    metadata: { source: "trigger", triggerID: "trg_parent" },
+                  }),
+                ]
+              : [],
+          ),
       }),
     ),
   ])
@@ -96,7 +108,9 @@ describe("TriggersTool portable templates", () => {
         for (const action of ["save", "load", "export"]) {
           const result = yield* run(tools, { action, id: "trg_own", templateName: "daily" })
           expect(result.status).toBe("error")
-          expect(result.error?.message).toContain("trigger")
+          expect(result.error?.message).toContain(
+            "A turn started by a trigger cannot create, change or delete triggers.",
+          )
         }
       }).pipe(Effect.provide(harness(directory, true))),
     ),
