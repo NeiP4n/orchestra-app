@@ -30,6 +30,7 @@ interface Save {
   text: string
   name: string
   linkReview?: ProjectTemplateBrowser.Review
+  previousDigest?: string
 }
 interface Create {
   kind: "create"
@@ -65,6 +66,10 @@ export function make(deps: Deps) {
         : []),
     ],
     preview: (id: string) => (processID(id) !== undefined ? processes.preview(processID(id)!) : legacy.preview(id)),
+    replaceSerialized: (text: string, id: string, previous: string, digest: string) =>
+      processID(id) !== undefined
+        ? processes.replaceSerialized(text, processID(id)!, previous, digest)
+        : legacy.replaceSerialized(text, id, previous, digest),
     saveSerialized: (text: string, id: string, digest: string) =>
       processID(id) !== undefined
         ? processes.saveSerialized(text, processID(id)!, digest)
@@ -83,7 +88,7 @@ export function make(deps: Deps) {
     if (!record(receipt) || receipt.phase !== "published" || receipt.projectID !== projectID || receipt.id !== marker)
       throw Error("Project import is not complete.")
   }
-  const capture = async (projectID: string, browsers: readonly BrowserInput[]) => {
+  const capture = async (projectID: string, browsers: readonly BrowserInput[], process = !!deps.processStores) => {
     const linkReview: ProjectTemplateBrowser.Review = { issues: [], fingerprint: "" }
     await ready(projectID)
     const project = Schema.decodeUnknownSync(Orchestra.Project)(
@@ -139,8 +144,9 @@ export function make(deps: Deps) {
       description: "Настройки проекта без чатов, данных и секретов.",
       minOrchestraVersion: deps.installedVersion,
     }
-    const preview = deps.processStores
-      ? await ProjectTemplateV2Reader.capture(deps.processStores(projectID), projectID, metadata, linked)
+    if (process && !deps.processStores) throw Error("Process template export is unavailable in this build.")
+    const preview = process
+      ? await ProjectTemplateV2Reader.capture(deps.processStores!(projectID), projectID, metadata, linked)
       : await run(
           ProjectTemplateReader.capture(
             {
@@ -167,15 +173,18 @@ export function make(deps: Deps) {
       (await library.list())
         .filter((row) => row.state === "ready")
         .map((row) => ({ id: row.name, name: row.title ?? row.name })),
-    prepareSave: async (projectID: string, browsers: readonly BrowserInput[]) => {
-      const preview = await capture(projectID, browsers),
+    prepareSave: async (projectID: string, browsers: readonly BrowserInput[], templateID?: string) => {
+      const prior = templateID === undefined ? undefined : await library.preview(templateID)
+      // Updating an existing v1 entry stays v1. Format upgrades are a separate explicit choice.
+      const preview = await capture(projectID, browsers, prior ? prior.bundle.version === 2 : !!deps.processStores),
         suffix = randomUUID().replaceAll("-", ""),
         token = "pts_" + suffix
       const value: Save = {
         kind: "save",
         phase: "prepared",
         projectID,
-        libraryID: (deps.processStores ? "process:" : "") + "template_" + suffix,
+        libraryID: templateID ?? (deps.processStores ? "process:" : "") + "template_" + suffix,
+        ...(prior ? { previousDigest: prior.digest } : {}),
         digest: preview.digest,
         text: preview.text,
         name: preview.bundle.name,
@@ -189,7 +198,7 @@ export function make(deps: Deps) {
       )
       return {
         token,
-        name: value.name,
+        name: prior?.bundle.name ?? value.name,
         details: preview.text,
         omittedLinks: preview.linkReview.issues,
         triggerReview: ProjectTemplateTriggerReview.review(
@@ -204,6 +213,21 @@ export function make(deps: Deps) {
         if (pending.kind !== "save") throw Error("Wrong operation kind.")
         if (pending.linkReview?.issues.length && !omitUnsafeLinks)
           throw Error("Saved links contain nonportable parameters. Review before saving.")
+        if (pending.previousDigest !== undefined) {
+          const existing = await library.preview(pending.libraryID)
+          if (existing.digest === pending.digest) {
+            await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
+            return
+          }
+          if (pending.phase === "saved" || existing.digest !== pending.previousDigest)
+            throw Error("Template changed after preview. Review it again.")
+          const current = await capture(pending.projectID, browsers, processID(pending.libraryID) !== undefined)
+          if (current.digest !== pending.digest || (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)))
+            throw Error("Project changed after confirmation preview. Review it again.")
+          await library.replaceSerialized(pending.text, pending.libraryID, pending.previousDigest, pending.digest)
+          await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
+          return
+        }
         let exists = false
         try {
           const existing = await library.preview(pending.libraryID)

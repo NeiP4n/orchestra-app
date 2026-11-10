@@ -29,10 +29,10 @@ export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplate
   const saveOwners = new Map<string, string>()
   const access: ProjectTemplatesAccess = {
     list: () => client.api.orchestra.projectTemplate.list(),
-    prepareSave: async () => {
+    prepareSave: async (templateID) => {
       const id = projectID()
       if (!id) throw Error("Open a project first.")
-      const prepared = await client.api.orchestra.projectTemplate.prepareSave({ projectID: id, browsers: browsers() })
+      const prepared = await client.api.orchestra.projectTemplate.prepareSave({ projectID: id, browsers: browsers(), ...(templateID === undefined ? {} : { templateID }) })
       saveOwners.set(prepared.token, id)
       return prepared
     },

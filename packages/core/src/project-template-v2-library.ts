@@ -21,6 +21,7 @@ export function local(dataDirectory: string) {
   return {
     preview,
     saveSerialized: async (serialized: string, id: string, reviewedDigest: string) => Files.saveWithCodec(await folder(), name(id), serialized, reviewedDigest, V2),
+    replaceSerialized: async (serialized: string, id: string, previousDigest: string, reviewedDigest: string) => Files.replaceWithCodec(path.join(await folder(), name(id)), serialized, previousDigest, reviewedDigest, V2),
     remember: async (source: string, id: string, reviewedDigest: string) => {
       const p = await Files.loadWithCodec(source, V2)
       if (p.digest !== reviewedDigest) throw Error("Process template changed after review.")

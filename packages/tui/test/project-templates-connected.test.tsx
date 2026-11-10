@@ -33,12 +33,14 @@ for (const templateID of ["factory", "process:factory"])
         const body = await request.json()
         expect(body.projectID).toBe("prj_source")
         expect(body.browsers).toEqual([])
-        calls.push("prepare-save")
-        return json({ token: "pts_saved", name: "Factory", details: "Config only" })
+        if (body.templateID !== undefined) expect(body.templateID).toBe(templateID)
+        calls.push(body.templateID === undefined ? "prepare-save" : "prepare-update")
+        return json({ token: body.templateID === undefined ? "pts_saved" : "pts_update", name: "Factory", details: templateID.startsWith("process:") ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: { skills: [] } }) : "Config only" })
       }
       if (url.pathname === "/api/orchestra/project-template/confirm-save") {
-        expect((await request.json()).token).toBe("pts_saved")
-        calls.push("confirm-save")
+        const token = (await request.json()).token
+        expect(["pts_saved", "pts_update"]).toContain(token)
+        calls.push(token === "pts_update" ? "confirm-update" : "confirm-save")
         return new Response(null, { status: 204 })
       }
       if (url.pathname === "/api/orchestra/project-template/prepare-create") {
@@ -91,6 +93,17 @@ for (const templateID of ["factory", "process:factory"])
   expect(calls).toEqual(["prepare-save"])
   await click("project-templates.confirm")
   await app.waitForFrame((f) => f.includes("Проект сохранён"))
+  await click(`project-templates.update-${templateID}`)
+  await app.waitForFrame(frame => frame.includes("Обновить «Factory»"))
+  expect(calls).not.toContain("confirm-update")
+  if (process.env.CAPTURE_UPDATE_FRAME && templateID.startsWith("process:")) await Bun.write(process.env.CAPTURE_UPDATE_FRAME, JSON.stringify(app.captureSpans()))
+  await click("project-templates.confirm")
+  await app.waitForFrame(frame => frame.includes("Шаблон обновлён. Копия не создана."))
+  expect(calls).toEqual(["prepare-save", "confirm-save", "prepare-update", "confirm-update"])
+  // Reset focus to save, then the keyboard reaches Create exactly as before.
+  await click("project-templates.save")
+  await app.waitForFrame(frame => frame.includes("Сохранить «Factory»"))
+  await click("project-templates.cancel")
   // The registry owns the modal key layer: keyboard selection must reach the mounted templates screen.
   app.mockInput.pressArrow("down")
   await app.renderOnce()
@@ -101,7 +114,7 @@ for (const templateID of ["factory", "process:factory"])
   if (process.env.CAPTURE_CONNECTED_CONFIRM && templateID.startsWith("process:")) await Bun.write(process.env.CAPTURE_CONNECTED_CONFIRM, JSON.stringify(app.captureSpans()))
   await click("project-templates.confirm")
   await app.waitForFrame((f) => f.includes("Проект создан"))
-  expect(calls).toEqual(["prepare-save", "confirm-save", "prepare-create", "confirm-create", "finish-create"])
+  expect(calls).toEqual(["prepare-save", "confirm-save", "prepare-update", "confirm-update", "prepare-save", "prepare-create", "confirm-create", "finish-create"])
   const stored = JSON.parse(await readFile(path.join(app.state, "test/tui/browser-sessions.json"), "utf8"))
   expect(stored.projects.prj_new[0]).toMatchObject({
     id: "brw_import",
