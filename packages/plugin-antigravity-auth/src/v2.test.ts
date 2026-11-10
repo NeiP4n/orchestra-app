@@ -1621,6 +1621,17 @@ describe("OAuth completing during an earlier save", () => {
 })
 
 describe("OAuth app misconfiguration is never rotated as quota exhaustion", () => {
+  it("does not block a valid access token because another eligible account needs refresh", async () => {
+    const network = mockNetwork()
+    state.storage!.accounts.push({ ...pool().accounts[0]!, email: "expired@example.test", refreshToken: "expired-other" })
+    const adapter = await host()
+    const { sdk } = await adapter.sdk()
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    network.mockClear()
+    await stream(sdk)
+    expect(network.mock.calls.some(([input]) => (input instanceof Request ? input.url : String(input)).includes("oauth2.googleapis.com/token"))).toBe(false)
+    expect(network.mock.calls.some(([input]) => (input instanceof Request ? input.url : String(input)).includes(":streamGenerateContent"))).toBe(true)
+  })
   it("fails transport before pool selection and never penalizes an account", async () => {
     mockNetwork()
     const adapter = await host({ connection: false })

@@ -1320,7 +1320,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                         }
                         // Check local application configuration before selection: a prior failed refresh may
                         // already have persisted a cooldown, which must not hide the actionable cause.
-                        if (accountManager.getAccounts().some(account => account.enabled !== false && eligible(account) && accessTokenExpired(accountManager.toAuthDetails(account)))) {
+                        const eligibleAccounts = accountManager.getAccounts().filter(account => account.enabled !== false && eligible(account));
+                        if (eligibleAccounts.every(account => accessTokenExpired(accountManager.toAuthDetails(account)))) {
                             requireAntigravityClientSecret();
                         }
                         const debugLines = [];
