@@ -72,10 +72,17 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
       try {
         const opened = await handle.stat()
         if (opened.dev !== before.dev || opened.ino !== before.ino || !opened.isFile() || opened.nlink !== 1) throw Error()
-        const buffer = Buffer.alloc(65537), read = await handle.read(buffer, 0, buffer.length, 0), after = await handle.stat(), current = await lstat(file)
-        bytes += read.bytesRead
-        if (bytes > V2.MAX_BYTES || read.bytesRead > 65536 || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || await realpath(file) !== file) throw Error()
-        const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, read.bytesRead))
+        const buffer = Buffer.alloc(65537)
+        let length = 0
+        while (length < buffer.length) {
+          const read = await handle.read(buffer, length, buffer.length - length, length)
+          if (read.bytesRead === 0) break
+          length += read.bytesRead
+        }
+        const after = await handle.stat(), current = await lstat(file)
+        bytes += length
+        if (bytes > V2.MAX_BYTES || length > 65536 || length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || await realpath(file) !== file) throw Error()
+        const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length))
         if (content.includes("\0")) throw Error()
         output.push({ path: relative, content, sha256: V2.hash(content) })
       } finally { await handle.close() }
