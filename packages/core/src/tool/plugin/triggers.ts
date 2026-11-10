@@ -16,6 +16,7 @@ import { BrowserRuntime } from "../../browser/runtime.js"
 import { ScheduleView } from "../../schedule-view.js"
 import { BrowserProvenance } from "../../browser/provenance.js"
 import { BrowserLocalTest } from "../../browser/local-test.js"
+import { BrowserWatcherLifetime } from "../../browser/watcher-lifetime.js"
 import { BrowserSchedule } from "../../browser/schedule.js"
 
 export const name = "triggers"
@@ -98,6 +99,22 @@ export const Plugin = {
         .scan({ prefix: `${Trigger.PREFIX}${projectID}/`, limit: 200 })
         .pipe(Effect.map((result) => result.entries.flatMap((entry) => Trigger.parse(entry.value) ?? [])))
 
+    const releaseWatcher = (trigger: Trigger.Info, project: { id: string; directory: string }) =>
+      Effect.gen(function* () {
+        if (trigger.kind !== "browser") return
+        const remaining = yield* list(project.id)
+        yield* Effect.promise(() =>
+          BrowserWatcherLifetime.release({
+            sessionID: trigger.spec,
+            projectID: project.id,
+            directory: project.directory,
+            sessions: BrowserRuntime.sessions(),
+            triggers: remaining,
+            stop: BrowserRuntime.stopPageWatcher,
+          }),
+        )
+      })
+
     const run = (input: Input, sessionID: Parameters<typeof orchestra.mainOf>[0]) =>
       Effect.gen(function* () {
         const project = yield* orchestra.mainOf(sessionID)
@@ -178,16 +195,14 @@ export const Plugin = {
               return yield* new ToolFailure({ message: "browserSession is only supported for interval triggers." })
             if (!input.browserSession.trim())
               return yield* new ToolFailure({ message: "browserSession must name the browser session to check." })
-            const source = yield* sessions
-              .get(sessionID)
-              .pipe(
-                Effect.mapError(
-                  () =>
-                    new ToolFailure({
-                      message: "This session was not found. The scheduled browser check was not created.",
-                    }),
-                ),
-              )
+            const source = yield* sessions.get(sessionID).pipe(
+              Effect.mapError(
+                () =>
+                  new ToolFailure({
+                    message: "This session was not found. The scheduled browser check was not created.",
+                  }),
+              ),
+            )
             const found = BrowserBridge.resolve(
               BrowserRuntime.sessions(),
               input.browserSession,
@@ -277,6 +292,7 @@ export const Plugin = {
           yield* kv.remove(Trigger.key(project.id, found.id))
           ScheduleView.remove(found.id)
           BrowserSchedule.remove(found.id)
+          yield* releaseWatcher(found, project)
           return `Deleted ${found.id}.`
         }
         if (input.action === "pause") {
@@ -285,6 +301,7 @@ export const Plugin = {
           ScheduleView.sync(next, String(sessionID))
           BrowserSchedule.sync(next.kind === "browser" ? { ...next, browserSessionID: next.spec } : next)
           if (next.kind === "browser") BrowserSchedule.watchStatus(next.id, false)
+          yield* releaseWatcher(next, project)
           return `Paused. ${Trigger.describe(next)}`
         }
         // resume: the next time comes from now; the caps' history stays, so a resume cannot reset a cap

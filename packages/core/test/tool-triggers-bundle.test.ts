@@ -1,4 +1,4 @@
-import { expect, describe } from "bun:test"
+import { expect, describe, spyOn } from "bun:test"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Layer } from "effect"
@@ -9,6 +9,7 @@ import { KV } from "@orchestra/core/kv"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Session } from "@orchestra/core/session"
 import { Tool } from "@orchestra/core/tool"
+import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 import { Trigger } from "@orchestra/core/trigger"
 import { TriggersTool } from "@orchestra/core/tool/plugin/triggers"
 import { Global } from "@orchestra/util/global"
@@ -98,6 +99,38 @@ describe("TriggersTool portable templates", () => {
           expect(result.error?.message).toContain("trigger")
         }
       }).pipe(Effect.provide(harness(directory, true))),
+    ),
+  )
+  it.live("pause and delete release only the last enabled own browser watcher through actual tool execution", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        const kv = yield* KV.Service,
+          tools = yield* Tool.Service
+        const stopped: string[] = []
+        const registry = spyOn(BrowserRuntime, "sessions").mockReturnValue([
+          { id: "browser_own", name: "Fixture", project: directory, projectID: "prj_selected" },
+        ])
+        const stop = spyOn(BrowserRuntime, "stopPageWatcher").mockImplementation(async (id) => {
+          stopped.push(id)
+        })
+        try {
+          for (const id of ["trg_first", "trg_second"]) {
+            const made = Trigger.create(
+              { kind: "browser", spec: "browser_own", prompt: "check" },
+              { projectID: "prj_selected", id, now: Date.now(), existing: 0 },
+            )
+            if (!made.ok) throw Error(made.error)
+            yield* kv.set(Trigger.key("prj_selected", id), made.trigger as never)
+          }
+          expect((yield* run(tools, { action: "pause", id: "trg_first" })).status).toBe("completed")
+          expect(stopped).toEqual([])
+          expect((yield* run(tools, { action: "delete", id: "trg_second" })).status).toBe("completed")
+          expect(stopped).toEqual(["browser_own"])
+        } finally {
+          registry.mockRestore()
+          stop.mockRestore()
+        }
+      }).pipe(Effect.provide(harness(directory))),
     ),
   )
 })

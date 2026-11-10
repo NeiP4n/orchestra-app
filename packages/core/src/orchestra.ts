@@ -45,6 +45,7 @@ import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
 import { BrowserBridge } from "./browser/bridge.js"
 import { BrowserRuntime } from "./browser/runtime.js"
+import { BrowserWatcherLifetime } from "./browser/watcher-lifetime.js"
 import { BrowserSchedule } from "./browser/schedule.js"
 import { BrowserWatch } from "./browser/watch.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
@@ -1850,11 +1851,9 @@ const layer: Layer.Layer<
         BrowserSchedule.remove(trigger.id)
         // Retain the operator tombstone: another sweep may already hold the old record.
         if (trigger.kind === "browser") {
-          const remaining = (yield* scanAll(Trigger.PREFIX)).some((entry) => {
-            const other = Trigger.parse(entry.value)
-            return other?.enabled && other.kind === "browser" && other.spec === trigger.spec
-          })
-          if (!remaining && !BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id))) yield* Effect.promise(() => BrowserRuntime.stopPageWatcher(trigger.spec))
+          const remaining = (yield* scanAll(Trigger.PREFIX)).flatMap(entry => Trigger.parse(entry.value) ?? [])
+          yield* Effect.promise(() => BrowserWatcherLifetime.release({ sessionID: trigger.spec, projectID: String(project.id),
+            directory: project.directory, sessions: BrowserRuntime.sessions(), triggers: remaining, stop: BrowserRuntime.stopPageWatcher }))
         }
         reportLog({ event: "trigger-deleted-by-operator", trigger: trigger.id, project: trigger.projectID })
       }
