@@ -1,3 +1,4 @@
+import { AntigravityOAuthConfigurationError } from "./constants.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -22,10 +23,24 @@ const METHOD_ID = "antigravity";
 // Core rewrites the standard Google SDK package to its native transport after
 // every provider/model update. Its local module URL avoids that conversion and
 // lets Core's earlier generic SDK loader use our installed dependency directly.
-const SDK_PACKAGE = typeof import.meta.resolve === "function"
-    ? import.meta.resolve("@ai-sdk/google")
-    : pathToFileURL(createRequire(import.meta.url).resolve("@ai-sdk/google")).href;
+const SDK_PACKAGE = resolveSdkPackage();
 const GOOGLE_PACKAGE = `aisdk:${SDK_PACKAGE}`;
+// The compiled CLI binary has no node_modules layout, so resolving the installed
+// SDK package throws there at import time and the whole server dies before it
+// starts. Fall back to the bare package specifier: Core rewrites it to the
+// bundled native Google transport (which uses OAuth access tokens as API keys),
+// so the server starts and Antigravity models keep working through the native
+// route instead of the SDK hook.
+function resolveSdkPackage() {
+    try {
+        if (typeof import.meta.resolve === "function")
+            return import.meta.resolve("@ai-sdk/google");
+        return pathToFileURL(createRequire(import.meta.url).resolve("@ai-sdk/google")).href;
+    }
+    catch {
+        return "@ai-sdk/google";
+    }
+}
 const API_KEY_SENTINEL = "antigravity-oauth";
 const ownsModel = (id) => id.startsWith("antigravity-");
 function mergeBody(base, overlay) {
@@ -82,13 +97,23 @@ export const AntigravityV2Plugin = Plugin.define({
         const outbound = new AsyncLocalStorage();
         let modelAccounts = {};
         let accountCatalogLoaded = false;
+        let catalogWrittenAt = 0;
         const transport = await createAntigravityPlugin(PROVIDER_ID)({
             client,
             directory: ctx.location.directory,
             runtimeVersion: 2,
             canUseAccount: (account, model) => {
+                if (!accountCatalogLoaded)
+                    return true;
                 const eligible = modelAccounts[`antigravity-${resolveModelWithTier(model).actualModel}`];
-                return !accountCatalogLoaded || !!eligible?.includes(accountID(account));
+                if (!eligible)
+                    return false;
+                if (eligible.includes(accountID(account)))
+                    return true;
+                // An account connected after the catalog was written cannot appear in it,
+                // so its absence says nothing about access. Excluding it would keep a
+                // freshly added account out of rotation until the next model discovery.
+                return (account.addedAt ?? 0) > catalogWrittenAt;
             },
             fetch: (input, init) => {
                 const send = outbound.getStore() ?? globalThis.fetch;
@@ -109,8 +134,10 @@ export const AntigravityV2Plugin = Plugin.define({
         const validCache = cached?.identity === accountPoolIdentity(saved?.accounts ?? []) && cached.models;
         let modelDefinitions = validCache ? buildAccountModelDefinitions(validCache) : OPENCODE_V2_MODEL_DEFINITIONS;
         accountCatalogLoaded = !!validCache;
-        if (validCache)
+        if (validCache) {
             modelAccounts = cached.accounts;
+            catalogWrittenAt = cached.updatedAt;
+        }
         let discoveryGeneration = 0;
         let catalogSnapshot;
         const catalogWrites = new Set();
@@ -177,7 +204,8 @@ export const AntigravityV2Plugin = Plugin.define({
             modelDefinitions = buildAccountModelDefinitions(models);
             modelAccounts = eligibleAccounts;
             accountCatalogLoaded = true;
-            catalogSnapshot = JSON.parse(JSON.stringify({ version: 3, identity: accountPoolIdentity(latest?.accounts ?? []), updatedAt: Date.now(), models, accounts: eligibleAccounts }));
+            catalogWrittenAt = Date.now();
+            catalogSnapshot = JSON.parse(JSON.stringify({ version: 3, identity: accountPoolIdentity(latest?.accounts ?? []), updatedAt: catalogWrittenAt, models, accounts: eligibleAccounts }));
             const writing = writeCatalog();
             catalogWrites.add(writing);
             try {
@@ -463,7 +491,7 @@ export const AntigravityV2Plugin = Plugin.define({
                         label: "Google OAuth (Antigravity)",
                         form: [
                             { key: "projectId", type: "string", title: "Google Cloud project ID (optional)" },
-                            { key: "manual", type: "boolean", title: "Paste an authorization code or callback URL", default: true },
+                            { key: "manual", type: "boolean", title: "Paste the authorization code manually instead of using the local callback", default: false },
                         ],
                     },
                     async authorize(answer) {
@@ -482,6 +510,9 @@ export const AntigravityV2Plugin = Plugin.define({
                                     if (callback.origin !== redirect.origin || callback.pathname !== redirect.pathname || callback.searchParams.get("state") !== state) {
                                         throw new Error("Invalid Antigravity OAuth callback URL or state");
                                     }
+                                    const denied = callback.searchParams.get("error");
+                                    if (denied)
+                                        throw new Error(`Google did not authorize the sign-in: ${callback.searchParams.get("error_description") ?? denied}`);
                                     code = callback.searchParams.get("code") ?? "";
                                 }
                                 if (!code)
@@ -504,10 +535,26 @@ export const AntigravityV2Plugin = Plugin.define({
                                 invalidateLoader();
                                 return oauthCredential({ ...result, type: "oauth" }, { ...(result.email ? { email: result.email } : {}), ...(account?.id ? { antigravityAccountId: account.id } : {}) });
                             });
-                            if (answer.manual !== false) {
-                                return { url: auth.url, instructions: "Open this URL, then paste the authorization code or full callback URL.", mode: "code", callback: complete };
+                            const manual = {
+                                url: auth.url,
+                                instructions: "Open this URL, then paste the authorization code or full callback URL.",
+                                mode: "code",
+                                callback: complete,
+                            };
+                            if (answer.manual === true)
+                                return manual;
+                            // An earlier attempt that was cancelled still holds the callback port until it times out.
+                            await Promise.allSettled([...listeners].map((previous) => previous.close()));
+                            listeners.clear();
+                            let listener;
+                            try {
+                                listener = await startOAuthListener();
                             }
-                            const listener = await startOAuthListener();
+                            catch (error) {
+                                // The local callback is unavailable (port taken, no loopback); pasting still works.
+                                log.warn("Antigravity callback listener unavailable", { error: String(error) });
+                                return { ...manual, instructions: `The local callback could not start (${error instanceof Error ? error.message : String(error)}). ${manual.instructions}` };
+                            }
                             listeners.add(listener);
                             const callback = listener.waitForCallback()
                                 .then((url) => complete(url.toString()))
@@ -539,6 +586,8 @@ export const AntigravityV2Plugin = Plugin.define({
                                 return oauthCredential(account ? { ...refreshed, refresh: formatRefreshParts(account) } : refreshed, { ...credential.metadata, ...(account?.id ? { antigravityAccountId: account.id } : {}) });
                             }
                             catch (error) {
+                                if (error instanceof AntigravityOAuthConfigurationError)
+                                    throw error;
                                 if (error instanceof AntigravityTokenRefreshError && error.code === "invalid_grant") {
                                     let revoked = false;
                                     await updateAccounts(stored => {
@@ -705,12 +754,10 @@ export const AntigravityV2Plugin = Plugin.define({
                 await ctx.provider.reload();
             }, runCredentialOperation));
             if (hasSavedAccounts && ctx.options.discoverModels !== false && (!validCache || Date.now() - (cached?.updatedAt ?? 0) > 3600_000)) {
-                try {
-                    await refreshModels();
-                }
-                catch (error) {
-                    log.warn("Model discovery unavailable; using cached or fallback models", { error: String(error) });
-                }
+                // Discovery asks Google once per account. Setup must not wait for it: the host fails a plugin
+                // whose setup runs past 30 seconds, and every model of the provider goes with it. The cached or
+                // fallback catalog serves until discovery finishes and reloads the provider.
+                void refreshModels().catch(error => log.warn("Model discovery unavailable; using cached or fallback models", { error: String(error) }));
             }
             return cleanup;
         }

@@ -7,11 +7,24 @@ export const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g4
  */
 // Kept for consumers of the existing export. No embedded credential or default.
 export const ANTIGRAVITY_CLIENT_SECRET = process.env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET;
+/** Local OAuth application configuration is not an account quota or revoked user token. */
+export class AntigravityOAuthConfigurationError extends Error {
+    code;
+    isRetryable = false;
+    retryable = false;
+    constructor(code) {
+        super(code === "missing_client_secret"
+            ? "Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set in the Orchestra process. Configure it locally and restart Orchestra. No account quota was checked."
+            : "Antigravity OAuth application credentials were rejected. Check the client secret configured for the Orchestra process. This is not an account quota error; retrying or adding accounts will not fix it.");
+        this.code = code;
+        this.name = "AntigravityOAuthConfigurationError";
+    }
+}
 /** Resolve at use time so importing the plugin does not require an OAuth credential. */
 export function requireAntigravityClientSecret(env = process.env) {
     const value = env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET;
     if (!value?.trim()) {
-        throw new Error("Не задана ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET: настройте OAuth client secret для Google Antigravity.");
+        throw new AntigravityOAuthConfigurationError("missing_client_secret");
     }
     return value;
 }

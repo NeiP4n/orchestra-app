@@ -1,3 +1,4 @@
+import { AntigravityOAuthConfigurationError } from "./constants.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -585,6 +586,8 @@ export const AntigravityV2Plugin = Plugin.define({
                                 return oauthCredential(account ? { ...refreshed, refresh: formatRefreshParts(account) } : refreshed, { ...credential.metadata, ...(account?.id ? { antigravityAccountId: account.id } : {}) });
                             }
                             catch (error) {
+                                if (error instanceof AntigravityOAuthConfigurationError)
+                                    throw error;
                                 if (error instanceof AntigravityTokenRefreshError && error.code === "invalid_grant") {
                                     let revoked = false;
                                     await updateAccounts(stored => {

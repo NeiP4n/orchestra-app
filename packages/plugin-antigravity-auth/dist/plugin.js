@@ -4,7 +4,7 @@ function tool(input) {
     return input;
 }
 tool.schema = z;
-import { ANTIGRAVITY_DEFAULT_PROJECT_ID, ANTIGRAVITY_ENDPOINT, ANTIGRAVITY_PROVIDER_ID, getAntigravityHeaders, getEndpointFallbacks, } from "./constants.js";
+import { ANTIGRAVITY_DEFAULT_PROJECT_ID, AntigravityOAuthConfigurationError, requireAntigravityClientSecret, ANTIGRAVITY_ENDPOINT, ANTIGRAVITY_PROVIDER_ID, getAntigravityHeaders, getEndpointFallbacks, } from "./constants.js";
 import { authorizeAntigravity, exchangeAntigravity } from "./antigravity/oauth.js";
 import { accessTokenExpired, isOAuthAuth, parseRefreshParts, formatRefreshParts } from "./plugin/auth.js";
 import { promptAddAnotherAccount, promptLoginMode, promptProjectId } from "./plugin/cli.js";
@@ -200,17 +200,27 @@ function shouldSkipLocalServer() {
 }
 async function openBrowser(url) {
     try {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return false;
+        }
+        const parsed = new URL(url);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            return false;
+        }
+        // Экранируем кавычки и спецсимволы командной строки для предотвращения command injection
+        const sanitizedUrl = parsed.href.replace(/[\r\n"]/g, "");
         if (process.platform === "darwin") {
-            exec(`open "${url}"`);
+            exec(`open "${sanitizedUrl}"`);
             return true;
         }
         if (process.platform === "win32") {
-            exec(`start "" "${url}"`);
+            const winSafeUrl = sanitizedUrl.replace(/\^/g, "^^").replace(/[&|<>]/g, "^$&");
+            exec(`start "" "${winSafeUrl}"`);
             return true;
         }
         if (isWSL()) {
             try {
-                exec(`wslview "${url}"`);
+                exec(`wslview "${sanitizedUrl}"`);
                 return true;
             }
             catch { }
@@ -218,7 +228,7 @@ async function openBrowser(url) {
         if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
             return false;
         }
-        exec(`xdg-open "${url}"`);
+        exec(`xdg-open "${sanitizedUrl}"`);
         return true;
     }
     catch {
@@ -982,6 +992,18 @@ function trackAccountFailure(accountIndex) {
 function resetAccountFailureState(accountIndex) {
     accountFailureState.delete(accountIndex);
 }
+// When the production Cloud Code host (the Gemini CLI quota route) stops answering, falling back to
+// it makes every request sit until the host's own timeout. After one such timeout the fallback stays
+// closed for a while, so a request fails over to the next account or reports the quota at once.
+const GEMINI_CLI_DOWN_MS = 10 * 60_000;
+let geminiCliDownUntil = 0;
+/** Thrown out of the request loop, which would otherwise retry any other error against the next account. */
+class GoogleUnreachableError extends Error {
+}
+function maxWaitMsForCooldown(waitMs, seconds) {
+    const limit = (seconds ?? 300) * 1000;
+    return limit > 0 && waitMs > limit;
+}
 /**
  * Sleep for a given number of milliseconds, respecting an abort signal.
  */
@@ -1025,7 +1047,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
     // Initialize structured logger for TUI integration
     initLogger(client);
     // Fetch latest Antigravity version from remote API (non-blocking, falls back to hardcoded)
-    await refreshAntigravityVersion();
+    // Never wait for it: the host fails a plugin whose setup runs past 30 seconds, and this call can take 10.
+    void refreshAntigravityVersion();
     const versionRefreshTimer = setInterval(() => { void refreshAntigravityVersion(); }, ANTIGRAVITY_VERSION_REFRESH_INTERVAL_MS);
     versionRefreshTimer.unref?.();
     // Initialize health tracker for hybrid strategy
@@ -1291,9 +1314,15 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                         const urlString = toUrlString(input);
                         const family = getModelFamilyFromUrl(urlString);
                         const model = extractModelFromUrl(urlString);
-                        const eligible = (account) => !canUseAccount || canUseAccount({ id: account.id, refreshToken: account.parts.refreshToken }, model ?? "");
+                        const eligible = (account) => !canUseAccount || canUseAccount({ id: account.id, refreshToken: account.parts.refreshToken, addedAt: account.addedAt }, model ?? "");
                         if (!accountManager.getAccounts().some(account => account.enabled !== false && eligible(account))) {
                             throw new Error("No enabled Antigravity account has access to this model. Refresh available models from /antigravity.");
+                        }
+                        // Check local application configuration before selection: a prior failed refresh may
+                        // already have persisted a cooldown, which must not hide the actionable cause.
+                        const eligibleAccounts = accountManager.getAccounts().filter(account => account.enabled !== false && eligible(account));
+                        if (eligibleAccounts.every(account => accessTokenExpired(accountManager.toAuthDetails(account)))) {
+                            requireAntigravityClientSecret();
                         }
                         const debugLines = [];
                         const pushDebug = (line) => {
@@ -1305,6 +1334,24 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                         let lastFailure = null;
                         let lastError = null;
                         const abortSignal = init?.signal ?? undefined;
+                        // The host shows nothing while this request waits (the plugin's toasts do not reach the TUI), so
+                        // a request must not sit through one rate limit after another in silence: 20 minutes of empty
+                        // "waiting for an answer". Past this budget it fails with the reason, which the person sees.
+                        const HEADER_TIMEOUT_MS = 60_000;
+                        const WAIT_BUDGET_MS = 90_000;
+                        // The loop below retries across accounts for as long as requests fail. A host that cannot be
+                        // reached fails every attempt after ~20 s, so without a limit the person sees an empty,
+                        // endless wait (observed: 11 sessions, 20 minutes). A few failures in one request is enough.
+                        const MAX_NETWORK_FAILURES = 3;
+                        let networkFailures = 0;
+                        let waitedMs = 0;
+                        const wait = async (ms, signal) => {
+                            waitedMs += ms;
+                            if (waitedMs > WAIT_BUDGET_MS) {
+                                throw new Error(`Antigravity account pool is temporarily unavailable. Cooldowns can follow authentication, project access, network or quota failures. Next pool check in about ${formatWaitTime(ms)}. This message alone does not confirm an exhausted quota.`);
+                            }
+                            await sleep(ms, signal);
+                        };
                         // Helper to check if request was aborted
                         const checkAborted = () => {
                             if (abortSignal?.aborted) {
@@ -1352,7 +1399,11 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                             // Check for abort at the start of each iteration
                             checkAborted();
                             const accountCount = accountManager.getEnabledAccounts().filter(eligible).length;
-                            const routingDecision = resolveHeaderRoutingDecision(urlString, family, config);
+                            const resolvedRouting = resolveHeaderRoutingDecision(urlString, family, config);
+                            const routingDecision = {
+                                ...resolvedRouting,
+                                allowQuotaFallback: resolvedRouting.allowQuotaFallback && Date.now() >= geminiCliDownUntil,
+                            };
                             const { cliFirst, preferredHeaderStyle, explicitQuota, allowQuotaFallback, } = routingDecision;
                             if (accountCount === 0) {
                                 throw new Error("No Antigravity accounts available. Run `opencode auth login`.");
@@ -1384,7 +1435,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         await showToast(`All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(softQuotaWaitMs)}...`, "warning");
                                         softQuotaToastShown = true;
                                     }
-                                    await sleep(softQuotaWaitMs, abortSignal);
+                                    await wait(softQuotaWaitMs, abortSignal);
                                     continue;
                                 }
                                 const strictWait = !allowQuotaFallback;
@@ -1399,6 +1450,10 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         totalAccounts: accountCount,
                                     });
                                     logRateLimitSnapshot(family, accountManager.getAccountsSnapshot());
+                                }
+                                const nonQuotaCooldown = accountManager.getAccounts().some(a => a.enabled !== false && eligible(a) && accountManager.isAccountCoolingDown(a));
+                                if (nonQuotaCooldown && maxWaitMsForCooldown(waitMs, config.max_rate_limit_wait_seconds)) {
+                                    throw new Error("Antigravity accounts are temporarily unavailable after authentication, verification, project access or network failures. This is not a confirmed quota reset. Check account status and OAuth configuration.");
                                 }
                                 // If wait time exceeds max threshold, return error immediately instead of hanging
                                 // 0 means disabled (wait indefinitely)
@@ -1416,7 +1471,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                     rateLimitToastShown = true;
                                 }
                                 // Wait for the rate-limit cooldown to expire, then retry
-                                await sleep(waitMs, abortSignal);
+                                await wait(waitMs, abortSignal);
                                 continue;
                             }
                             // Account is available - reset the toast flag
@@ -1467,6 +1522,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                     }
                                 }
                                 catch (error) {
+                                    if (error instanceof AntigravityOAuthConfigurationError)
+                                        throw error;
                                     if (error instanceof AntigravityTokenRefreshError && error.code === "invalid_grant") {
                                         if (runtimeVersion === 2) {
                                             const rejectedToken = parseRefreshParts(authRecord.refresh).refreshToken;
@@ -1533,6 +1590,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                 resetAccountFailureState(account.index);
                             }
                             catch (error) {
+                                if (error instanceof AntigravityOAuthConfigurationError)
+                                    throw error;
                                 const { failures, shouldCooldown, cooldownMs } = trackAccountFailure(account.index);
                                 getHealthTracker().recordFailure(account.index);
                                 lastError = error instanceof Error ? error : new Error(String(error));
@@ -1710,7 +1769,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         if (config.request_jitter_max_ms > 0) {
                                             const jitterMs = Math.floor(Math.random() * config.request_jitter_max_ms);
                                             if (jitterMs > 0) {
-                                                await sleep(jitterMs, abortSignal);
+                                                await wait(jitterMs, abortSignal);
                                             }
                                         }
                                         // Consume token for hybrid strategy
@@ -1718,7 +1777,38 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         if (config.account_selection_strategy === 'hybrid') {
                                             tokenConsumed = getTokenTracker().consume(account.index);
                                         }
-                                        const response = await sendFetch(prepared.request, prepared.init);
+                                        // Google answers headers at once when it is reachable; silence for this long means it is not.
+                                        // The host's own limit is five minutes per attempt, which the person sees as a frozen session.
+                                        const guard = new AbortController();
+                                        const guardTimer = setTimeout(() => guard.abort(new Error(`No response from Google within ${HEADER_TIMEOUT_MS / 1000}s (${headerStyle})`)), HEADER_TIMEOUT_MS);
+                                        let response;
+                                        try {
+                                            response = await sendFetch(prepared.request, {
+                                                ...prepared.init,
+                                                signal: prepared.init?.signal ? AbortSignal.any([prepared.init.signal, guard.signal]) : guard.signal,
+                                            });
+                                        }
+                                        catch (error) {
+                                            // Whatever stops the request from getting an answer (refused, reset, silent) is a
+                                            // transport failure; the person's own abort is not.
+                                            if (!abortSignal?.aborted) {
+                                                networkFailures++;
+                                                // The production host is the Gemini CLI quota route. Once it cannot be reached, stop
+                                                // falling back to it so the Antigravity quota is reported instead.
+                                                if (headerStyle === "gemini-cli") {
+                                                    geminiCliDownUntil = Date.now() + GEMINI_CLI_DOWN_MS;
+                                                    pushDebug("gemini-cli route unreachable: fallback closed for 10 minutes");
+                                                }
+                                                if (networkFailures >= MAX_NETWORK_FAILURES) {
+                                                    throw new GoogleUnreachableError(`Cannot reach Google's ${headerStyle === "gemini-cli" ? "Gemini CLI" : "Antigravity"} service from this machine ` +
+                                                        `(${error instanceof Error ? error.message : String(error)}). Check the network or VPN, or switch to another model.`);
+                                                }
+                                            }
+                                            throw error;
+                                        }
+                                        finally {
+                                            clearTimeout(guardTimer);
+                                        }
                                         pushDebug(`status=${response.status} ${response.statusText}`);
                                         // Handle 429 rate limit (or Service Overloaded) with improved logic
                                         if (response.status === 429 || response.status === 503 || response.status === 529) {
@@ -1749,7 +1839,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 const waitSec = Math.round(waitMs / 1000);
                                                 pushDebug(`Server busy (${rateLimitReason}) on account ${account.index}, exponential backoff ${waitMs}ms (attempt ${capacityRetryCount + 1})`);
                                                 await showToast(`⏳ Server busy (${response.status}). Retrying in ${waitSec}s...`, "warning");
-                                                await sleep(waitMs, abortSignal);
+                                                await wait(waitMs, abortSignal);
                                                 // CRITICAL FIX: Decrement i so that the loop 'continue' retries the SAME endpoint index
                                                 // (i++ in the loop will bring it back to the current index)
                                                 // But limit retries to prevent infinite loops (Greptile feedback)
@@ -1793,7 +1883,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             // Progressive retry for standard 429s: 1st 429 → 1s then switch (if enabled) or retry same
                                             if (attempt === 1 && rateLimitReason !== "QUOTA_EXHAUSTED") {
                                                 await showToast(`Rate limited. Quick retry in 1s...`, "warning");
-                                                await sleep(FIRST_RETRY_DELAY_MS, abortSignal);
+                                                await wait(FIRST_RETRY_DELAY_MS, abortSignal);
                                                 // CacheFirst mode: wait for same account if within threshold (preserves prompt cache)
                                                 if (config.scheduling_mode === 'cache_first') {
                                                     const maxCacheFirstWaitMs = config.max_cache_first_wait_seconds * 1000;
@@ -1802,7 +1892,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                         pushDebug(`cache_first: waiting ${effectiveDelayMs}ms for same account to recover`);
                                                         await showToast(`⏳ Waiting ${Math.ceil(effectiveDelayMs / 1000)}s for same account (prompt cache preserved)...`, "info");
                                                         accountManager.markRateLimitedWithReason(account, family, headerStyle, model, rateLimitReason, serverRetryMs);
-                                                        await sleep(effectiveDelayMs, abortSignal);
+                                                        await wait(effectiveDelayMs, abortSignal);
                                                         // Retry same endpoint after wait
                                                         i -= 1;
                                                         continue;
@@ -1828,7 +1918,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     if (hasOtherAccountWithAntigravity(account)) {
                                                         pushDebug(`antigravity exhausted on account ${account.index}, but available on others. Switching account.`);
                                                         await showToast(`Rate limited again. Switching account in 5s...`, "warning");
-                                                        await sleep(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
+                                                        await wait(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
                                                         shouldSwitchAccount = true;
                                                         break;
                                                     }
@@ -1874,14 +1964,14 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     ? ` (quota resets ${bodyInfo.quotaResetTime})`
                                                     : ``;
                                                 await showToast(`Rate limited again. Switching account in 5s...${quotaMsg}`, "warning");
-                                                await sleep(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
+                                                await wait(SWITCH_ACCOUNT_DELAY_MS, abortSignal);
                                             }
                                             else {
                                                 // Single account: exponential backoff (1s, 2s, 4s, 8s... max 60s)
                                                 const expBackoffMs = Math.min(FIRST_RETRY_DELAY_MS * Math.pow(2, attempt - 1), 60000);
                                                 const expBackoffFormatted = expBackoffMs >= 1000 ? `${Math.round(expBackoffMs / 1000)}s` : `${expBackoffMs}ms`;
                                                 await showToast(`Rate limited. Retrying in ${expBackoffFormatted} (attempt ${attempt})...`, "warning");
-                                                await sleep(expBackoffMs, abortSignal);
+                                                await wait(expBackoffMs, abortSignal);
                                             }
                                             lastFailure = createFailureContext(response);
                                             shouldSwitchAccount = true;
@@ -1907,6 +1997,18 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 }
                                                 pushDebug(`verification-required: disabled account ${account.index}`);
                                                 getHealthTracker().recordFailure(account.index);
+                                                lastFailure = createFailureContext(response);
+                                                shouldSwitchAccount = true;
+                                                break;
+                                            }
+                                            // A missing Gemini Code Assist license belongs to one account's project. Another
+                                            // account of the pool may hold one, so move on instead of failing the whole turn.
+                                            if (accountCount > 1 && /SUBSCRIPTION_REQUIRED|valid license of this product/i.test(errorBodyText)) {
+                                                const cooldownMs = 10 * 60 * 1000;
+                                                accountManager.markAccountCoolingDown(account, cooldownMs, "project-error");
+                                                accountManager.markRateLimited(account, cooldownMs, family, headerStyle, model);
+                                                getHealthTracker().recordFailure(account.index);
+                                                pushDebug(`license-required: cooling down account ${account.index}`);
                                                 lastFailure = createFailureContext(response);
                                                 shouldSwitchAccount = true;
                                                 break;
@@ -1967,7 +2069,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 pushDebug(`empty-response: attempt ${currentAttempts}/${maxAttempts}`);
                                                 if (currentAttempts < maxAttempts) {
                                                     await showToast(`Empty response received. Retrying (${currentAttempts}/${maxAttempts})...`, "warning");
-                                                    await sleep(retryDelayMs, abortSignal);
+                                                    await wait(retryDelayMs, abortSignal);
                                                     continue; // Retry the endpoint loop
                                                 }
                                                 // Clean up and throw after max attempts
@@ -1992,6 +2094,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         return transformedResponse;
                                     }
                                     catch (error) {
+                                        if (error instanceof GoogleUnreachableError)
+                                            throw error;
                                         // Refund token on network/API error (only if consumed)
                                         if (tokenConsumed) {
                                             getTokenTracker().refund(account.index);
