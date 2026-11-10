@@ -1205,6 +1205,22 @@ describe("Session.create", () => {
     }),
   )
 
+  it.effect("reads the exact stored model without changing the display default or explicit default variant", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const store = yield* SessionStore.Service
+      const model = Model.Ref.make({ id: Model.ID.make("sonnet"), providerID: Provider.ID.anthropic })
+      const absent = yield* sessions.create({ location, model })
+      expect(yield* store.getStoredModel(absent.id)).toEqual(model)
+      expect((yield* store.get(absent.id))?.model?.variant).toBe("default")
+      const explicit = Model.Ref.make({ ...model, variant: Model.VariantID.make("default") })
+      const selected = yield* sessions.create({ location, model: explicit })
+      expect(yield* store.getStoredModel(selected.id)).toEqual(explicit)
+      const none = yield* sessions.create({ location })
+      expect(yield* store.getStoredModel(none.id)).toBeUndefined()
+    }),
+  )
+
   it.effect("treats an omitted variant as the default variant", () =>
     Effect.gen(function* () {
       const session = yield* Session.Service

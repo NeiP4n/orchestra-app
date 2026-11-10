@@ -158,7 +158,7 @@ export function make(deps: Dependencies) {
       info.agent !== expected.agent ||
       info.location.directory !== r.directory ||
       !exact(info.permissions, []) ||
-      !exact(info.model, expected.model) ||
+      !exact(await run(deps.store.getStoredModel(SessionID.make(s.id))), expected.model) ||
       info.tokens.input ||
       info.tokens.output ||
       (await run(deps.store.messages({ sessionID: info.id, limit: 1 }))).length
