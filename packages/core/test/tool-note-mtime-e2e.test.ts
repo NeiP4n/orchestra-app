@@ -81,7 +81,7 @@ const onlyStamp = (result: ToolExecution) => {
   return Number(found[0])
 }
 
-const onDisk = (directory: string, name: string) => path.join(directory, ".opencode", "notes", `${name}.md`)
+const onDisk = (directory: string, name: string) => path.join(directory, ".orchestra", "notes", `${name}.md`)
 const readFile = (target: string) => Effect.promise(() => fs.readFile(target, "utf8"))
 const mtimeMs = (target: string) => Effect.promise(() => fs.stat(target)).pipe(Effect.map((info) => info.mtimeMs))
 
