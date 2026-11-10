@@ -28,7 +28,7 @@ export interface ProjectTemplatesKeys {
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
   list: () => Promise<readonly { id: string; name: string }[]>
-  prepareSave: () => Promise<{ token: string; name: string; details: string; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
+  prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmSave: (token: string, omitUnsafeLinks?: boolean) => Promise<void>
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
@@ -50,6 +50,7 @@ export function ProjectTemplatesSimple(props: {
   const [refreshFailed, setRefreshFailed] = createSignal(false)
   const [prepared, setPrepared] = createSignal<{
     kind: "save" | "create"
+    updating?: boolean
     token: string
     name: string
     details: string
@@ -83,8 +84,8 @@ export function ProjectTemplatesSimple(props: {
       setReason()
       setRefreshFailed(false)
       if (kind === "save" && !props.canSave) return
-      const result = kind === "save" ? await props.access.prepareSave() : await props.access.prepareCreate(id!)
-      setPrepared({ kind, ...result })
+      const result = kind === "save" ? await props.access.prepareSave(id) : await props.access.prepareCreate(id!)
+      setPrepared({ kind, updating: kind === "save" && id !== undefined, ...result })
       setCursor("confirm")
     }, kind)
   const confirm = () =>
@@ -105,7 +106,7 @@ export function ProjectTemplatesSimple(props: {
       }
       setMessage(
         current.kind === "save"
-          ? "Project saved as a template. Chats, data and secrets were not saved."
+          ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
           : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
       )
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
@@ -117,7 +118,7 @@ export function ProjectTemplatesSimple(props: {
     })
   const actions = () => prepared()
     ? ["confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...templates().map((row) => `create-${row.id}`)]
+    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : [])])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -132,6 +133,7 @@ export function ProjectTemplatesSimple(props: {
     else if (id === "details") setDetails(!details())
     else if (!prepared() && id === "save") void prepare("save")
     else if (!prepared() && id.startsWith("create-")) void prepare("create", id.slice(7))
+    else if (!prepared() && id.startsWith("update-")) void prepare("save", id.slice(7))
   }
   props.keys?.({
     move: (delta) => {
@@ -191,6 +193,9 @@ export function ProjectTemplatesSimple(props: {
             <box flexDirection="column">
               <text fg={theme.text.base} paddingLeft={3} wrapMode="word">{template.name}</text>
               <Action id={`create-${template.id}`} label={tr("Create project from template")} disabled={!!prepared()} />
+              <Show when={props.canSave}>
+                <Action id={`update-${template.id}`} label={tr("Update template from current project")} disabled={!!prepared()} />
+              </Show>
             </box>
           )}
         </For>
@@ -199,7 +204,7 @@ export function ProjectTemplatesSimple(props: {
         {(current) => (
           <box flexDirection="column" gap={1} paddingTop={1}>
             <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
-              {current().kind === "save" ? tr("Save") : tr("Create")} «{current().name}»?{" "}
+              {current().kind === "save" ? tr(current().updating ? "Update" : "Save") : tr("Create")} «{current().name}»?{" "}
               {current().kind === "save"
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
@@ -212,7 +217,7 @@ export function ProjectTemplatesSimple(props: {
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.")}</text>
             </Show>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? (current().omittedLinks?.length ? tr("Save without blocked links") : tr("Save")) : tr("Create")} />
+              <Action id="confirm" label={current().kind === "save" ? (current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : "Save")) : tr("Create")} />
               <Action id="cancel" label={tr("Cancel")} />
               <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>

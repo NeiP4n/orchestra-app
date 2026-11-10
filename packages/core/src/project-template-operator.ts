@@ -27,6 +27,7 @@ interface Save {
   digest: string
   text: string
   name: string
+  previousDigest?: string
   linkReview?: ProjectTemplateBrowser.Review
 }
 interface Create {
@@ -140,7 +141,8 @@ export function make(deps: Deps) {
       (await library.list())
         .filter((row) => row.state === "ready")
         .map((row) => ({ id: row.name, name: row.title ?? row.name })),
-    prepareSave: async (projectID: string, browsers: readonly BrowserInput[]) => {
+    prepareSave: async (projectID: string, browsers: readonly BrowserInput[], templateID?: string) => {
+      const prior = templateID === undefined ? undefined : await library.preview(templateID)
       const preview = await capture(projectID, browsers),
         suffix = randomUUID().replaceAll("-", ""),
         token = "pts_" + suffix
@@ -148,7 +150,8 @@ export function make(deps: Deps) {
         kind: "save",
         phase: "prepared",
         projectID,
-        libraryID: "template_" + suffix,
+        libraryID: templateID ?? "template_" + suffix,
+        ...(prior ? { previousDigest: prior.digest } : {}),
         digest: preview.digest,
         text: preview.text,
         name: preview.bundle.name,
@@ -160,13 +163,28 @@ export function make(deps: Deps) {
           return json(value)
         }),
       )
-      return { token, name: value.name, details: preview.text, omittedLinks: preview.linkReview.issues, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle, preview.linkReview.issues) }
+      return { token, name: prior?.bundle.name ?? value.name, details: preview.text, omittedLinks: preview.linkReview.issues, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle, preview.linkReview.issues) }
     },
     confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false) =>
       Flock.withLock(token, async () => {
         const pending = await prepared(token)
         if (pending.kind !== "save") throw Error("Wrong operation kind.")
         if (pending.linkReview?.issues.length && !omitUnsafeLinks) throw Error("Saved links contain nonportable parameters. Review before saving.")
+        if (pending.previousDigest !== undefined) {
+          const existing = await library.preview(pending.libraryID)
+          if (existing.digest === pending.digest) {
+            await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
+            return
+          }
+          if (pending.phase === "saved" || existing.digest !== pending.previousDigest)
+            throw Error("Template changed after preview. Review it again.")
+          const current = await capture(pending.projectID, browsers)
+          if (current.digest !== pending.digest || (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)))
+            throw Error("Project changed after confirmation preview. Review it again.")
+          await library.replaceSerialized(pending.text, pending.libraryID, pending.previousDigest, pending.digest)
+          await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
+          return
+        }
         let exists = false
         try {
           const existing = await library.preview(pending.libraryID)

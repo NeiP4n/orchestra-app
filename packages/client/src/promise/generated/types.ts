@@ -14631,6 +14631,7 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
       readonly chat?: string | undefined
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
+    readonly templateID?: string | undefined
   }["projectID"]
   readonly browsers: {
     readonly projectID: string
@@ -14640,7 +14641,18 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
       readonly chat?: string | undefined
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
+    readonly templateID?: string | undefined
   }["browsers"]
+  readonly templateID?: {
+    readonly projectID: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly templateID?: string | undefined
+  }["templateID"]
 }
 
 export type OrchestraProjectTemplatePrepareSaveOutput = {

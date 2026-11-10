@@ -1,8 +1,10 @@
 export * as ProjectTemplateFiles from "./project-template-files.js"
 
 import { constants } from "node:fs"
-import { lstat, mkdir, open, readdir, realpath, rm } from "node:fs/promises"
+import { lstat, mkdir, open, readdir, realpath, rm, rename } from "node:fs/promises"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
+import { Flock } from "@orchestra/util/flock"
 import { ProjectTemplate } from "./project-template.js"
 
 export const FILE = "template.json"
@@ -60,6 +62,37 @@ export async function save(directory: string, name: string, serialized: string, 
     if (current && !current.isSymbolicLink() && current.ino === reservation.ino && current.dev === reservation.dev) await rm(destination, { recursive: true, force: true })
     throw error
   }
+}
+/** Explicit reviewed replacement of one existing library manifest. Never creates a second template.
+ * Same-ID writers share the lock. Both old and new canonical bytes are bound by the caller's review. */
+export async function replace(directory: string, serialized: string, previousDigest: string, reviewedDigest: string) {
+  const next = ProjectTemplate.preview(serialized)
+  if (!next.ok) throw Error(next.error)
+  if (next.value.digest !== reviewedDigest) throw Error("Template changed after preview. Review it again.")
+  const destination = await root(directory)
+  return Flock.withLock("template-manifest:" + destination, async () => {
+    const prior = await load(destination)
+    if (prior.digest === reviewedDigest) return { directory: destination, digest: reviewedDigest }
+    if (prior.digest !== previousDigest) throw Error("Template changed after preview. Review it again.")
+    const target = path.join(destination, FILE), before = await lstat(target)
+    const parent = await root(path.dirname(destination))
+    const temporary = path.join(parent, ".template-update-" + randomUUID())
+    let created = false
+    try {
+      const handle = await open(temporary, "wx", 0o600)
+      created = true
+      try { await handle.writeFile(next.value.text, "utf8"); await handle.sync() } finally { await handle.close() }
+      // Do not replace a file/folder that moved or changed while new bytes were written.
+      const latest = await load(destination), current = await lstat(target)
+      if (latest.digest !== previousDigest || current.ino !== before.ino || current.dev !== before.dev || current.isSymbolicLink() || await realpath(destination) !== destination)
+        throw Error("Template changed after preview. Review it again.")
+      await rename(temporary, target)
+      created = false
+      const verified = await load(destination)
+      if (verified.digest !== reviewedDigest) throw Error("Template failed verification after replacement.")
+      return { directory: destination, digest: verified.digest }
+    } finally { if (created) await rm(temporary, { force: true }) }
+  })
 }
 function releaseVersion(value: string) {
   // Prerelease compatibility needs product policy, so it fails closed here rather than guessing ordering.

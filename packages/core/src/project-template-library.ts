@@ -16,7 +16,7 @@ function simple(value: string) {
   return value
 }
 
-/** Local operator library. New revisions need new names; no overwrite, delete, execute or automatic update. */
+/** Local operator library. Creation is create-only; replacement requires an explicit old/new digest review. */
 export function local(parentDirectory = Global.Path.data) {
   async function folder() {
     if (!path.isAbsolute(parentDirectory))
@@ -63,6 +63,8 @@ export function local(parentDirectory = Global.Path.data) {
     preview: async (name: string) => ProjectTemplateFiles.load(await source(name)),
     saveSerialized: async (serialized: string, name: string, reviewedDigest: string) =>
       ProjectTemplateFiles.save(await folder(), simple(name), serialized, reviewedDigest),
+    replaceSerialized: async (serialized: string, name: string, previousDigest: string, reviewedDigest: string) =>
+      ProjectTemplateFiles.replace(await source(name), serialized, previousDigest, reviewedDigest),
     remember: async (sourceDirectory: string, name: string, reviewedDigest: string) => {
       const preview = await ProjectTemplateFiles.load(sourceDirectory)
       if (preview.digest !== reviewedDigest) throw Error("Template changed after preview. Review it again.")
