@@ -1982,3 +1982,26 @@ describe("Config", () => {
     ),
   )
 })
+
+it.live("MCP install persists through fresh config service, including operator OFF", () =>
+  Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(Effect.flatMap((tmp) => Effect.gen(function* () {
+    const project = path.join(tmp.path, "project"), global = path.join(tmp.path, "global")
+    yield* Effect.promise(() => Promise.all([fs.mkdir(project), fs.mkdir(global)]))
+    yield* Effect.gen(function* () {
+      const config = yield* Config.Service
+      yield* config.update!({ mcpServers: { context7: { type: "local", command: ["npx", "-y", "@upstash/context7-mcp"] } } })
+    }).pipe(Effect.provide(testLayer(project, global)))
+    yield* Effect.gen(function* () {
+      const config = yield* Config.Service
+      const docs = (yield* config.entries()).filter((row) => row.type === "document")
+      expect(docs.some((row) => row.info.mcp?.servers?.context7?.type === "local")).toBe(true)
+      yield* config.update!({ mcpServers: { context7: { type: "local", command: ["npx", "-y", "@upstash/context7-mcp"], disabled: true } } })
+    }).pipe(Effect.provide(testLayer(project, global)))
+    yield* Effect.gen(function* () {
+      const config = yield* Config.Service
+      const docs = (yield* config.entries()).filter((row) => row.type === "document")
+      const persisted = docs.flatMap((row) => Object.entries(row.info.mcp?.servers ?? {}))
+      expect(persisted.find(([name]) => name === "context7")?.[1].disabled).toBe(true)
+    }).pipe(Effect.provide(testLayer(project, global)))
+  }))),
+)

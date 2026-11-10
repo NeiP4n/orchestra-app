@@ -535,7 +535,7 @@ test("AI tools open first, read in full and install through the config", async (
     await app.mockMouse.click(install.x + 2, install.y)
     await app.waitFor(() => calls.length === 1)
     expect(calls[0]?.[0]).toBe("context7")
-    await app.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Remove")))
+    await app.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Disable MCP")))
 
     // the programs tab holds the search
     await openTab(app, "Programs")
@@ -603,4 +603,40 @@ for (const language of ["en", "ru"] as const) test(`Registry plugin count and ke
     expect(app.captureCharFrame()).toContain(language === "en" ? "1 plugin" : "Плагинов: 1")
     if (process.env.CAPTURE_REGISTRY_LOCALE) await Bun.write(`${process.env.CAPTURE_REGISTRY_LOCALE}-${language}.json`, JSON.stringify(app.captureSpans()))
   } finally { app.renderer.destroy() }
+})
+
+test("MCP installation survives panel restart and OFF stays installed with explicit enable", async () => {
+  await using tmp = await tmpdir()
+  const saved: Record<string, { disabled?: boolean }> = {}
+  const access: AiToolsAccess = {
+    installed: () => Object.keys(saved), disabled: () => Object.keys(saved).filter((key) => saved[key].disabled),
+    set: async (id, config) => { if (config) saved[id] = structuredClone(config); else delete saved[id] },
+  }
+  const options = { probe: () => true, terminalProbe: () => true, manager: "winget" as const, directory: tmp.path, aiTools: access }
+  const first = await render(options)
+  try {
+    await first.waitForFrame((frame) => frame.includes("Context7"))
+    const target = cell(first, "Context7", "Install")
+    await first.mockMouse.click(target.x + 2, target.y)
+    await first.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Disable MCP")))
+  } finally { first.renderer.destroy() }
+  // New panel has no optimistic state. Global MCP switch can be OFF with zero live servers.
+  const second = await render(options)
+  try {
+    await second.waitForFrame((frame) => frame.includes("AI tools (MCP) 1/6"))
+    const target = cell(second, "Context7", "Disable MCP")
+    await second.mockMouse.click(target.x + 2, target.y)
+    await second.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("OFF") && line.includes("Enable MCP")))
+    expect(saved.context7.disabled).toBe(true)
+  } finally { second.renderer.destroy() }
+  const third = await render({ ...options, language: "ru" })
+  try {
+    const frame = await third.waitForFrame((frame) => frame.includes("Включить MCP"))
+    expect(frame).toContain("1/6")
+    const row = frame.split("\n").find((line) => line.includes("Context7"))!
+    expect(row).toContain("OFF")
+    expect(row).not.toContain("Установить")
+    await Bun.write("/tmp/mcp-restart-ru-frame.txt", frame)
+    await Bun.write("/tmp/mcp-restart-ru-spans.json", JSON.stringify(third.captureSpans()))
+  } finally { third.renderer.destroy() }
 })

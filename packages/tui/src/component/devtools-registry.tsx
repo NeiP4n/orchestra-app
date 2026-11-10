@@ -246,7 +246,7 @@ export function RegistryPanel(props: {
       { bind: "return", title: t("Activate template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.activate() },
       { bind: "up", title: t("Previous AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.move(-1) },
       { bind: "down", title: t("Next AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.move(1) },
-      { bind: "return", title: t("Install or remove AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
+      { bind: "return", title: t("Install or toggle MCP"), group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
       { bind: "up", title: t("Previous plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(-1) },
       { bind: "down", title: t("Next plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(1) },
       { bind: "return", title: t("Enable or disable plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.activate() },
@@ -503,7 +503,7 @@ export function RegistryPanel(props: {
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
           : tab() === "plugins"
             ? t("tab next tab · ↑↓ select · enter enable/disable · esc close")
-            : t("tab next tab · ↑↓ select · enter install/remove · esc close")}
+            : t("tab next tab · ↑↓ select · enter install/enable/disable · esc close")}
       </text>
     </box>
   )
@@ -564,11 +564,12 @@ const haystack = Hub.all.reduce((map, entry) => {
 
 export type AiToolsAccess = {
   installed: () => readonly string[]
+  disabled?: () => readonly string[]
   set: (id: string, config: McpCatalog.Entry["config"] | null) => Promise<unknown>
 }
 
 // Catalog MCP servers the operator installs for the AI. Installing writes the server into the
-// global config, which connects it; every session is then told how to use it. Each row takes two
+// global config. Runtime readiness and operator OFF remain separate from installation. Each row takes two
 // lines so the description is read in full instead of being cut in the middle.
 function PluginTools(props: {
   plugins: RegistryPluginsAccess
@@ -757,10 +758,11 @@ function AiTools(props: {
   const [busy, setBusy] = createSignal<string>()
   const [cursor, setCursor] = createSignal(0)
   const [hovered, setHovered] = createSignal<number>()
-  // Optimistic until the server list catches up with the config change.
+  // Optimistic until the persisted config list catches up. OFF still means installed.
   const [local, setLocal] = createSignal<Record<string, boolean>>({})
   const entries = McpCatalog.forPlatform()
-  const isInstalled = (id: string) => local()[id] ?? props.tools.installed().includes(id)
+  const isInstalled = (id: string) => local()[id] !== undefined || props.tools.installed().includes(id)
+  const isDisabled = (id: string) => local()[id] !== undefined ? !local()[id] : props.tools.disabled?.().includes(id) === true
   const blocked = (entry: McpCatalog.Entry) => entry.runtime !== undefined && !props.present(entry.runtime)
   const runtimeTool = (entry: McpCatalog.Entry) => (entry.runtime === "uvx" ? "uv" : "npx")
   createEffect(() => props.onCount(`${entries.filter((entry) => isInstalled(entry.id)).length}/${entries.length}`))
@@ -768,8 +770,8 @@ function AiTools(props: {
     if (busy() !== undefined || props.pending !== undefined) return
     setBusy(entry.id)
     await props.tools
-      // Removing keeps the entry but disables it: acquisition never re-installs a disabled server, so what the
-      // operator removed stays removed. Installing writes the plain config back and clears that.
+      // Disable keeps installation and the operator OFF marker. Enable is an explicit operator action;
+      // neither reconnect failures nor opening this panel clear OFF.
       .set(entry.id, install ? entry.config : ({ ...entry.config, disabled: true } as typeof entry.config))
       .then(() => {
         setLocal((current) => ({ ...current, [entry.id]: install }))
@@ -782,7 +784,7 @@ function AiTools(props: {
             variant: "warning",
             duration: 12000,
           })
-        toast.show({ message: `${entry.name}: ${install ? t("installed") : t("removed")}`, variant: "success" })
+        toast.show({ message: `${entry.name}: ${install ? t("installed") : t("MCP disabled; installation kept")}`, variant: "success" })
       })
       .catch((error: unknown) =>
         toast.show({ message: error instanceof Error ? error.message : String(error), variant: "error" }),
@@ -791,7 +793,7 @@ function AiTools(props: {
   }
   const activate = (entry: McpCatalog.Entry | undefined) => {
     if (!entry) return
-    if (isInstalled(entry.id)) return void change(entry, false)
+    if (isInstalled(entry.id)) return void change(entry, isDisabled(entry.id))
     if (blocked(entry)) return props.onInstallRuntime(runtimeTool(entry))
     void change(entry, true)
   }
@@ -854,10 +856,10 @@ function AiTools(props: {
                 </Match>
                 <Match when={isInstalled(entry.id)}>
                   <text fg={theme.text.feedback.success.base} flexShrink={0}>
-                    {t("installed")}
+                    {t("installed")}{isDisabled(entry.id) ? " · OFF" : ""}
                   </text>
-                  <Button disabled={busy() !== undefined} onClick={() => void change(entry, false)}>
-                    {t("Remove")}
+                  <Button disabled={busy() !== undefined} onClick={() => void change(entry, isDisabled(entry.id))}>
+                    {t(isDisabled(entry.id) ? "Enable MCP" : "Disable MCP")}
                   </Button>
                 </Match>
                 <Match when={blocked(entry)}>

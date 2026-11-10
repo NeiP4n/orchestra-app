@@ -1,5 +1,10 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Install or toggle MCP": "Install or toggle MCP",
+  "tab next tab · ↑↓ select · enter install/enable/disable · esc close": "tab next tab · ↑↓ select · enter install/enable/disable · esc close",
+  "Enable MCP": "Enable MCP",
+  "Disable MCP": "Disable MCP",
+  "MCP disabled; installation kept": "MCP disabled; installation kept",
   esc: "esc",
   "Template storage is not writable. Check application data folder permissions.": "Template storage is not writable. Check application data folder permissions.",
   "A required template or project file is missing. Refresh and review again.": "A required template or project file is missing. Refresh and review again.",
@@ -115,6 +120,11 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Install or toggle MCP": "Установить или переключить MCP",
+  "tab next tab · ↑↓ select · enter install/enable/disable · esc close": "tab вкладка · ↑↓ выбор · enter установить/включить/выключить · esc закрыть",
+  "Enable MCP": "Включить MCP",
+  "Disable MCP": "Выключить MCP",
+  "MCP disabled; installation kept": "MCP выключен; установка сохранена",
   esc: "esc",
   "Template storage is not writable. Check application data folder permissions.": "Нет прав записи в хранилище шаблонов. Проверьте права папки данных приложения.",
   "A required template or project file is missing. Refresh and review again.": "Не найден нужный файл шаблона или проекта. Обновите и проверьте ещё раз.",
