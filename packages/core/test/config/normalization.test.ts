@@ -125,6 +125,15 @@ describe("ConfigNormalize", () => {
     expect(Duration.toMillis(info.warming.duration ?? Duration.zero)).toBe(1_800_000)
   })
 
+  test("preserves self-index paths and the operator docs toggle", () => {
+    for (const self_index of [{}, { paths: ["./operator-notes.md"], docs: false }, { docs: true }]) {
+      const result = normalized({ self_index })
+      expect(result.diagnostics).toEqual([])
+      expect(result.encoded.self_index).toEqual(self_index)
+      expect(decoded({ self_index }).self_index).toEqual(Schema.decodeUnknownSync(Info)({ self_index }).self_index)
+    }
+  })
+
   test("preserves arbitrary JSON-round-tripped native configuration", () => {
     FastCheck.assert(
       FastCheck.property(Schema.toArbitrary(Info)(FastCheck), (info) => {
