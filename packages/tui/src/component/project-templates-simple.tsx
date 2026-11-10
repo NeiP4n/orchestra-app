@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
+import type { ProjectTemplateLinkReview } from "@orchestra/core/project-template-link-review"
 import { templateErrorKey } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
@@ -6,6 +7,10 @@ import { useTheme } from "../context/theme"
 import { TextAttributes } from "@opentui/core"
 import { selectionBackground } from "../ui/hover"
 
+const linkReason: Record<ProjectTemplateLinkReview.Reason, string> = {
+  credentials: "Login or password in the link", query: "Query parameters may contain private data", fragment: "Fragment may contain private data",
+  local: "Local address belongs to the original machine", scheme: "Only public HTTP(S) links can be copied", secret: "Secret-like data in the link", invalid: "Invalid link",
+}
 export interface ProjectTemplatesKeys {
   move: (delta: number) => void
   activate: () => void
@@ -16,8 +21,8 @@ export interface ProjectTemplatesKeys {
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
   list: () => Promise<readonly { id: string; name: string }[]>
-  prepareSave: () => Promise<{ token: string; name: string; details: string }>
-  confirmSave: (token: string) => Promise<void>
+  prepareSave: () => Promise<{ token: string; name: string; details: string; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[] }>
+  confirmSave: (token: string, omitUnsafeLinks?: boolean) => Promise<void>
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string }>
   confirmCreate: (token: string) => Promise<void>
 }
@@ -41,8 +46,9 @@ export function ProjectTemplatesSimple(props: {
     token: string
     name: string
     details: string
+    omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]
   }>()
-  const run = async (action: () => Promise<void>) => {
+  const run = async (action: () => Promise<void>, kind?: "save" | "create") => {
     if (busy()) return
     setBusy(true)
     try {
@@ -50,7 +56,7 @@ export function ProjectTemplatesSimple(props: {
     } catch (error) {
       setReason(templateErrorKey(error))
       setPrepared()
-      setMessage("Could not finish. Nothing was replaced. Try again.")
+      setMessage(kind === "save" ? "Template was not saved." : kind === "create" ? "Could not finish. Nothing was replaced. Try again." : "Could not refresh the template list.")
     } finally {
       setBusy(false)
     }
@@ -72,7 +78,7 @@ export function ProjectTemplatesSimple(props: {
       const result = kind === "save" ? await props.access.prepareSave() : await props.access.prepareCreate(id!)
       setPrepared({ kind, ...result })
       setCursor("confirm")
-    })
+    }, kind)
   const confirm = () =>
     run(async () => {
       const current = prepared()
@@ -80,13 +86,13 @@ export function ProjectTemplatesSimple(props: {
       // Consume the pending operation before awaiting: double clicks cannot confirm the same token twice.
       setPrepared()
       try {
-        if (current.kind === "save") await props.access.confirmSave(current.token)
+        if (current.kind === "save") await props.access.confirmSave(current.token, !!current.omittedLinks?.length)
         else await props.access.confirmCreate(current.token)
       } catch (error) {
         setReason(templateErrorKey(error))
         // Keep this exact durable operation, never prepare a second project after partial commit.
         setPrepared(current)
-        setMessage("Could not finish. Confirm the same operation again to continue without creating a second copy.")
+        setMessage(current.kind === "save" ? "Template was not saved. Retry the same save." : "Could not finish. Confirm the same operation again to continue without creating a second copy.")
         return
       }
       setMessage(
@@ -190,13 +196,19 @@ export function ProjectTemplatesSimple(props: {
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
+            <Show when={current().omittedLinks?.length}>
+              <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.")}</text>
+            </Show>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? tr("Save") : tr("Create")} />
+              <Action id="confirm" label={current().kind === "save" ? (current().omittedLinks?.length ? tr("Save without blocked links") : tr("Save")) : tr("Create")} />
               <Action id="cancel" label={tr("Cancel")} />
               <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>
             <Show when={details()}>
-              <text fg={theme.text.muted} wrapMode="word">{current().details}</text>
+              <box flexDirection="column">
+                <For each={current().omittedLinks}>{(issue) => <text fg={theme.text.muted} wrapMode="word">{tr("Browser {browser}, saved link {link}: {reason}", { browser: issue.browser, link: issue.link, reason: tr(linkReason[issue.reason]) })}</text>}</For>
+                <text fg={theme.text.muted} wrapMode="word">{current().details}</text>
+              </box>
             </Show>
           </box>
         )}

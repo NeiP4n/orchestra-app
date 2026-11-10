@@ -14643,7 +14643,18 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
   }["browsers"]
 }
 
-export type OrchestraProjectTemplatePrepareSaveOutput = { token: string; name: string; details: string }
+export type OrchestraProjectTemplatePrepareSaveOutput = {
+  token: string
+  name: string
+  details: string
+  omittedLinks?:
+    | Array<{
+        browser: number
+        link: number
+        reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
 
 export type OrchestraProjectTemplateConfirmSaveInput = {
   readonly token: {
@@ -14654,6 +14665,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
       readonly chat?: string | undefined
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
+    readonly omitUnsafeLinks?: boolean | undefined
   }["token"]
   readonly browsers: {
     readonly token: string
@@ -14663,7 +14675,18 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
       readonly chat?: string | undefined
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
+    readonly omitUnsafeLinks?: boolean | undefined
   }["browsers"]
+  readonly omitUnsafeLinks?: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+  }["omitUnsafeLinks"]
 }
 
 export type OrchestraProjectTemplateConfirmSaveOutput = void
@@ -14673,7 +14696,18 @@ export type OrchestraProjectTemplatePrepareCreateInput = {
   readonly settingsDirectory: { readonly templateID: string; readonly settingsDirectory: string }["settingsDirectory"]
 }
 
-export type OrchestraProjectTemplatePrepareCreateOutput = { token: string; name: string; details: string }
+export type OrchestraProjectTemplatePrepareCreateOutput = {
+  token: string
+  name: string
+  details: string
+  omittedLinks?:
+    | Array<{
+        browser: number
+        link: number
+        reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
 
 export type OrchestraProjectTemplateConfirmCreateInput = { readonly token: { readonly token: string }["token"] }
 

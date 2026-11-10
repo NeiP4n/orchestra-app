@@ -1,5 +1,19 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Template was not saved.": "Template was not saved.",
+  "Template was not saved. Retry the same save.": "Template was not saved. Retry the same save.",
+  "Could not refresh the template list.": "Could not refresh the template list.",
+  "Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.": "Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.",
+  "Save without blocked links": "Save without blocked links",
+  "Browser {browser}, saved link {link}: {reason}": "Browser {browser}, saved link {link}: {reason}",
+  "Login or password in the link": "Login or password in the link",
+  "Query parameters may contain private data": "Query parameters may contain private data",
+  "Fragment may contain private data": "Fragment may contain private data",
+  "Local address belongs to the original machine": "Local address belongs to the original machine",
+  "Only public HTTP(S) links can be copied": "Only public HTTP(S) links can be copied",
+  "Secret-like data in the link": "Secret-like data in the link",
+  "Invalid link": "Invalid link",
+
   "Install or toggle MCP": "Install or toggle MCP",
   "tab next tab · ↑↓ select · enter install/enable/disable · esc close": "tab next tab · ↑↓ select · enter install/enable/disable · esc close",
   "Enable MCP": "Enable MCP",
@@ -120,6 +134,20 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Template was not saved.": "Шаблон не сохранён.",
+  "Template was not saved. Retry the same save.": "Шаблон не сохранён. Повторите это сохранение.",
+  "Could not refresh the template list.": "Не удалось обновить список шаблонов.",
+  "Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.": "Некоторые сохранённые ссылки нельзя безопасно перенести. Сохраните без них или отмените. Исходные ссылки останутся в этом проекте.",
+  "Save without blocked links": "Сохранить без этих ссылок",
+  "Browser {browser}, saved link {link}: {reason}": "Браузер {browser}, сохранённая ссылка {link}: {reason}",
+  "Login or password in the link": "В ссылке есть логин или пароль",
+  "Query parameters may contain private data": "Параметры после ? могут содержать личные данные",
+  "Fragment may contain private data": "Часть после # может содержать личные данные",
+  "Local address belongs to the original machine": "Локальный адрес привязан к исходному компьютеру",
+  "Only public HTTP(S) links can be copied": "Переносятся только публичные HTTP(S)-ссылки",
+  "Secret-like data in the link": "В ссылке есть данные, похожие на секрет",
+  "Invalid link": "Некорректная ссылка",
+
   "Install or toggle MCP": "Установить или переключить MCP",
   "tab next tab · ↑↓ select · enter install/enable/disable · esc close": "tab вкладка · ↑↓ выбор · enter установить/включить/выключить · esc закрыть",
   "Enable MCP": "Включить MCP",

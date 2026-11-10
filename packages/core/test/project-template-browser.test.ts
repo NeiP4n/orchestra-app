@@ -84,3 +84,24 @@ test("unopened sessions stay unopened with no links, and linked profile director
     await symlink(root, directory)
     await expect(ProjectTemplateBrowser.capture(root, "prj_a", [definition])).rejects.toThrow()
   }))
+
+test("link review is explicit, numbered, redacted, deterministic and preserves every safe link", () => fixture(async (root, directory) => {
+  const tabs = ["https://example.com/safe", "https://example.com/search?q=PRIVATE_CANARY", "http://localhost:3000/", "file:///PRIVATE_CANARY", "https://example.com/#PRIVATE_CANARY", "https://user:PRIVATE_CANARY@example.com/", "not a URL"]
+  await writeFile(path.join(directory, "brw_a.tabs.json"), JSON.stringify(tabs))
+  const review: ProjectTemplateBrowser.Review = { issues: [], fingerprint: "" }
+  const rows = await ProjectTemplateBrowser.capture(root, "prj_a", [definition], review)
+  expect(rows[0].savedLinks).toEqual([tabs[0]])
+  expect(review.issues.map((row) => row.reason)).toEqual(["query", "local", "scheme", "fragment", "credentials", "invalid"])
+  expect(review.issues.map((row) => row.link)).toEqual([2, 3, 4, 5, 6, 7])
+  expect(JSON.stringify(review)).not.toContain("PRIVATE_CANARY")
+  const original = review.fingerprint
+  await ProjectTemplateBrowser.capture(root, "prj_a", [definition], review)
+  expect(review.fingerprint).toBe(original)
+  await expect(ProjectTemplateBrowser.capture(root, "prj_other", [definition], review)).rejects.toThrow("ownership")
+  expect(JSON.parse(await (await import("node:fs/promises")).readFile(path.join(directory, "brw_a.tabs.json"), "utf8"))).toEqual(tabs)
+}))
+
+for (const value of ["http://127.0.0.1/", "http://10.0.0.2/", "http://192.168.1.1/", "http://172.16.0.1/", "http://169.254.169.254/", "http://[::1]/", "http://[fd00::1]/", "http://printer.local/", "about:blank", "data:text/plain,private"]) test("nonportable machine or browser URL is excluded, never made public", async () => {
+  const { reason } = await import("../src/project-template-link-review")
+  expect(reason(value)).toBeDefined()
+})
