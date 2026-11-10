@@ -10,6 +10,8 @@ import { FSUtil } from "@orchestra/util/fs-util"
 import { Context, Effect, Option } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
+import { Agent } from "../agent.js"
+import { ProcessSkills } from "../process-skills.js"
 import { Autoloop } from "../autoloop/service.js"
 import { Dod } from "../dod.js"
 import { Image } from "../image.js"
@@ -77,12 +79,15 @@ export const prepare = Effect.fn("SessionPrompt.prepare")(function* (request: {
     const selected = yield* Effect.gen(function* () {
       if (!requested?.length) return undefined
       const skillService = yield* Skill.Service
+      const agent = requested.some((skill) => ProcessSkills.reserved(skill.id))
+        ? (yield* Agent.Service.use((agents) => agents.select(request.session.agent))).id
+        : (request.session.agent ?? "")
       const prepared = new Map<Skill.ID, Skill.Name>()
       return yield* Effect.forEach(requested, (attachment) =>
         Effect.gen(function* () {
           const name = prepared.get(attachment.id)
           if (name !== undefined) return { id: attachment.id, name, mention: attachment.mention }
-          const skill = yield* skillService.get(attachment.id, { sessionID: request.session.id, agent: request.session.agent ?? "" })
+          const skill = yield* skillService.get(attachment.id, { sessionID: request.session.id, agent })
           if (!skill) return yield* new SkillNotFoundError({ skill: attachment.id })
           prepared.set(skill.id, skill.name)
           return {

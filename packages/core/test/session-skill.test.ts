@@ -24,6 +24,7 @@ import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionStore } from "@orchestra/core/session/store"
 import { SessionInbox } from "@orchestra/core/session/inbox"
+import { Agent } from "@orchestra/core/agent"
 import { KV } from "@orchestra/core/kv"
 import { ProcessSkills } from "@orchestra/core/process-skills"
 import { Skill } from "@orchestra/core/skill"
@@ -66,7 +67,14 @@ const locations = makeGlobalNode({
             ).pipe(
               Layer.provideMerge(
                 LayerNode.compile(
-                  LayerNode.group([PluginHooks.node, Image.node, Skill.node, Config.node, ManagedPolicy.node]),
+                  LayerNode.group([
+                    PluginHooks.node,
+                    Image.node,
+                    Skill.node,
+                    Agent.node,
+                    Config.node,
+                    ManagedPolicy.node,
+                  ]),
                   {
                     replacements: [
                       Config.node.replace(Config.testLayer()),
@@ -112,6 +120,12 @@ describe("Session.skill", () => {
       const kv = yield* KV.Service
       const session = yield* sessions.create({ location })
       const projectID = "prj_session_skills"
+      const locationServices = yield* LocationServiceMap.Service
+      const agents = yield* Agent.Service.pipe(Effect.provide(locationServices.get(session.location)))
+      yield* agents.transform((editor) => {
+        editor.update(Agent.ID.make("process-default"), () => {})
+        editor.default(Agent.ID.make("process-default"))
+      })
       yield* kv.set("orchestra/project/" + projectID, {
         id: projectID,
         name: "Process",
@@ -122,7 +136,7 @@ describe("Session.skill", () => {
       yield* ProcessSkills.install(kv, {
         version: 1,
         projectID,
-        skills: [{ id: localID, dependencies: [], targets: [{ kind: "project" }] }],
+        skills: [{ id: localID, dependencies: [], targets: [{ kind: "role", role: "process-default" }] }],
       })
       yield* sessions.skill({ sessionID: session.id, skill: localID, resume: false })
       yield* sessions.prompt({ sessionID: session.id, text: "local", skills: [{ id: localID }], resume: false })
