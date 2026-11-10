@@ -29,10 +29,14 @@ for (const theme of ["light", "dark"]) {
       await expect(base.locator("text")).toHaveText("ORCHESTRA")
       await expect(base.locator("text")).toHaveAttribute("fill", "currentColor")
       await expect(base.locator("text")).toHaveAttribute("direction", "ltr")
+
       const fits = await base.locator("text").evaluate((element) => {
-        const bounds = (element as SVGGraphicsElement).getBBox()
+        if (!(element instanceof SVGGraphicsElement)) throw new Error("Expected SVG wordmark text")
+        const bounds = element.getBBox()
+
         return bounds.x >= 0 && bounds.x + bounds.width <= 720
       })
+
       expect(fits).toBe(true)
 
       await logo.evaluate((element) => {
