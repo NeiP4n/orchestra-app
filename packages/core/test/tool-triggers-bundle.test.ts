@@ -45,6 +45,12 @@ function harness(directory: string, triggered = false) {
     ),
     Session.node.replace(
       Layer.mock(Session.Service, {
+        // Nested service objects are required by Layer.mock; fail if this read-only fixture ever reverts a chat.
+        revert: {
+          stage: () => Effect.die(new Error("Unexpected session revert in trigger bundle test")),
+          clear: () => Effect.die(new Error("Unexpected session revert in trigger bundle test")),
+          commit: () => Effect.die(new Error("Unexpected session revert in trigger bundle test")),
+        },
         messages: () =>
           Effect.succeed(
             triggered
@@ -94,7 +100,7 @@ describe("TriggersTool portable templates", () => {
         const loaded = yield* run(tools, { action: "load", templateName: "daily" })
         expect(loaded.status).toBe("completed")
         expect(text(loaded)).toContain("No trigger was registered or enabled")
-        expect(yield* kv.get(Trigger.key("prj_selected", "trg_own"))).toEqual(original)
+        expect(Trigger.parse(yield* kv.get(Trigger.key("prj_selected", "trg_own")))).toEqual(original)
         expect((yield* kv.scan({ prefix: Trigger.PREFIX })).entries).toHaveLength(2)
         expect((yield* run(tools, { action: "load", templateName: "../daily" })).status).toBe("error")
         expect((yield* run(tools, { action: "load", templateName: "daily" }, worker)).status).toBe("error")

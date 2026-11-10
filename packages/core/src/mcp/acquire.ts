@@ -215,7 +215,7 @@ export const ensure: (access: Access, id: string) => Effect.Effect<Ensured> = Ef
         ...before,
         state: "failed" as const,
         action: "none" as const,
-        detail: `${entry.name} drives the operator's real screen and is blocked: ${denial}`,
+        detail: `${entry?.name ?? id} drives the operator's real screen and is blocked: ${denial}`,
       }
   }
 
