@@ -1,8 +1,10 @@
 export * as ProjectTemplateLiveStores from "./project-template-live-stores.js"
 
+import { unlinkedPath } from "./project-template-path.js"
+
 import { isDeepStrictEqual } from "node:util"
 import { constants } from "node:fs"
-import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, open, readdir } from "node:fs/promises"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 import { Effect, Schema } from "effect"
@@ -62,7 +64,7 @@ export interface Dependencies {
 }
 async function realDirectory(directory: string) {
   const stat = await lstat(directory)
-  if (!stat.isDirectory() || stat.isSymbolicLink() || (await realpath(directory)) !== path.resolve(directory))
+  if (!stat.isDirectory() || stat.isSymbolicLink() || !(await unlinkedPath(directory)))
     throw Error("Import directory cannot use links.")
 }
 async function ownedDirectory(receipt: Materialize.Receipt, root: string) {
@@ -143,7 +145,7 @@ export function make(deps: Dependencies) {
   }
   const sessionExpected = (r: Materialize.Receipt, s: Materialize.Plan["sessions"][number]) => ({
     title: s.title,
-    agent: s.role,
+    agent: s.role ?? undefined,
     location: { directory: r.directory },
     permissions: [],
     model: ProjectTemplateImport.sessionModelRef(s.model),
@@ -232,7 +234,7 @@ export function make(deps: Dependencies) {
         deps.sessions.create({
           id,
           title: s.title,
-          agent: Agent.ID.make(s.role),
+          agent: s.role === null ? undefined : Agent.ID.make(s.role),
           location: { directory: AbsolutePath.make(r.directory) },
           permissions: [],
           metadata: {

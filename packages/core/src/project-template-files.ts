@@ -1,5 +1,7 @@
 export * as ProjectTemplateFiles from "./project-template-files.js"
 
+import { unlinkedPath } from "./project-template-path.js"
+
 import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, realpath, rm, rename } from "node:fs/promises"
 import path from "node:path"
@@ -12,14 +14,14 @@ function leaf(name: string) { if (!/^[a-z][a-z0-9_-]{0,59}$/.test(name)) throw E
 async function root(directory: string) {
   if (!path.isAbsolute(directory)) throw Error("Select an absolute destination folder.")
   const actual = await realpath(directory), info = await lstat(directory)
-  if (!info.isDirectory() || info.isSymbolicLink() || path.resolve(directory) !== actual) throw Error("Template folders must not use symbolic links.")
+  if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(directory))) throw Error("Template folders must not use symbolic links.")
   return actual
 }
 async function child(parent: string, name: string) {
   const target = path.join(parent, name)
   try { await mkdir(target, { mode: 0o700 }) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
   const info = await lstat(target)
-  if (!info.isDirectory() || info.isSymbolicLink() || await realpath(target) !== target) throw Error("Template folders must not use symbolic links.")
+  if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(target))) throw Error("Template folders must not use symbolic links.")
   return target
 }
 
@@ -42,7 +44,7 @@ export async function loadWithCodec<T extends { text: string; digest: string }>(
     if (result.bytesRead > codec.MAX_BYTES) throw Error("Template exceeds the size limit.")
     const preview = codec.preview(buffer.subarray(0, result.bytesRead).toString('utf8'))
     if (!preview.ok) throw Error(preview.error)
-    if (await realpath(source) !== source || (await readdir(source)).length !== 1) throw Error("Template folder changed during review.")
+    if (!(await unlinkedPath(source)) || (await readdir(source)).length !== 1) throw Error("Template folder changed during review.")
     return preview.value
   } finally { await handle.close() }
 }
@@ -89,7 +91,7 @@ export async function replaceWithCodec<T extends { text: string; digest: string 
       try { await handle.writeFile(next.value.text, "utf8"); await handle.sync() } finally { await handle.close() }
       // Do not replace a file/folder that moved or changed while new bytes were written.
       const latest = await loadWithCodec(destination, codec), current = await lstat(target)
-      if (latest.digest !== previousDigest || current.ino !== before.ino || current.dev !== before.dev || current.isSymbolicLink() || await realpath(destination) !== destination)
+      if (latest.digest !== previousDigest || current.ino !== before.ino || current.dev !== before.dev || current.isSymbolicLink() || !(await unlinkedPath(destination)))
         throw Error("Template changed after preview. Review it again.")
       await rename(temporary, target)
       created = false

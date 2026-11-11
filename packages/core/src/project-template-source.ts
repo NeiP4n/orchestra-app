@@ -29,9 +29,9 @@ export function capture(source: Source, metadata: { name: string; description: s
     if (!source.project.id || !source.project.name) throw Error()
     const sessions = new Map<string, string>(), browsers = new Map<string, string>()
     const sessionRows = source.sessions.map((row, index) => {
-      if (!source.ownedSessionIDs.has(row.id) || sessions.has(row.id) || !row.agent || !row.title) throw Error()
+      if (!source.ownedSessionIDs.has(row.id) || sessions.has(row.id) || !row.title) throw Error()
       const slot = `session_${index + 1}`; sessions.set(row.id, slot)
-      return { slot, title: row.title, role: row.agent, model: row.model ? { provider: row.model.providerID, id: row.model.modelID, variant: row.model.variant ?? null } : null }
+      return { slot, title: row.title, role: row.agent ?? null, model: row.model ? { provider: row.model.providerID, id: row.model.modelID, variant: row.model.variant ?? null } : null }
     })
     // An absent session is not silently hidden. Ownership and reader output must match exactly.
     if (sessions.size !== source.ownedSessionIDs.size) throw Error()

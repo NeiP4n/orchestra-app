@@ -62,3 +62,15 @@ test("destination collisions, ambiguous state and changed review fail closed", (
   expect(() => Plan.prepare(text, { ...d, reviewedDigest: "changed" })).toThrow("changed after review")
   expect(() => Plan.prepare(text, { ...d, installedVersion: "0.9.0" })).toThrow()
 })
+
+test("auto session role survives codec and local remap without a fabricated role definition", () => {
+  const { b, d } = setup()
+  b.sessions.push({ slot: "auto", title: "Приветствие auto", role: null, model: null })
+  b.process.sessionModels.push({ session: "auto", models: [] })
+  const preview = V2.preview(JSON.stringify(b))
+  if (!preview.ok) throw Error(preview.error)
+  const plan = Plan.prepare(preview.value.text, { ...d, reviewedDigest: preview.value.digest })
+  expect(plan.remapped.sessions.find(row => row.slot === "auto")?.role).toBeNull()
+  expect(plan.roles.map(row => row.source)).toEqual(b.process.roles.map(row => row.agent))
+  expect(plan.permissionsGranted).toBe(false)
+})

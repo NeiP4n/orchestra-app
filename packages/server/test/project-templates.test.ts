@@ -62,6 +62,12 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
           JSON.stringify({ tabs: [{ url: "https://example.com/inbox", title: "PRIVATE_PAGE_CANARY" }] }),
         )
       })
+      const ordinary = (yield* call("/api/session", "POST", {
+        title: "Приветствие auto",
+        location: { directory: source },
+      })).body.data
+      expect(ordinary.agent).toBeUndefined()
+      expect((yield* call("/api/orchestra/rules/" + encodeURIComponent("orchestrator:" + project.id), "POST", { text: "Report failures and preserve the process." })).status).toBe(200)
       const browsers = [{ id: "brw_source", name: "Inbox", chat: browserAgent.id, mode: "window" }]
       const prepared = yield* call("/api/orchestra/project-template/prepare-save", "POST", {
         projectID: project.id,
@@ -69,6 +75,9 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       })
       expect(prepared.status).toBe(200)
       expect(prepared.body.triggerReview).toEqual([])
+      const captured = JSON.parse(prepared.body.details)
+      expect(captured.sessions.find((row: { title: string }) => row.title === "Приветствие auto").role).toBeNull()
+      expect(captured.rules).toContainEqual({ scope: "orchestrator", session: null, text: "Report failures and preserve the process." })
       expect(prepared.body.details).not.toContain(project.id)
       expect(prepared.body.details).not.toContain(source)
       expect(prepared.body.details).not.toContain("PRIVATE_PAGE_CANARY")
@@ -133,7 +142,26 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect((yield* call("/api/orchestra/project-template/" + created.body.projectID + "/browsers")).body).toEqual(
         created.body.browsers,
       )
+      const restoredSessions = (yield* call("/api/session?limit=100")).body.data
+      const restoredAuto = restoredSessions.find((row: { id: string; title: string }) => row.id !== ordinary.id && row.title === "Приветствие auto")
+      expect(restoredAuto).toBeDefined()
+      expect(restoredAuto.agent).toBeUndefined()
+      expect(restoredAuto.permissions).toEqual([])
+      expect(restoredAuto.tokens.input).toBe(0)
+      const restoredBrowser = (yield* call("/api/session/" + created.body.browsers.browsers[0].chat)).body.data
+      expect(restoredBrowser.agent).toBe("team-browser-agent")
+      const restoredRules = (yield* call("/api/orchestra/rules/" + encodeURIComponent("orchestrator:" + created.body.projectID))).body
+      expect(restoredRules.map((rule: { text: string }) => rule.text)).toContain("Report failures and preserve the process.")
+      const recaptured = yield* call("/api/orchestra/project-template/prepare-save", "POST", {
+        projectID: created.body.projectID,
+        browsers: created.body.browsers.browsers,
+      })
+      expect(recaptured.status).toBe(200)
+      const restored = JSON.parse(recaptured.body.details)
+      expect(restored.sessions.find((row: { title: string }) => row.title === "Приветствие auto").role).toBeNull()
+      expect(restored.rules).toContainEqual({ scope: "orchestrator", session: null, text: "Report failures and preserve the process." })
       const main = (yield* call("/api/session/" + created.body.mainSessionID)).body.data
+      expect(main.agent).toBe("orchestrator")
       expect(main.permissions).toEqual([])
       expect(main.tokens.input).toBe(0)
       const stale = yield* call("/api/orchestra/project-template/prepare-save", "POST", {

@@ -60,7 +60,7 @@ export function prepare(serialized: string, destination: Destination) {
   ]
   if (new Set(identities).size !== identities.length) throw Error("Destination identities must be unique.")
   const sessions = bundle.sessions.map((row) => {
-    if (!destination.availableRoles.has(row.role)) throw Error("A required role is unavailable in the destination.")
+    if (row.role !== null && !destination.availableRoles.has(row.role)) throw Error("A required role is unavailable in the destination.")
     const model = row.model
       ? `${row.model.provider}/${row.model.id}${row.model.variant ? "#" + row.model.variant : ""}`
       : null

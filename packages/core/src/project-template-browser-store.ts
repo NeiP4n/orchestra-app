@@ -1,7 +1,9 @@
 export * as ProjectTemplateBrowserStore from "./project-template-browser-store.js"
 
+import { unlinkedPath } from "./project-template-path.js"
+
 import { constants } from "node:fs"
-import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, open, readdir } from "node:fs/promises"
 import path from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import { Effect } from "effect"
@@ -22,12 +24,12 @@ const absent = async (file: string) => {
 async function folder(root: string) {
   if (!path.isAbsolute(root)) throw Error("Browser configuration root must be absolute.")
   const stat = await lstat(root)
-  if (!stat.isDirectory() || stat.isSymbolicLink() || (await realpath(root)) !== path.resolve(root))
+  if (!stat.isDirectory() || stat.isSymbolicLink() || !(await unlinkedPath(root)))
     throw Error("Browser configuration root cannot use links.")
   const directory = path.join(root, "browser-profiles")
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const info = await lstat(directory)
-  if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(directory)) !== directory)
+  if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(directory)))
     throw Error("Browser configuration store cannot use links.")
   return directory
 }

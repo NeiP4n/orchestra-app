@@ -1,7 +1,9 @@
 export * as ProjectTemplateV2Source from "./project-template-v2-source.js"
 
+import { unlinkedPath } from "./project-template-path.js"
+
 import { constants } from "node:fs"
-import { lstat, open, realpath } from "node:fs/promises"
+import { lstat, open } from "node:fs/promises"
 import path from "node:path"
 import { ProjectTemplateSource as V1Source } from "./project-template-source.js"
 import { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
@@ -23,7 +25,7 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
     const base = V1Source.capture(source, metadata)
     if (!base.ok) throw Error()
     const sessions = new Map(source.sessions.map((s, i) => [s.id, `session_${i + 1}`]))
-    const roleIDs = new Set([...source.sessions.map((s) => s.agent!), ...source.rules.filter((r) => r.scope === "role").map((r) => r.role!), ...process.recommendedRoles, ...process.skillAssignments.flatMap((a) => a.target.kind === "role" ? [a.target.role] : [])])
+    const roleIDs = new Set([...source.sessions.flatMap((s) => s.agent === undefined ? [] : [s.agent]), ...source.rules.filter((r) => r.scope === "role").map((r) => r.role!), ...process.recommendedRoles, ...process.skillAssignments.flatMap((a) => a.target.kind === "role" ? [a.target.role] : [])])
     const roles = new Map(process.roles.map((r) => [r.agent, r]))
     const skills = new Map(process.skills.map((s) => [s.id, s]))
     if (roles.size !== process.roles.length || skills.size !== process.skills.length || [...roleIDs].some((id) => !roles.has(id))) throw Error()
@@ -56,7 +58,7 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
   try {
     if (!path.isAbsolute(root) || paths.length === 0 || paths.length > V2.MAX_FILES || new Set(paths.map((s) => s.toLowerCase())).size !== paths.length) throw Error()
     const base = path.resolve(root), info = await lstat(base)
-    if (!info.isDirectory() || info.isSymbolicLink() || await realpath(base) !== base) throw Error()
+    if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(base))) throw Error()
     const output: V2.Skill["files"] = []
     let bytes = 0
     for (const relative of paths) {
@@ -64,7 +66,7 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
       const parts = relative.split("/")
       for (let i = 1; i < parts.length; i++) {
         const parent = path.join(base, ...parts.slice(0, i)), stat = await lstat(parent)
-        if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(parent) !== parent) throw Error()
+        if (!stat.isDirectory() || stat.isSymbolicLink() || !(await unlinkedPath(parent))) throw Error()
       }
       const file = path.join(base, relative)
       // Open first, then validate the exact descriptor. A prior path check cannot protect an open.
@@ -73,7 +75,7 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
         const before = await handle.stat()
         if (!before.isFile() || before.nlink !== 1 || before.size > 65536) throw Error()
         const named = await lstat(file)
-        if (named.dev !== before.dev || named.ino !== before.ino || named.isSymbolicLink() || await realpath(file) !== file) throw Error()
+        if (named.dev !== before.dev || named.ino !== before.ino || named.isSymbolicLink() || !(await unlinkedPath(file))) throw Error()
         const buffer = Buffer.alloc(65537)
         let length = 0
         while (length < buffer.length) {
@@ -83,7 +85,7 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
         }
         const after = await handle.stat(), current = await lstat(file)
         bytes += length
-        if (bytes > V2.MAX_BYTES || length > 65536 || length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || await realpath(file) !== file) throw Error()
+        if (bytes > V2.MAX_BYTES || length > 65536 || length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || current.dev !== before.dev || current.ino !== before.ino || current.isSymbolicLink() || !(await unlinkedPath(file))) throw Error()
         const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length))
         if (content.includes("\0")) throw Error()
         output.push({ path: relative, content, sha256: V2.hash(content) })

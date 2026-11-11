@@ -52,7 +52,7 @@ export function prepare(serialized: string, destination: Destination) {
     digest: preview.value.digest, projectID: destination.projectID,
     roles, skills,
     remapped: {
-      sessions: bundle.sessions.map((s) => ({ ...s, role: role(s.role) })),
+      sessions: bundle.sessions.map((s) => ({ ...s, role: s.role === null ? null : role(s.role) })),
       rules: bundle.rules.map((r) => r.scope === "role" ? { ...r, role: role(r.role!) } : r),
       recommendedRoles: bundle.process.recommendedRoles.map(role),
       skillAssignments: bundle.process.skillAssignments.map((r) => ({ target: r.target.kind === "role" ? { kind: "role" as const, role: role(r.target.role) } : r.target, skills: r.skills.map(skill) })),
