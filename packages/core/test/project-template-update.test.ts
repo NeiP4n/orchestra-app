@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
-import { mkdtemp, rm } from "node:fs/promises"
+import { realpath, mkdtemp, rm } from "node:fs/promises"
 import path from "node:path"
 import { tmpdir } from "node:os"
 import { ProjectTemplateOperator } from "../src/project-template-operator"
 import { ProjectTemplateLibrary } from "../src/project-template-library"
 
 test("v1 update binds old and new digests, rechecks source, keeps ID and is idempotent", async () => {
- const data=await mkdtemp(path.join(tmpdir(),"template-update-v1-"))
+ const data=await realpath(await mkdtemp(path.join(tmpdir(),"template-update-v1-")))
  try {
   let name="Factory"
   const values=new Map<string,any>([["orchestra/owner/ses_main","prj_a"]])
