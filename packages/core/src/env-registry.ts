@@ -383,7 +383,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_GATEWAY_UPSTREAM_URL: {
     purpose: "Upstream chat-completions URL for the gateway.",
-    default: "\"https://opencode.ai/zen/v1/chat/completions\"",
+    default: "\"https://ai-gateway.kilo.ai/api/v1/chat/completions\"",
     readIn: "injected-env",
     setBy: "`orchestra gateway`",
   },

@@ -124,6 +124,22 @@ const richSnapshot = (name = "Acme") => {
 }
 
 describe("ModelsDevPlugin", () => {
+  isolated.effect("anonymous Kilo survives real integration/provider/model activation without credentials", () =>
+    Effect.gen(function* () {
+      const data = ModelsDev.normalize({})
+      const current = yield* owner
+      const source = ModelsDev.Service.of({ get: () => Effect.succeed(data), refresh: () => Effect.void })
+      yield* ModelsDevPlugin.effect(current.host).pipe(
+        Effect.provideService(ModelsDev.Service, source),
+        Effect.provideContext(current.context),
+      )
+      expect((yield* current.integration.list()).flatMap((item) => item.connections)).toEqual([])
+      expect((yield* current.providers.available()).map((item) => item.id)).toContain(Provider.ID.make("kilo-free"))
+      expect(yield* current.models.default()).toMatchObject({ providerID: "kilo-free", id: "kilo-auto/free" })
+      expect((yield* current.models.available()).some((item) => item.providerID === "kilo-free")).toBe(true)
+    }),
+  )
+
   isolated.effect("shares definitions between Locations while provider and model edits own their copies", () =>
     Effect.gen(function* () {
       const { providerID, modelID, snapshot } = richSnapshot()

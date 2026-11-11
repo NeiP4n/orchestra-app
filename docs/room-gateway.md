@@ -17,21 +17,16 @@ From the repository root with the OpenCode++ CLI available:
 ~~~bash
 # Linux / macOS: generate a gateway secret and keep it private.
 export ORCHESTRA_GATEWAY_TOKEN="$(openssl rand -hex 32)"
-export ORCHESTRA_GATEWAY_UPSTREAM_KEY="your-opencode-zen-api-key"
-export ORCHESTRA_GATEWAY_MODEL="glm-4.7-free"
-# Optional comma-separated model allowlist used only as failover targets.
-export ORCHESTRA_GATEWAY_FALLBACK_MODELS="minimax-m2.1-free,kimi-k2.5-free,qwen-2.5-72b-free,llama-3.3-70b-free"
-
-opencode gateway --model glm-4.7-free \
-  --fallback-model minimax-m2.1-free \
-  --fallback-model kimi-k2.5-free \
-  --fallback-model qwen-2.5-72b-free \
-  --fallback-model llama-3.3-70b-free
+export ORCHESTRA_GATEWAY_UPSTREAM_KEY="your-gateway-api-key"
+export ORCHESTRA_GATEWAY_MODEL="kilo-auto/free"
+# Optional fallback IDs must belong to the configured gateway.
+# Local servers can be selected with ORCHESTRA_GATEWAY_UPSTREAM_URL.
+orchestra gateway --model kilo-auto/free
 ~~~
 
 Defaults:
 - bind: 127.0.0.1:8789
-- upstream: https://opencode.ai/zen/v1/chat/completions
+- upstream: https://ai-gateway.kilo.ai/api/v1/chat/completions
 - request timeout: 120 seconds
 
 Configuration:
@@ -43,7 +38,7 @@ Configuration:
 | ORCHESTRA_GATEWAY_TOKEN | Required secret of at least 32 characters for standalone-token mode; omit it for room-token mode. |
 | ORCHESTRA_GATEWAY_UPSTREAM_URL | OpenAI-compatible Chat Completions URL. |
 | ORCHESTRA_GATEWAY_UPSTREAM_KEY | Required upstream key; never sent to clients. |
-| ORCHESTRA_GATEWAY_MODEL | Primary upstream model, default glm-4.7-free. |
+| ORCHESTRA_GATEWAY_MODEL | Primary upstream model, default kilo-auto/free. |
 | ORCHESTRA_GATEWAY_FALLBACK_MODELS | Optional comma-separated fallback model IDs. |
 | ORCHESTRA_GATEWAY_TIMEOUT_MS | Upstream timeout from 1,000 to 600,000 ms. |
 | ORCHESTRA_GATEWAY_ROOM_API_URL | Local OpenCode API base URL for room-token mode, e.g. http://127.0.0.1:4096. |
@@ -60,8 +55,8 @@ To make the gateway follow the actual room roster and roles instead of sharing a
 unset ORCHESTRA_GATEWAY_TOKEN
 export ORCHESTRA_GATEWAY_ROOM_API_URL="http://127.0.0.1:4096"
 export ORCHESTRA_GATEWAY_ROOM_ID="room_your_room_id"
-export ORCHESTRA_GATEWAY_UPSTREAM_KEY="your-opencode-zen-api-key"
-opencode gateway --host 0.0.0.0 --model glm-4.7-free
+export ORCHESTRA_GATEWAY_UPSTREAM_KEY="your-gateway-api-key"
+orchestra gateway --host 0.0.0.0 --model kilo-auto/free
 ~~~
 
 In this mode, configure clients with their own active **guest token for that room** as the Anthropic API key. Requests are validated against the room server on every call: `member`, `helper`, `cohost`, and `trusted` roles can use the gateway; `viewer` is refused. Removing a guest or changing them to viewer blocks subsequent requests. Room-token mode and standalone gateway-token mode are mutually exclusive.
@@ -71,7 +66,7 @@ In this mode, configure clients with their own active **guest token for that roo
 Start it on the host machine with:
 
 ~~~bash
-opencode gateway --host 0.0.0.0 --model glm-4.7-free
+orchestra gateway --host 0.0.0.0 --model kilo-auto/free
 ~~~
 
 Configure a client with:

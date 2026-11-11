@@ -206,7 +206,12 @@ const layer = Layer.effect(
           if (selected) return selected
         }
         // `available` is ordered newest release first, so this is the newest model that can answer text.
-        const textModels = value.available.filter((model) => supportsText(model))
+        // Console/Go remain available when selected explicitly, never as an implicit product default.
+        const textModels = value.available.filter((model) => supportsText(model) && model.providerID !== "opencode")
+        // A fresh install uses the public free route, never an upstream vendor
+        // selected just because its catalog release date sorts first.
+        const anonymous = textModels.find((model) => model.providerID === "kilo-free" && model.id === "kilo-auto/free")
+        if (anonymous) return anonymous
         const functional = textModels.find((model) => {
           if (model.cost.length > 0 && model.cost.every((cost) => cost.input === 0)) return true
           const key = model.settings?.apiKey

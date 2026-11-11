@@ -96,21 +96,6 @@ export const layer = Layer.effect(
         let catalog = yield* available()
         const requested = session.model
 
-        // Migrate the model reference before looking it up. Older OpenCode++ builds could
-        // persist this removed Zen free-tier model even after it disappeared from the catalog.
-        // Never send that stale reference to the provider and never hardcode a replacement model.
-        const legacyMuse = requested.providerID === "opencode" && requested.id === "muse-spark-1.3-contributor-free"
-        if (legacyMuse) {
-          const replacement =
-            catalog.find((model) => model.providerID === requested.providerID && model.id !== requested.id) ??
-            catalog.find((model) => model.id !== requested.id)
-          if (replacement) return yield* resolver.resolveModel(replacement, undefined)
-          return yield* new ModelUnavailableError({
-            providerID: requested.providerID,
-            modelID: requested.id,
-          })
-        }
-
         let selected = catalog.find(
           (model) => model.providerID === requested.providerID && model.id === requested.id,
         )
@@ -137,24 +122,8 @@ export const layer = Layer.effect(
           }
         }
         if (!selected) {
-          // A provider that disappeared with its plugin (a removed third-party provider, say) leaves
-          // resumable sessions pointing at a model that no longer exists. Those continue on the
-          // configured default model instead of dying on a stale reference; a model missing from a
-          // provider that still exists stays an explicit error.
-          const providerExists = catalog.some((model) => model.providerID === requested.providerID)
-          if (!providerExists) {
-            const fallback = yield* resolver.resolve()
-            if (fallback) {
-              yield* Effect.logInfo("session model provider is gone; continuing on the default model", {
-                sessionID: session.id,
-                providerID: requested.providerID,
-                modelID: requested.id,
-                fallbackProviderID: fallback.ref.providerID,
-                fallbackModelID: fallback.ref.id,
-              })
-              return fallback
-            }
-          }
+          // An explicit model choice is a route constraint, not permission to use another provider.
+          // Keep the durable selection and surface the unavailable identity to the operator.
           return yield* new ModelUnavailableError({
             providerID: requested.providerID,
             modelID: requested.id,
