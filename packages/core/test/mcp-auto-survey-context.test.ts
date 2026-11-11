@@ -41,7 +41,11 @@ let main = true
 let inspectFails = false
 const orchestraLayer = Layer.mock(Orchestra.Service, { roles: () => Effect.succeed([]), mainOf: () => Effect.succeed(main ? ({} as Orchestra.Project) : undefined) })
 const sessionsLayer = Layer.mock(Session.Service, {
-  revert: () => Effect.die("unused revert"),
+  revert: {
+    stage: () => Effect.die("unused revert.stage"),
+    clear: () => Effect.die("unused revert.clear"),
+    commit: () => Effect.die("unused revert.commit"),
+  },
   get: () => Effect.succeed({ metadata } as Session.Info),
   setMetadata: (input) => Effect.sync(() => { metadata = input.metadata }),
 })
