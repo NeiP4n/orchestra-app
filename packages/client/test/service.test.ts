@@ -190,7 +190,8 @@ test("keeps a slow starter that answers, then times out, instead of killing it",
   expect(slow.exitCode).toBe(null)
 }, 10_000)
 
-test("recovers when the starting service it waits for is stopped", async () => {  await using fixture = await serviceFixture()
+test("recovers when the starting service it waits for is stopped", async () => {
+  await using fixture = await serviceFixture()
   const registration = fixture.registration
   const starting = fixture.spawn("starting")
   await fixture.waitForFile()
@@ -283,11 +284,16 @@ test("evicts an unresponsive registered service before starting its replacement"
   const original = await Bun.file(registration).json()
 
   const endpoint = await run(
-    ensure({
-      file: registration,
-      version: "test",
-      command: fixture.command("delayed", "10"),
-    }),
+    Service.ensure(
+      withEnsureTiming(
+        {
+          file: registration,
+          version: "test",
+          command: fixture.command("delayed", "10"),
+        },
+        { requestTimeout: 100, pollInterval: 20, waitingTimeoutBase: 200, promiseTimeout: 3000, stopPollInterval: 5 },
+      ),
+    ),
   )
   const replacement = await Bun.file(registration).json()
   fixture.track(replacement.pid)
@@ -583,3 +589,31 @@ function run<A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) {
 async function status(url: string) {
   return fetch(new URL("/api/info", url), { signal: AbortSignal.timeout(1_000) }).then((response) => response.json())
 }
+
+test("a reconnect gives an initially silent live owner the recovery budget before eviction", async () => {
+  await using fixture = await serviceFixture()
+  const owner = fixture.spawn("initially-silent")
+  await fixture.waitForFile()
+  const original = await Bun.file(fixture.registration).json()
+  const options = withEnsureTiming(
+    { file: fixture.registration, version: "test", command: [] as string[] },
+    {
+      pollInterval: 10,
+      requestTimeout: 50,
+      waitingTimeoutBase: 1500,
+      promiseTimeout: 5000,
+    },
+  )
+  const release = setTimeout(() => void writeFile(fixture.registration + ".release", ""), 700)
+  try {
+    const endpoint = await run(Service.ensure(options))
+    expect(endpoint.url).toBe(original.url)
+    expect(owner.exitCode).toBe(null)
+    expect((await Bun.file(fixture.registration).json()).pid).toBe(original.pid)
+    expect(
+      (await Bun.file(fixture.registration + ".requests").text()).trim().split("\n").length,
+    ).toBeGreaterThanOrEqual(3)
+  } finally {
+    clearTimeout(release)
+  }
+})

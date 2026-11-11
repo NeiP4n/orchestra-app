@@ -1,0 +1,32 @@
+name: service-recovery-regression
+on:
+  pull_request:
+    paths:
+      - "packages/client/src/effect/service.ts"
+      - "packages/client/src/promise/service.ts"
+      - "packages/client/test/**service*"
+      - "packages/client/test/fixture/service.ts"
+      - "packages/cli/src/services/service-config.ts"
+      - "packages/cli/test/service-config-recovery.test.ts"
+      - ".github/workflows/service-recovery-regression.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: service recovery (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Effect and Promise lifecycle with real fixture processes
+        run: bun test packages/client/test/service.test.ts packages/client/test/promise-service.test.ts
+      - name: Persisted credentials fail closed and browser sessions survive reloads
+        run: bun test packages/cli/test/service-config-recovery.test.ts
