@@ -6,7 +6,7 @@ import { templateErrorKey } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
-import { TextAttributes } from "@opentui/core"
+import { type InputRenderable, TextAttributes } from "@opentui/core"
 import { selectionBackground } from "../ui/hover"
 
 const linkReason: Record<ProjectTemplateLinkReview.Reason, string> = {
@@ -22,6 +22,7 @@ const triggerReason: Record<ProjectTemplateTriggerReview.Item["reason"], string>
 export interface ProjectTemplatesKeys {
   move: (delta: number) => void
   activate: () => void
+  input: () => InputRenderable | undefined
 }
 
 /** Adapter must prepare/revalidate in the background. No authority comes from display or a digest.
@@ -62,6 +63,7 @@ export function ProjectTemplatesSimple(props: {
   const [cursor, setCursor] = createSignal("save")
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
+  let pathInput: InputRenderable | undefined
   const [importPath, setImportPath] = createSignal("")
   const [exportPath, setExportPath] = createSignal("")
   const [message, setMessage] = createSignal("")
@@ -150,7 +152,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
+    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -160,7 +162,8 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (id === "copy-path" && exportPath() && props.access.copyPath) void run(async () => {
+    if (id === "import-path") pathInput?.focus()
+    else if (id === "copy-path" && exportPath() && props.access.copyPath) void run(async () => {
       await props.access.copyPath?.(exportPath())
       setMessage("Path copied.")
     })
@@ -191,11 +194,14 @@ export function ProjectTemplatesSimple(props: {
       const index = Math.max(0, ids.indexOf(focused() ?? ""))
       setCursor(ids[Math.max(0, Math.min(ids.length - 1, index + delta))])
     },
-    activate: () => activate(),
+    activate: () => focused() === "import-path" ? activate("import") : activate(),
+    input: () => focused() === "import-path" && !prepared() ? pathInput : undefined,
   })
   createEffect(() => {
     const id = focused()
     if (!id) return
+    if (id === "import-path") pathInput?.focus()
+    else pathInput?.blur()
     props.scrollIntoView?.(`project-templates.${id}`)
 
   })
@@ -233,7 +239,10 @@ export function ProjectTemplatesSimple(props: {
       <Show when={props.access.prepareImport && !prepared()}>
         <box flexDirection="column">
           <text fg={theme.text.muted}>{tr("Template file path (.orchestra-template)")}</text>
-          <input id="project-templates.import-path" value={importPath()} placeholder={tr("Paste the full file path")} onInput={setImportPath} />
+          <box onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+            <input id="project-templates.import-path" ref={(value: InputRenderable) => { pathInput = value }} focused={focused() === "import-path"} value={importPath()} placeholder={tr("Paste the full file path")} onInput={setImportPath} textColor={theme.text.base} focusedTextColor={theme.text.base} cursorColor={theme.text.base} />
+          </box>
+          <text fg={theme.text.muted} wrapMode="word">{tr("Click the path or use Up/Down. Paste with Ctrl+V or terminal paste, then press Enter to import.")}</text>
           <Action id="import" label={tr("Import from file")} disabled={!importPath().trim() || !!prepared()} />
         </box>
       </Show>

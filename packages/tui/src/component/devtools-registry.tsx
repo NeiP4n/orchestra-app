@@ -269,6 +269,12 @@ export function RegistryPanel(props: {
     ],
   }))
 
+  Keymap.createLayer(() => ({
+    mode: "modal",
+    enabled: () => tab() === "templates" && templateKeys?.input() !== undefined,
+    target: () => templateKeys?.input(),
+  }))
+
   const counts = createMemo(() => ({
     programs: `${status().installed.length}/${status().tools.length}`,
     terminal: aiTerminal() ?? "—",

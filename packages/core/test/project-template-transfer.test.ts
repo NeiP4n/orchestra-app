@@ -33,3 +33,14 @@ test("transfer refuses symlink, invalid JSON, secret content and oversized files
   await expect(Transfer.write(root,JSON.stringify(b))).rejects.toThrow()
  }finally{await rm(root,{recursive:true,force:true})}
 })
+
+test("Copy as path strips whitespace and matching outer quotes without changing internal spaces", async () => {
+  expect(Transfer.normalizePath('  "C:\\My Folder\\test.orchestra-template"  ')).toBe('C:\\My Folder\\test.orchestra-template')
+  expect(Transfer.normalizePath(" '/tmp/my folder/a.orchestra-template' ")).toBe('/tmp/my folder/a.orchestra-template')
+  expect(Transfer.normalizePath('"/tmp/a.orchestra-template')).toBe('"/tmp/a.orchestra-template')
+  const root = await mkdtemp(path.join(os.tmpdir(), "template-quoted-"))
+  try {
+    const exported = await Transfer.write(root, JSON.stringify(processFixture()))
+    expect((await Transfer.read('  "' + exported.path + '"  ')).bundle).toEqual(processFixture())
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
