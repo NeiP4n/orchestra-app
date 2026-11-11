@@ -4,6 +4,8 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { ServerConfig } from "@orchestra/schema/mcp"
 import { Effect } from "effect"
 import { Config } from "../config.js"
+import { REAL_SCREEN_SERVER_IDS } from "./retired.js"
+import { mcpMayStart } from "./disabled.js"
 import { McpRoleProfiles } from "./role-profiles.js"
 
 export type HealthStatus = "healthy" | "degraded" | "unhealthy"
@@ -20,6 +22,7 @@ export interface ServerHealthState {
 }
 
 export interface HealthCheckOptions {
+  readonly disabled?: boolean
   readonly timeoutMs?: number
   readonly failureThreshold?: number
   readonly recoveryThreshold?: number
@@ -120,6 +123,7 @@ export class McpCircuitBreaker {
     const startTime = Date.now()
 
     return Effect.gen(function* () {
+      if (!mcpMayStart({ disabled: options?.disabled ?? self.defaultOptions.disabled })) return self.getState(server)
       const probeOutcome = yield* probe.pipe(
         Effect.timeoutOrElse({
           duration: `${timeout} millis`,
@@ -185,14 +189,25 @@ export type Entry = {
 
 /** Whether a catalog server touches the operator's real screen (block B7). */
 export const isRealScreenServer = (id: string): boolean =>
-  all.some((entry) => entry.id === id && entry.realScreen === true)
+  REAL_SCREEN_SERVER_IDS.has(id) || all.some((entry) => entry.id === id && entry.realScreen === true)
 
 const local = (command: string[]): ServerConfig => ({ type: "local", command }) as ServerConfig
 const remote = (url: string): ServerConfig => ({ type: "remote", url }) as ServerConfig
 
-// Playwright defaults to Google Chrome stable, which many Windows machines lack; Edge ships
-// with Windows and speaks the same protocol, so point it at Edge there.
-const windows = process.platform === "win32"
+/** MCP is off for agents unless the operator sets ORCHESTRA_MCP=1: no server connects, no MCP tools exist. The native tools do the work. */
+export const mcpEnabled = (env: Record<string, string | undefined>): boolean => env.ORCHESTRA_MCP === "1"
+
+/** MCP servers that start a browser of their own. Agents use the `browser` tool and the Browser tab only; these are refused unless the operator sets the flag. */
+export const SEPARATE_BROWSER_FLAG: Readonly<Record<string, string>> = {
+  "chrome-devtools": "ORCHESTRA_MCP_CHROME_DEVTOOLS",
+  playwright: "ORCHESTRA_MCP_PLAYWRIGHT",
+}
+export const separateBrowserDenial = (id: string, env: Record<string, string | undefined>): string | undefined => {
+  const flag = SEPARATE_BROWSER_FLAG[id]
+  return flag !== undefined && env[flag] !== "1"
+    ? `MCP server "${id}" would open a browser outside the Browser tab and is switched off. Use the browser tool (open, snapshot, click, type, eval).`
+    : undefined
+}
 
 export const all: readonly Entry[] = [
   {
@@ -234,47 +249,6 @@ export const all: readonly Entry[] = [
     config: local(["npx", "-y", "rea-agents@latest", "mcp"]),
   },
   {
-    id: "playwright",
-    name: "Playwright",
-    description:
-      "Drive a real browser: open pages, click, fill forms, read the accessibility tree, and take screenshots.",
-    usage:
-      "For web apps: navigate, inspect the page, interact with elements by stable references, and take screenshots to verify the result. B7: this drives the operator's real browser, so it needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming playwright, future expiry); without it the server is not acquired and its tools refuse.",
-    runtime: "npx",
-    realScreen: true,
-    config: local(["npx", "-y", "@playwright/mcp@latest", ...(windows ? ["--browser", "msedge"] : [])]),
-  },
-  {
-    id: "chrome-devtools",
-    name: "Chrome DevTools",
-    description:
-      "Drive Google Chrome via DevTools: inspect the page, act on elements by snapshot uid, run JS, read console and network, run Lighthouse audits.",
-    usage:
-      "In Chrome: take_snapshot first, then click/fill by the uid from the LATEST snapshot — uids go stale whenever the page changes, so never reuse a uid from an older snapshot (a stale uid fails, and the wrapper answers with a fresh snapshot: retry with the new uid). evaluate runs without timers (no setTimeout/setInterval inside it): wait with wait_for instead. This launches its own Chrome instance; it does not attach to the operator's running browser — do not add a --browserUrl pointing at it outside the real-screen opt-in.",
-    runtime: "npx",
-    config: local(["npx", "-y", "chrome-devtools-mcp@latest"]),
-  },
-  {
-    id: "agent-desktop",
-    name: "Agent Desktop",
-    description:
-      "Computer use for desktop apps on macOS, Windows, and Linux: see and operate them through the OS accessibility tree, with a ref for every element.",
-    usage:
-      "Use to operate a desktop app: snapshot it first, act on element refs (click, type, set-value), then snapshot again to verify the result. Actions are headless by default. B7: this drives the operator's real screen — it is NOT a virtual display. It needs the real-screen opt-in (ORCHESTRA_DESKTOP_REAL_SCREEN=on, allowlist naming agent-desktop, future expiry); without it the server is not acquired and its tools refuse. Prefer the desktop_* tools on the agent's virtual display. When the opt-in is on, run the server with DISPLAY set to the agent's virtual display (for example :99) so it acts inside that display, not on the operator's screen. The virtual display must also run a window manager (openbox works): on bare Xvfb snapshots refuse with native_window_unproven, and twm is not enough (frames_unanswered). B13: snapshots, screenshots and the clipboard can contain private data from the screen — never paste them into public logs or shared chats. Live-verified against agent-desktop 1.2.0 (pilot 2026-11-07): snapshot → type → click → re-snapshot works on GTK3/GTK4 apps under Xvfb :99 + openbox, and the MCP server answers handshake, tools/list (67 desktop_* tools) and tools/call.",
-    runtime: "npx",
-    realScreen: true,
-    config: local(["npx", "-y", "agent-desktop", "mcp"]),
-  },
-  {
-    id: "github",
-    name: "GitHub",
-    description:
-      "Official GitHub MCP for repositories, code, issues, pull requests, Actions, and workflow intelligence.",
-    usage:
-      "Use when a task involves GitHub repositories, issues, pull requests, CI, releases, or code search. Authenticate with OAuth or a token supported by the host.",
-    config: remote("https://api.githubcopilot.com/mcp/"),
-  },
-  {
     id: "deepwiki",
     name: "DeepWiki",
     description: "Ask questions about public GitHub repositories and read generated project documentation.",
@@ -314,6 +288,13 @@ export interface NativeAnalogue {
 }
 
 export const nativeAnalogues: readonly NativeAnalogue[] = [
+  {
+    id: "browser",
+    name: "Managed browser",
+    description: "Page work stays in the Browser tab's managed profile and BrowserAgent, not a separate MCP browser.",
+    nativeTools: ["browser", "playtest"],
+    keywords: ["browser", "playwright", "chrome", "devtools", "website"],
+  },
   {
     id: "web-search",
     name: "Web search",
@@ -440,7 +421,9 @@ export const Plugin = {
               .filter(
                 (grant) =>
                   grant.access === "required" &&
-                  (servers[grant.server] === undefined || servers[grant.server]?.disabled === true || down.has(grant.server)),
+                  (servers[grant.server] === undefined ||
+                    servers[grant.server]?.disabled === true ||
+                    down.has(grant.server)),
               )
               .map((grant) => grant.server)
           : []
@@ -451,7 +434,8 @@ export const Plugin = {
             "# Installed AI tools",
             'These MCP servers are installed from the Registry. Call a server\'s tools directly when your tool list has them as <server>_<tool>; otherwise run them through the execute tool under tools["<server>"]. Use them when they fit:',
             ...installed.map(
-              (entry) => `- ${entry.id} (${entry.name}): ${entry.usage}${required.has(entry.id) ? " (required for your role)" : ""}`,
+              (entry) =>
+                `- ${entry.id} (${entry.name}): ${entry.usage}${required.has(entry.id) ? " (required for your role)" : ""}`,
             ),
             ...(unavailable.length === 0
               ? []

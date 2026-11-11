@@ -1,0 +1,138 @@
+import type { Cdp as CdpTypes } from "@orchestra/core/browser/cdp"
+import { expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { BrowserBudget } from "@orchestra/core/browser/budget"
+import { WindowCapture } from "@orchestra/core/browser/window-capture"
+import { Chrome } from "@orchestra/core/browser/chrome"
+test("operator selects any profile count; optional ceiling and RAM warning keep launch lock", () => {
+  expect(BrowserBudget.MAX_ACTIVE_PROFILES).toBe(Infinity)
+  expect(BrowserBudget.configuredMax(undefined)).toBe(Infinity)
+  expect(BrowserBudget.configuredMax("3")).toBe(3)
+  expect(BrowserBudget.memoryWarning(1024 ** 3)).toContain("не заблокирован")
+  expect(() => BrowserBudget.requireRoom(0)).not.toThrow()
+  expect(() => BrowserBudget.requireRoom(100)).not.toThrow()
+  expect(() => BrowserBudget.requireRoom(4, 4)).toThrow("ORCHESTRA_BROWSER_MAX=4")
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain('Flock.withLock("browser-active-profile-budget"')
+  expect(runtime).toContain('dir: path.join(Global.Path.data, "browser-launch-locks")')
+  const start = runtime.indexOf("async function start(sessionID:")
+  const launch = runtime.slice(start, runtime.indexOf("async function startLocked(", start))
+  expect(launch).toContain("return launchLock(() => {")
+  expect(launch).toContain("passive && existsSync(watcherStopFile(sessionID))")
+  expect(launch).toContain("return startLocked(sessionID)")
+  expect(launch.indexOf("watcherStopFile")).toBeLessThan(launch.indexOf("return startLocked"))
+  expect(runtime).toContain("await checkLaunchBudget(sessionID)")
+  expect(runtime).toContain("const run = await launchLock(async () =>")
+  expect(runtime).toContain("AbortSignal.timeout(1000)")
+})
+test("native capture is bounded to four FPS and 1280x800 and pauses before PrintWindow", () => {
+  expect(WindowCapture.captureSize({ width: 8000, height: 4000 })).toEqual({ width: 1280, height: 800 })
+  expect(WindowCapture.sizeCommand({ width: 8000, height: 4000 })).toBe("size 1280 800")
+  expect(WindowCapture.attachCommand(1, { width: 8000, height: 4000 })).toBe("attach 1 -32000 -32000 1280 800")
+  const script = WindowCapture.SCRIPT
+  const frame = script.slice(script.indexOf("static void Frame()"), script.indexOf("public static void Run()"))
+  expect(frame.indexOf("if (!streaming")).toBeLessThan(frame.indexOf("PrintWindow("))
+  expect(frame).toContain("w > 1280 || h > 800")
+  expect(script).toContain("next = DateTime.UtcNow.AddMilliseconds(250)")
+  const source = readFileSync(new URL("../src/browser/window-capture.ts", import.meta.url), "utf8")
+  expect(source).toContain('process.write("stream off")')
+  expect(source).toContain('process.write("stream on")')
+  expect(Chrome.LOW_MEMORY_FLAGS).not.toContain("--disable-background-timer-throttling")
+  expect(Chrome.LOW_MEMORY_FLAGS).not.toContain("--disable-hang-monitor")
+})
+
+test("headless image delivery coalesces rapid frames and stops pending work", async () => {
+  const { Cdp } = await import("@orchestra/core/browser/cdp")
+  let frame: (params: any) => void = () => undefined
+  const sent: Array<{ method: string; params?: Record<string, unknown> }> = []
+  const client = {
+    send: async <T = unknown>(method: string, params?: Record<string, unknown>) => { sent.push({ method, params }); return undefined as T },
+    close() {},
+    on: (_event: string, listener: (params: any) => void) => { frame = listener; return () => { frame = () => undefined } },
+  }
+  const frames: string[] = []
+  const stop = await Cdp.startScreencast(client, { width: 4000, height: 3000 }, (value) => frames.push(value.data))
+  expect(sent[0]).toMatchObject({ method: "Page.enable" })
+  expect(sent.find((entry) => entry.method === "Page.startScreencast")).toMatchObject({ method: "Page.startScreencast", params: { maxWidth: 1280, maxHeight: 800, everyNthFrame: 4 } })
+  frame({ data: "first", sessionId: 1 })
+  for (let i = 2; i < 10; i++) frame({ data: `frame-${i}`, sessionId: i })
+  expect(frames).toEqual(["first"])
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(frames).toEqual(["first", "frame-9"])
+  frame({ data: "must not render after stop", sessionId: 10 })
+  stop()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(frames).toHaveLength(2)
+})
+
+test("losing a CDP socket does not lose the launched Chrome shutdown handle", () => {
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain("const ownedChrome = new Map<number, () => void>()")
+  expect(runtime).toContain("ownedChrome.get(port) ?? (() => {})")
+  expect(runtime).toContain('const owned = target === "window" ? run : rememberOwned(run)')
+  const start = runtime.indexOf("export function closeAll()")
+  expect(runtime.slice(start, runtime.indexOf("export const isWindowed", start))).toContain("for (const stop of [...ownedChrome.values()]) stop()")
+})
+
+test("a hung managed PID blocks new profiles even when its CDP endpoint is unavailable", () => {
+  expect(() => BrowserBudget.requireStopped(42, () => "alive")).toThrow("CDP is not answering")
+  expect(() => BrowserBudget.requireStopped(42, () => "unknown")).toThrow("No new Chrome")
+  expect(() => BrowserBudget.requireStopped(42, () => "dead")).not.toThrow()
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain("recordProcess(child.pid, args)")
+  expect(runtime).toContain("forgetProcess(child.pid, args)")
+  expect(runtime).toContain("process.kill(pid, 0)")
+  expect(runtime).not.toContain('process.kill(value, "SIGKILL")')
+})
+
+test("endpoint identity distinguishes port reuse; safety error identifies the session in Russian", () => {
+  expect(BrowserBudget.matchesEndpoint({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/new" }, "/devtools/browser/old")).toBe(false)
+  expect(BrowserBudget.matchesEndpoint({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/old" }, "/devtools/browser/old")).toBe(true)
+  expect(BrowserBudget.matchesEndpoint({ webSocketDebuggerUrl: "ws://external.test:9222/devtools/browser/old" }, "/devtools/browser/old")).toBe(false)
+  const error = new BrowserBudget.LimitError("brw_1", "Browser1", "cdp")
+  expect(error.message).toContain("Browser1")
+  expect(error.message).toContain("Закройте".toLowerCase())
+  expect(error.message).toContain("ORCHESTRA_BROWSER_LIMIT=off")
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain('process.env.ORCHESTRA_BROWSER_LIMIT === "off"')
+  expect(runtime).toContain('dead = (error as NodeJS.ErrnoException).code === "ESRCH"')
+  expect(runtime).toContain('rmSync(file, { force: true })')
+})
+
+test("same-profile race joins CDP under the launch lock instead of hitting its own ceiling", () => {
+  const runtime = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  expect(runtime).toContain("if (id === sessionID) return port")
+  expect(runtime).toContain("if (joinedPort !== undefined) return join(joinedPort")
+  expect(runtime).toContain('if ("joined" in run)')
+  expect(runtime).toContain("same profile answered during mode switch; joined existing Chrome")
+})
+
+test("watcher heartbeat restores a lost socket without starting another Chrome or streaming images", () => {
+  const source = readFileSync(new URL("../src/browser/runtime.ts", import.meta.url), "utf8")
+  const start = source.indexOf("export async function watchEnsure")
+  const body = source.slice(start, source.indexOf("BrowserWatch.setEnsurer", start))
+  expect(body).toContain('Runtime.getIsolateId')
+  expect(body).toContain('Page.setWebLifecycleState')
+  expect(body).toContain("BrowserWatch.ready(item.client)")
+  expect(body).not.toContain("now - health.at < 60_000")
+  expect(body).toContain('previous?.client.isClosed?.() === true')
+  expect(body).toContain('evict(sessionID)')
+  expect(body).not.toContain('Chrome.launch')
+  expect(body).not.toContain('startScreencast')
+  expect(body).not.toContain('Runtime.evaluate')
+})
+
+test("CDP socket opening is bounded and an opened socket does not keep the opening timer", async () => {
+  const { Cdp } = await import("@orchestra/core/browser/cdp")
+  let closed = 0
+  const socket = () => ({ send() {}, close() { closed++ }, onopen: null, onmessage: null, onerror: null, onclose: null })
+  await expect(Cdp.connect(socket, "ws://fixture.invalid", { timeoutMs: 10 })).rejects.toThrow("did not open")
+  expect(closed).toBe(1)
+  let active: ReturnType<typeof socket> | undefined
+  const pending = Cdp.connect(() => active = socket(), "ws://fixture.invalid", { timeoutMs: 15 })
+  ;(active as unknown as CdpTypes.Socket).onopen?.()
+  const client = await pending
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  expect(client.isClosed?.()).toBe(false)
+  client.close()
+})

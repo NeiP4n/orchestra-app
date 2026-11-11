@@ -47,11 +47,16 @@ export const SettingsProviders: Component<{
   const integrations = useIntegrations(() => props.directory)
   const providerConnect = useProviderConnectController()
 
-  const [state, setState] = createStore({
-    disconnecting: {} as Record<string, "removing" | "removed" | "absent" | undefined>,
+  const [state, setState] = createStore<{
+    disconnecting: Record<string, "removing" | "removed" | "absent" | undefined>
+    consoleExpanded: boolean
+    connecting: boolean
+    credentialID: string | undefined
+  }>({
+    disconnecting: {},
     consoleExpanded: false,
     connecting: false,
-    credentialID: undefined as string | undefined,
+    credentialID: undefined,
   })
 
   const updateDisconnecting = (ids: string[], status: "removing" | "removed" | "absent" | undefined) =>
@@ -257,10 +262,10 @@ export const SettingsProviders: Component<{
           variant: "success",
           icon: "circle-check",
           title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+          description: language.t((item.integrationID ?? item.id) === "google-antigravity" ? "settings.providers.account.nativePoolKept" : "provider.disconnect.toast.disconnected.description", { provider: name }),
         })
       })
-      .catch((err: unknown) => {
+      .catch((err) => {
         updateDisconnecting(ids, undefined)
         const message = err instanceof Error ? err.message : String(err)
         showToast({
@@ -282,8 +287,7 @@ export const SettingsProviders: Component<{
     ])
   }
 
-  const accountError = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
+  const accountError = (message: string) => {
     showToast({ title: language.t("common.requestFailed"), description: message })
   }
 
@@ -301,7 +305,7 @@ export const SettingsProviders: Component<{
           description: language.t("settings.providers.account.switched.description", { account: account.label }),
         }),
       )
-      .catch(accountError)
+      .catch(error => accountError(error instanceof Error ? error.message : String(error)))
       .finally(() => setState("credentialID", undefined))
   }
 
@@ -320,14 +324,14 @@ export const SettingsProviders: Component<{
             final ? { provider: providerName } : { account: account.label },
           ),
           description: language.t(
-            final
-              ? "provider.disconnect.toast.disconnected.description"
-              : "settings.providers.account.removed.description",
+            (provider.integrationID ?? provider.id) === "google-antigravity"
+              ? "settings.providers.account.nativePoolKept"
+              : final ? "provider.disconnect.toast.disconnected.description" : "settings.providers.account.removed.description",
             { provider: providerName },
           ),
         }),
       )
-      .catch(accountError)
+      .catch(error => accountError(error instanceof Error ? error.message : String(error)))
       .finally(() => setState("credentialID", undefined))
   }
 

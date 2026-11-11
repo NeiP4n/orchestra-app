@@ -1,5 +1,8 @@
 export * as OrchestraTool from "./orchestra.js"
 
+import { SCOPE_KEY, scopePaths, disjointScopes } from "../../staffing.js"
+import { BrowserLifecycle } from "../../browser/lifecycle.js"
+import { BrowserProvenance } from "../../browser/provenance.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
@@ -20,6 +23,7 @@ import { RoleToolkits } from "../../roles/toolkits.js"
 import { ModelRouter } from "../../session/model-router.js"
 import { AiStandard } from "../../ai-standard.js"
 import { Token } from "../../util/token.js"
+import { Trigger } from "../../trigger.js"
 import { FormDecision } from "../../form-decision.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
@@ -39,20 +43,71 @@ export const MODE_IDS = Mode.builtins
 export const description = [
   "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
   "Only the project's main session (the orchestrator) has this tool.",
-  "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Action create reuses an existing session of that role by default; set newInstance=true only when an additional parallel worker is deliberately needed.",
+  "Actions: list shows the team by category; send queues a task for a worker without interrupting it; create starts or reuses a worker session; read shows a session's latest messages; answer replies to a worker's question; set_mode changes how a session works; stop interrupts it; acquire_mcp installs and verifies a catalog MCP server; plan, stages, stage and verify manage workflow stages.",
+  "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Do not call HTTP endpoints directly or invent /api/orchestra routes for team management. Use this tool.",
+  "The full operating rules (delegation gate, MCP assignment and survey, worker model choice, stage evidence) arrive with this session's first call of this tool.",
+].join("\n")
+
+/**
+ * The full operating rules of the sessions tool. Carried as the tool's guide, so the
+ * text reaches the session once — as the answer to its first call of this tool —
+ * instead of riding in the advertised schema on every step of the main session.
+ */
+/**
+ * Free OpenCode Zen models by kind of work (price 0 in the models.dev catalog), best first. This is a
+ * suggestion for what the operator enables in /models; it is never applied by itself. The Orchestrator
+ * chooses worker models only among the models the operator enabled there.
+ */
+export const FREE_MODEL_TIERS = [
+  {
+    tier: "strong",
+    for: "planning, architecture, review, security and counterexample work",
+    models: ["opencode/kimi-k2.5-free", "opencode/glm-5-free"],
+  },
+  {
+    tier: "code",
+    for: "implementation, debugging, devops, data, integration, performance and testing",
+    models: ["opencode/grok-code", "opencode/kimi-k2.5-free"],
+  },
+  {
+    tier: "research",
+    for: "research, long-context reading and idea generation",
+    models: ["opencode/longcat-2.5-preview-free", "opencode/nemotron-3-ultra-free"],
+  },
+  {
+    tier: "cheap",
+    for: "writing, design, marketing, support, accessibility and other light or routine work",
+    models: ["opencode/deepseek-v4-flash-free", "opencode/mimo-v2.6-flash-free", "opencode/ling-3.1-flash-free"],
+  },
+] as const
+
+/** True when a model is one of the models the operator enabled in /models (provider and id; a variant is not part of the pick). */
+export const inEnabled = (enabled: ReadonlyArray<Model.Ref>, model: Model.Ref) =>
+  enabled.some((item) => item.providerID === model.providerID && item.id === model.id)
+
+export const freeModelGuide = [
+  "Worker models come only from the models the operator switched on in /models (the enabled model collections) and nothing outside them. Leave model out and the enabled models are routed for each task automatically; pass model only to pick one specific enabled model, and match the work: the strongest for planning, review and hard debugging, a cheaper one for routine work. A model that is not enabled is refused with the list of enabled ones. With nothing enabled, workers use the session's model.",
+  `The operator's spend limit is 0, so the enabled models should be free ones. A good set to suggest to them: ${FREE_MODEL_TIERS.map((item) => `${item.tier} (${item.for}): ${item.models.join(", ")}`).join("; ")}. Suggest, never assume: you can only use what they enabled.`,
+].join("\n")
+
+export const guide = [
+  "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
+  "Only the project's main session (the orchestrator) has this tool.",
+  "Inspect the roster, reuse an idle writable worker, or create the needed role yourself. Include workScope in every file task: create automatically adds a same-role worker when existing busy workers have known disjoint scopes. For unknown/overlapping scopes wait, never ask the operator how to staff. newInstance=true remains a deliberate independent-worker choice, not a read-only bypass.",
   "Do not call HTTP endpoints directly or invent /api/orchestra routes for team management. Use this tool. If a team action returns an endpoint or API error, report the actual error instead of creating a replacement session.",
   "Actions: list shows the team by category with each session's role, status, access and whether a task is outstanding;",
   "send queues a task without interrupting the worker's current work; its task-linked <team-report> arrives automatically when it finishes and wakes the Orchestrator again. The current turn ending after send is intentional; it does not mean the project task is complete.",
   "A report's state describes whether the worker run ended; outcome describes task progress. If outcome is partial, incomplete, failed, or stopped, treat the task as still open unless it is explicitly blocked or cancelled. outcome=unknown means the worker did not state its status: judge the report text yourself instead of re-sending the task. Compare the report with the acceptance criteria and send a focused follow-up to that same worker after its previous task is no longer outstanding. Do not mark the overall task complete until evidence satisfies the acceptance criteria; if the work is blocked, state the exact blocker.",
   "Copy the complete sessionID exactly from the roster or action list; never abbreviate or invent one. If a sessions action fails, inspect the exact error and current list/read state, correct the cause, then retry only with changed/corrected arguments. Never repeat an identical failed call.",
-  "A worker that asks the human a question during its task blocks until someone answers; that question also arrives here as a <team-question>. Answer it with action answer (sessionID of the worker, answers: one list of chosen option labels or your own text per question, in order) when the task and the operator's instructions settle it; if only the operator can decide, tell the operator instead.",
+  "A worker that asks the human a question during its task blocks until someone answers; that question also arrives here as a <team-question>. Answer it with action answer (sessionID of the worker, answers: one list of chosen option labels or your own text per question, in order) by default, choosing the recommended option when unsure; the society runs autonomously. Tell the operator only for hard limits: spending money, secrets through the masked Vault form (never chat or .env), publishing or other irreversible outside actions.",
   "read returns a session's latest messages; create accepts an exact role ID from the global Orchestra role registry even if no session exists for that role yet, reuses a writable matching session by default or creates one if needed, and can give it a first task; set_mode changes how an existing session works; stop interrupts a running session.",
   `Modes: ${MODE_IDS}. A mode changes how a session works and may make it read-only; it never widens the role's permissions. Pass mode to send or create, or use action set_mode. Use fast for trivial work, planning or research before building, coding for implementation, architecture for parallel-safe design, test to verify, review or debug for checks, and self-improvement for work on the product itself. A planner in coding mode still cannot edit files.`,
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
-  "The 6-message rule binds you: after 6 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The MCP survey (mcp_manager inspect) is never refused either — a dispatch needs a fresh survey, so survey first if you have not, then dispatch with an explicit mcp assignment. The roster in your context shows how many of the 6 you have used.",
+  "The 12-message rule binds you: after 12 of your own messages in a row without handing a task to a worker, your other tool calls are refused until you delegate with send or create. Building the Society (society_forge found/generate, society_plan apply) is never refused by this rule and resets the count like a delegation, so creating the Society never forces a premature dispatch. The MCP survey (mcp_manager inspect) is never refused either — a dispatch needs a fresh survey, so survey first if you have not, then dispatch with an explicit mcp assignment. The roster in your context shows how many of the 12 you have used.",
   "MCP assignment is mandatory, and it is enforced, not advised: every send or create to a team session must pass mcp — the servers the worker may call for that task, maxCalls in total, perServer caps — and a dispatch without it is refused and sends nothing. When a task needs no MCP, say so explicitly: mcp with servers [] and maxCalls 0. You may only tighten the role's own MCP ceiling, never widen it; a refused limit says what the role allows. The limit is stamped on the worker session and stated at the top of its task brief.",
   "The assignment must come from a survey, and that is enforced too: before the first dispatch in a session, call mcp_manager with action=inspect once — it lists the configured servers (status, discovered tools, leases) and the installable catalog. A dispatch before the survey is refused and sends nothing. Judge the assignment from what the survey shows: no catalog server fitting the task is a finding, and an explicit empty assignment after the survey is the right answer for native-tool work.",
+  freeModelGuide,
   "Worker models are a cost decision, so make it deliberately: pass model on create or send — the strongest model for design, hard debugging and review, a mid-tier or small model for mechanical implementation and routine checks. With no explicit model the role's own model or the worker policy applies, and failing those the worker inherits YOUR model, which is the expensive default, not a decision. The dispatch result names the model the worker will run and where it came from.",
   "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
   "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled. Action verify scores a task's own acceptance criteria against real evidence (a pass without evidence does not count, a missing criterion is a gap) — use it as the completion gate instead of trusting a worker's claim.",
@@ -100,7 +155,7 @@ export function reusableWorker<T extends WorkerRow>(
 // (the operator, or a <team-report> waking the Orchestrator) starts a new cycle.
 // This complements the older explore-call gate in the team plugin, which
 // counts read/grep/glob/shell calls only; this one counts every own message.
-export const ORCHESTRATOR_MESSAGE_LIMIT = 6
+export const ORCHESTRATOR_MESSAGE_LIMIT = 12
 
 export interface DelegationGate {
   /** Message IDs of the Orchestrator's own messages counted in this cycle, oldest first. */
@@ -137,6 +192,11 @@ const isSocietyTool = (tool: string) => tool === SocietyForgeTool.name || tool =
 const isSurveyCall = (tool: string, action: string | undefined) =>
   tool === "mcp_manager" && action === "inspect"
 
+// Looking at the operator's Browser tab (sessions, info, text, screenshot) is not doing the team's work: it is how the
+// Orchestrator answers "what is in my browser", and refusing it made it answer from memory. Acting in the page stays gated.
+const isBrowserLook = (tool: string, action: string | undefined) =>
+  tool === "browser" && (action === "sessions" || action === "info" || action === "text" || action === "screenshot")
+
 export function delegationGate(
   counted: ReadonlyArray<string>,
   input: { tool: string; messageID: string; action?: string; text?: string },
@@ -146,7 +206,7 @@ export function delegationGate(
   // Team management, Society building, the MCP survey and asking the
   // operator are always available and never count as the Orchestrator
   // doing the work itself.
-  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action))
+  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action) || isBrowserLook(input.tool, input.action))
     return { counted, blocked: false, reset: false }
   if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
   if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
@@ -193,11 +253,11 @@ export function delegationStatus(streak: number) {
     mustDelegate,
     text: mustDelegate
       ? [
-          "# 6-message rule — limit reached",
+          "# 12-message rule — limit reached",
           `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. A dispatch also needs a fresh MCP survey (mcp_manager inspect is always allowed, even at the limit) and an explicit mcp assignment — survey first if you have not, then dispatch. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
         ].join("\n")
       : [
-          "# 6-message rule",
+          "# 12-message rule",
           `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do. Society building (society_forge, society_plan) is never refused by this rule.`,
         ].join("\n"),
   }
@@ -482,7 +542,7 @@ const StageInput = Schema.Struct({
 })
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "stop", "answer", "plan", "stages", "stage", "verify", "acquire_mcp"]),
+  action: Schema.Literals(["list", "read", "send", "create", "set_mode", "set_model", "stop", "answer", "plan", "stages", "stage", "verify", "acquire_mcp"]),
   sessionID: Schema.optionalKey(SessionSchema.ID).annotate({ description: "Target session for read, send and stop" }),
   text: Schema.optionalKey(Schema.String).annotate({
     description: "Message for send, or the first task for create",
@@ -494,6 +554,7 @@ export const Input = Schema.Struct({
   category: Schema.optionalKey(Schema.String).annotate({
     description: "Category of the session to create, e.g. Planning, Build or Quality",
   }),
+  workScope: Schema.optionalKey(Schema.Array(Schema.String)).annotate({description:"For send/create: disjoint project-relative owned file/directory scopes. Reuse idle workers; when all same-role workers are busy with known non-overlapping scopes, create automatically staffs another. Planning metadata, not filesystem permission. Unknown or overlapping scope waits; never invent scope to evade read-only access."}),
   newInstance: Schema.optionalKey(Schema.Boolean).annotate({
     description:
       "Normally omit this: create reuses an existing writable session with this role. Set true only when a separate parallel worker is deliberately needed.",
@@ -620,6 +681,32 @@ export const resolveVariant = Effect.fnUntraced(function* (
   }
   return withVariant(chosen)
 })
+
+/** A task that drives a web page (open, click, fill, sign in) belongs to the BrowserAgent, not to another role. */
+export const BROWSER_TASK =
+  /(?:\b(?:open|visit|go to|navigate|click|fill(?: in| out)?|sign ?up|register|log ?in|sign in|scroll)\b|открой|зайди|перейди|кликни|нажми|заполни|зарегистр|войди|залогин)[^\n]{0,80}(?:https?:\/\/|www\.|\.(?:com|org|net|io|ru|ai)\b|\b(?:site|website|web ?page|page|form|button|browser)\b|сайт|страниц|форм|кнопк|браузер)/i
+export const browserRouteRefusal = (roleID: string | undefined, text: string | undefined) =>
+  roleID !== "browser-agent" && text !== undefined && BROWSER_TASK.test(text)
+    ? "Page work (open, click, fill, sign in on a site) goes to the BrowserAgent of the browser session: use browser action=sessions to see its chat id, then sessions send there. Send this to another role only for work that is not driving a page."
+    : undefined
+
+/**
+ * The title of a browser session made by the Orchestrator: the one it gave, unless that is empty or a bare
+ * "Browser" / "Browser 2"; then a short one from the task, so the tree never lists "Browser 3".
+ */
+export const browserSessionTitle = (title: string | undefined, text: string | undefined) => {
+  const given = title?.trim() ?? ""
+  if (given && !/^browser(?:\s*\d+)?$/i.test(given)) return given
+  const words = (text ?? "")
+    .split(/\r?\n/, 1)[0]!
+    .replace(/https?:\/\/(?:www\.)?/gi, "")
+    .replace(/[^\p{L}\p{N}\s.-]+/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 5)
+  const short = words.join(" ").slice(0, 32).trim()
+  return short ? short[0]!.toUpperCase() + short.slice(1) : "Browser task"
+}
 
 const modelRef = (model: Model.Ref) => `${model.providerID}/${model.id}`
 const refWithVariant = (model: Model.Ref) => `${modelRef(model)}${model.variant ? `#${model.variant}` : ""}`
@@ -787,6 +874,18 @@ export const Plugin = {
         try: () => Model.Ref.parse(model),
         catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant.` }),
       })
+      // The models the operator enabled in /models are the pool the Orchestrator chooses from; a role's own
+      // model list is separate. Nothing enabled means the session's model: there is nothing to choose.
+      if (!role.models?.length) {
+        const enabled = yield* Orchestra.workerEnabledModels
+        if (!inEnabled(enabled, ref))
+          return yield* new ToolFailure({
+            message:
+              enabled.length === 0
+                ? `${model} is not enabled: no models are switched on in /models, so workers use the session's model. Omit model.`
+                : `${model} is not enabled in /models. Enabled: ${enabled.map(modelRef).join(", ")}. Choose one of them, or omit model.`,
+          })
+      }
       const withRoleVariant =
         ref.variant === undefined && role.variant !== undefined
           ? Model.Ref.make({ ...ref, variant: Model.VariantID.make(role.variant) })
@@ -823,8 +922,11 @@ export const Plugin = {
       // The candidates are the operator's own: Feature picks, the role's choice, the worker policy.
       const worker = Orchestra.workerModels(policy, role, { favorites, catalog: available })
       const refs = [worker.model, ...(worker.models ?? [])].filter((item): item is Model.Ref => item !== undefined)
+      // Automatic routing stays inside the models the operator enabled in /models, once any are enabled.
+      const enabled = yield* Orchestra.workerEnabledModels
       const allowed = (ref: Model.Ref) =>
-        role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true
+        (role.models?.length ? role.models.some((item) => baseOf(item) === modelRef(ref)) : true) &&
+        (enabled.length === 0 || inEnabled(enabled, ref))
       // Favorites route first: workerModels ranks them ahead of the role/policy fallbacks, but
       // the router alone would let a cheaper fallback beat a healthy favorite. The fallback pool
       // is what workerModels built — the role and policy models plus its society fallback,
@@ -868,16 +970,23 @@ export const Plugin = {
       required: Orchestra.Access,
     ) {
       if (!sessionID) return yield* new ToolFailure({ message: "Pass the sessionID of the target session" })
+      if (BrowserLifecycle.retired(String(sessionID))) return yield* new ToolFailure({ message: `Сессия браузера ${sessionID} закрыта или удалена оператором. Задача не отправлена. Обновите sessions list; не восстанавливайте её автоматически.` })
       const session = yield* sessions
         .get(sessionID)
-        .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })))
+        .pipe(Effect.mapError(() => new ToolFailure({ message: `Сессия не существует или недоступна: ${sessionID}. Обновите sessions list; не повторяйте отправку по старому ID.` })))
       const access = yield* orchestra.access(session.id)
       if (session.id === project.main || access === "hidden" || !(yield* orchestra.owns(project, session)))
-        return yield* new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })
-      if (!Orchestra.allows(access, required))
+        return yield* new ToolFailure({ message: `Сессия не существует или недоступна: ${sessionID}. Обновите sessions list; не повторяйте отправку по старому ID.` })
+      if (!Orchestra.allows(access, required)) {
+        // A BrowserAgent session belongs to the Orchestrator: it raises the level itself instead of asking.
+        if (/^team-browser/.test(session.agent ?? "")) {
+          yield* orchestra.setAccess(session.id, required === "full" ? "full" : "write")
+          return session
+        }
         return yield* new ToolFailure({
-          message: `Access to ${sessionID} is "${access}"; this action needs "${required}". The operator can raise it in the project panel.`,
+          message: `Access to ${sessionID} is "${access}"; this action needs "${required}". Send the work to a session you can write to (sessions list shows access), or tell the operator which session needs more access and why.`,
         })
+      }
       return session
     })
 
@@ -891,9 +1000,9 @@ export const Plugin = {
       )
       const access = yield* orchestra.accessMany(members.map((session) => session.id))
       const categories = yield* orchestra.categories(members.map((session) => session.id))
-      const roles = yield* orchestra.roles()
+      const roles = yield* orchestra.roles(project.id)
       return members
-        .filter((session) => access[session.id] !== "hidden")
+        .filter((session) => access[session.id] !== "hidden" && !BrowserLifecycle.retired(String(session.id)))
         .map((session) => {
           const role = roles.find((item) => item.agent === session.agent)
           return {
@@ -958,18 +1067,33 @@ export const Plugin = {
     // not hand back spent messages. Sessions that are not a project main are
     // never gated.
     const gateCounted = new Map<string, string[]>()
+    const gateIncoming = new Map<string, string>()
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
         const project = yield* orchestra.mainOf(event.sessionID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project || project.main !== event.sessionID) return
+        // The newest messages, oldest first. Reading the oldest 100 (order asc) made a long chat count its first
+        // messages, not its latest ones.
+        const history = yield* sessions
+          .messages({ sessionID: event.sessionID, limit: 100, order: "desc" })
+          .pipe(
+            Effect.map((list) => [...list].reverse()),
+            Effect.orElseSucceed(() => [] as SessionMessage.Info[]),
+          )
+        const incoming = [...history].reverse().find((item) => item.type === "user" || item.type === "synthetic")
+        const incomingID = incoming ? String(incoming.id) : ""
         let counted = gateCounted.get(event.sessionID)
         if (!counted) {
-          const history = yield* sessions
-            .messages({ sessionID: event.sessionID, limit: 100, order: "asc" })
-            .pipe(Effect.orElseSucceed(() => [] as SessionMessage.Info[]))
           const streak = Math.min(ownMessageStreak(history), ORCHESTRATOR_MESSAGE_LIMIT)
           counted = Array.from({ length: streak }, (_, index) => `history-${index}`)
           gateCounted.set(event.sessionID, counted)
+          gateIncoming.set(event.sessionID, incomingID)
+        } else if (incomingID !== "" && incomingID !== gateIncoming.get(event.sessionID)) {
+          // A new incoming message (the operator's, or a <team-report> wake-up) starts a new cycle. Without this
+          // the count never reset, and a chat of plain questions ended with every tool call refused for good.
+          counted = []
+          gateCounted.set(event.sessionID, counted)
+          gateIncoming.set(event.sessionID, incomingID)
         }
         // The gate needs the action for more than the sessions tool: the
         // MCP survey (mcp_manager inspect) is exempt, so its action must
@@ -989,7 +1113,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `6-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too.`,
+            message: `12-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too. (This count restarts with every new message from the operator.)`,
           })
       }),
     )
@@ -998,7 +1122,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, core: true },
+          options: { codemode: false, core: true, guide, guideWithResult: true },
           description,
           input: Input,
           output: Output,
@@ -1088,6 +1212,33 @@ export const Plugin = {
               })
               const dispatch = (sessionID: SessionSchema.ID, text: string) =>
                 Effect.gen(function* () {
+                  // A turn a trigger started, without the operator's yes for publishing, hands nothing over that looks like
+                  // sending, replying or posting in the operator's name.
+                  const incomingHistory = yield* sessions
+                    .messages({ sessionID: context.sessionID, limit: 40, order: "desc" })
+                    .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
+                  const blocked = Trigger.publishRefusal(incomingHistory as never, text)
+                  if (blocked) return yield* new ToolFailure({ message: blocked })
+                  // A worker that gets its task from a triggered turn cannot click, type or run scripts in a page
+                  // (the browser tool checks this mark); a task from an ordinary turn lifts the mark.
+                  const by = Trigger.triggered(incomingHistory as never)
+                  const provenance: BrowserProvenance.Record = by && !by.publishApproved
+                    ? { mode: "read-only", triggerID: by.id, ...(by.browserSessionID ? { browserSessionID: by.browserSessionID } : {}) }
+                    : { mode: "ordinary" }
+                  if (!(provenance.mode === "ordinary" ? BrowserProvenance.reset(String(sessionID)) : BrowserProvenance.write(String(sessionID), provenance)))
+                    return yield* new ToolFailure({ message: "The browser task authority could not be saved. Nothing was dispatched; fix storage access and try again." })
+                  if (by && !by.publishApproved) Trigger.taint(String(sessionID), by.id, Date.now(), by.browserSessionID)
+                  else Trigger.clearTaint(String(sessionID))
+                  if(input.workScope){
+                    const scope=scopePaths(input.workScope)
+                    if(!scope)return yield* new ToolFailure({message:"Invalid workScope: use exact project-relative paths without traversal or wildcards."})
+                    const worker=yield* sessions.get(sessionID)
+                    yield* sessions.setMetadata({sessionID,metadata:{...worker.metadata,[SCOPE_KEY]:scope}})
+                  }else{
+                    const worker=yield* sessions.get(sessionID)
+                    const metadata={...worker.metadata};delete metadata[SCOPE_KEY]
+                    yield* sessions.setMetadata({sessionID,metadata})
+                  }
                   const recon = yield* reconBrief()
                   return yield* orchestra.dispatch({
                     project,
@@ -1097,7 +1248,7 @@ export const Plugin = {
                 }).pipe(
                   Effect.mapError((error) => new ToolFailure({ message: `Could not send task: ${error.message}`, error })),
                 )
-              const roles = yield* orchestra.roles()
+              const roles = yield* orchestra.roles(project.id)
               // A mode changes how a session works, not what its role allows. `auto` clears the
               // stored override so the role's default applies again.
               const requireMode = Effect.fnUntraced(function* (id: string | undefined) {
@@ -1112,7 +1263,7 @@ export const Plugin = {
               const setMode = Effect.fnUntraced(function* (sessionID: SessionSchema.ID, mode: Mode.Spec) {
                 const session = yield* sessions
                   .get(sessionID)
-                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Session not found: ${sessionID}. Use the complete ID from the team roster.` })))
+                  .pipe(Effect.mapError(() => new ToolFailure({ message: `Сессия не существует или недоступна: ${sessionID}. Обновите sessions list; не повторяйте отправку по старому ID.` })))
                 const metadata = { ...(session.metadata ?? {}) }
                 if (mode.id === "auto") delete metadata[Mode.MetadataKey]
                 else metadata[Mode.MetadataKey] = mode.id
@@ -1379,6 +1530,8 @@ export const Plugin = {
                   if (!input.text?.trim()) return yield* new ToolFailure({ message: "Pass the message as text" })
                   yield* busy(session.id)
                   const role = roles.find((item) => item.agent === session.agent)
+                  const wrongRoute = browserRouteRefusal(role?.id, input.text)
+                  if (wrongRoute) return yield* new ToolFailure({ message: wrongRoute })
                   const mode = yield* requireMode(input.mode)
                   const choice = yield* choose(
                     role,
@@ -1391,7 +1544,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent to ${session.title ?? session.id}. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
+                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the session service. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {
@@ -1402,18 +1555,22 @@ export const Plugin = {
                     return yield* new ToolFailure({
                       message: `${input.role ? `Unknown role ${input.role}` : "Pass a role"}. Roles: ${roles.map((role) => role.id).join(", ")}`,
                     })
+                  const wrongRoute = browserRouteRefusal(role.id, input.text)
+                  if (wrongRoute) return yield* new ToolFailure({ message: wrongRoute })
                   const mode = yield* requireMode(input.mode)
                   const choice = yield* choose(role, input.text, mode ?? Mode.defaultForRole(role))
 
                   // Reuse the project's existing worker by role before creating anything.
                   // A new instance is an explicit opt-in, not the default response to a new task.
-                  if (!input.newInstance) {
+                  // Every browser session is its own page and its own BrowserAgent, so a request for one more is never a reuse.
+                  if (!input.newInstance && role.id !== "browser-agent") {
                     const rows = yield* team(project)
                     const matching = rows.filter((row) => row.role === role.id)
                     if (matching.length > 0) {
+                      const active=yield* sessions.active
                       const pending = new Set<string>()
                       for (const row of matching) {
-                        if ((yield* orchestra.pending(row.session.id)) !== undefined) pending.add(row.session.id)
+                        if (active.has(row.session.id) || (yield* orchestra.pending(row.session.id)) !== undefined) pending.add(row.session.id)
                       }
                       const reusable = reusableWorker(rows, role.id, pending)
                       if (reusable.session) {
@@ -1426,17 +1583,17 @@ export const Plugin = {
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
-                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`
+                            ? `Reused existing ${role.name} session ${existing.title ?? existing.id}; task queued. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? existing.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`
                             : `Reused existing ${role.name} session ${existing.title ?? existing.id}. No new session was created; use action send to assign work.`,
                         }
                       }
                       if (reusable.writable.length === 0) {
                         return yield* new ToolFailure({
-                          message: `An existing ${role.name} session has no write access. Do not create a duplicate to bypass permissions; ask the operator to raise its access to write or full.`,
+                          message: `An existing ${role.name} session is read-only, so no work can go to it. Do not create a duplicate. Use a ${role.name} session that has write access, or tell the operator which session needs write access and why.`,
                         })
                       }
-                      return yield* new ToolFailure({
-                        message: `All existing ${role.name} sessions have an outstanding task. Wait for a <team-report> before sending more work. No duplicate session was created.`,
+                      if(!input.text?.trim() || !disjointScopes(input.workScope,reusable.writable.map(row=>row.session.metadata?.[SCOPE_KEY])))return yield* new ToolFailure({
+                        message: `All existing ${role.name} sessions have an outstanding task. Independent disjoint work can be staffed automatically: pass workScope with exact project-relative paths, with existing workers' scopes known. Overlapping/dependent/unknown scope waits for the report. No duplicate session was created.`,
                       })
                     }
                   }
@@ -1454,7 +1611,10 @@ export const Plugin = {
                   const created = yield* orchestra
                     .createMember({
                       project,
-                      title: input.title?.trim() || undefined,
+                      title:
+                        role.id === "browser-agent"
+                          ? browserSessionTitle(input.title, input.text)
+                          : input.title?.trim() || undefined,
                       agent: role.agent,
                       model: choice.model ?? worker.model ?? Option.getOrUndefined(main)?.model,
                       models: worker.models,
@@ -1473,9 +1633,15 @@ export const Plugin = {
                   const limit = yield* distributeMcp(created.id, role)
                   if (input.text?.trim())
                     yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
+                  // What is reported is what was read back from the session store, not what was asked for.
+                  const confirmed = yield* sessions.get(created.id).pipe(Effect.option)
+                  if (Option.isNone(confirmed))
+                    return yield* new ToolFailure({
+                      message: `NOT CONFIRMED: ${created.id} cannot be read back after creation. Treat it as not created: retry once, then tell the operator it failed.`,
+                    })
                   return {
                     sessionID: created.id,
-                    output: `Created ${created.id}${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Stop and wait for the report now; do NOT poll with read or list." : ""}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
+                    output: `Created. VERIFIED: id ${created.id}, title "${confirmed.value.title ?? ""}", role ${role.id}, agent ${confirmed.value.agent ?? role.agent}, project ${project.directory}; listed in the operator's project tree${input.text?.trim() ? "; task queued. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list." : "; NO TASK WAS SENT: nothing is running in it and no report will ever arrive. Do not tell the operator that it is working or launched. Send the task now with sessions action=send, then wait for its report."}.${modelNote(created.model, choice.model ? (choice.modelSource ?? "your explicit choice") : worker.model ? "the role/worker policy" : "inherited from your own session — pass model to choose otherwise")}`,
                   }
                 }
                 case "answer": {
@@ -1484,7 +1650,7 @@ export const Plugin = {
                   if (answers.length === 0) return yield* new ToolFailure({ message: "Pass answers, one list per question" })
                   // The worker's oldest open question; the human may already have answered it in the worker.
                   const form = (yield* forms.list({ sessionID: session.id })).find(
-                    (item) => item.metadata?.kind === "question",
+                    (item) => Orchestra.isForwardedForm(item.metadata?.kind),
                   )
                   if (!form)
                     return yield* new ToolFailure({
@@ -1538,6 +1704,18 @@ export const Plugin = {
                   return {
                     sessionID: session.id,
                     output: `${session.title ?? session.id} now works in the ${mode.name} mode (${mode.id}) from its next task.`,
+                  }
+                }
+                case "set_model": {
+                  // Only the Orchestrator changes a worker's model; a worker never does it by itself.
+                  const session = yield* target(project, input.sessionID, "write")
+                  if (!input.model?.trim()) return yield* new ToolFailure({ message: "Pass model (provider/model) to set_model" })
+                  const role = roles.find((item) => item.agent === session.agent)
+                  const choice = yield* choose(role)
+                  if (choice.model) yield* apply(session.id, { model: choice.model })
+                  return {
+                    sessionID: session.id,
+                    output: `${session.title ?? session.id} now runs on ${choice.model ? modelRef(choice.model) : input.model}. Send the task again.`,
                   }
                 }
                 case "stop": {
@@ -1642,7 +1820,7 @@ export const Plugin = {
         const project = yield* orchestra.mainOf(event.sessionID)
         if (!project) return
         const rows = yield* team(project).pipe(Effect.orElseSucceed(() => []))
-        const roles = yield* orchestra.roles()
+        const roles = yield* orchestra.roles(project.id)
         const playbook = yield* orchestra.playbook(project.id)
         const outcomes = yield* orchestra.outcomes(project.id)
         event.system.push({
@@ -1669,12 +1847,13 @@ export const Plugin = {
                 ].join("\n"),
             "",
             "Team workflow rules (mandatory):",
-            "- Reuse an existing session with the needed role via action send; do not create a duplicate just because the task is new or a worker is busy.",
+            "- This roster is not a staffing ceiling. Reuse an idle writable worker; otherwise sessions create with role, text and mcp. Use newInstance=true only for independent disjoint work while same-role workers are busy. Never bypass read-only access; all workers stay in this project.",
             "- Each session has a work mode (auto, fast, coding, research, planning, review, debug, design, ops). Set it with action set_mode or pass mode to send/create. A mode changes how the worker works and may make it read-only; it never widens the role's permissions.",
+            "- Page actions in a browser session go to that session's BrowserAgent chat (browser action sessions lists its id) with action send; you only look at the page yourself (sessions, info, text, screenshot).",
             "- Copy the complete session ID exactly from this roster. Never truncate, infer, or substitute an ID.",
-            "- Sending a task ends this model turn while the worker runs; a task-linked <team-report> wakes you again. Do not tell the user the task is complete merely because send succeeded.",
+            "- Dispatch all ready independent work in this turn, then wait for task-linked <team-report> wakeups. One successful send is progress, not completion. Plan the next wave and choose roles/MCP yourself; ask only for an operator-only action, never how to solve or whether to continue.",
             "- After each <team-report>, compare the worker's evidence with the original acceptance criteria. outcome=partial, incomplete, failed, or stopped means the task is still open unless explicitly blocked/cancelled (outcome=unknown: judge the report text itself): inspect the report and send a specific follow-up to the same worker once its previous task is no longer outstanding. outcome=complete is evidence to review, not a substitute for checking the criteria.",
-            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer when the task, the playbook or the operator's instructions settle it, and pass reason: one short sentence on why, which the operator sees next to your answer. Ask the operator only when the decision is genuinely theirs.",
+            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer yourself by default, and pass reason: one short sentence on why, which the operator sees next to your answer. Ask the operator only for hard limits: spending money, secrets through the masked Vault form (never chat or .env), publishing or other irreversible outside actions.",
             "- If a sessions tool call fails, inspect its exact error and use list/read to verify IDs and whether a task is outstanding. Fix the arguments or underlying cause before retrying; never repeat the identical failed call.",
             "- Do not call HTTP endpoints directly or guess /api/orchestra routes. If a tool/API error occurs, report its exact message and do not create a replacement session as a workaround.",
             "",
@@ -1695,6 +1874,10 @@ export const Plugin = {
         // delegation status below: stage state changes during a turn, so it must
         // not destabilize the cacheable roster block above.
         const stages = yield* orchestra.stages(project.id)
+        if(stages.length){
+          const ready=stages.filter(stage=>stage.status==="planned"&&stage.dependsOn.every(id=>stages.find(other=>other.id===id)?.status==="completed"))
+          event.system.push({type:"text",text:`Next dependency wave: ${ready.map(stage=>`${stage.id} (${stage.roles.join(",")||"choose role"}; acceptance: ${stage.acceptance||"define evidence"})`).join("; ")||"none ready; inspect running/blockers, do not invent completion"}. Staff ready work yourself using sessions create/send; no roster ceiling. Check reports before completing dependencies.`})
+        }
         if (stages.length > 0)
           event.system.push({
             type: "text",
@@ -1712,8 +1895,11 @@ export const Plugin = {
         // The 6-message rule status rides in its own block so the roster above
         // stays stable and cacheable; only this small tail changes per request.
         const history = yield* sessions
-          .messages({ sessionID: event.sessionID, limit: 100, order: "asc" })
-          .pipe(Effect.orElseSucceed(() => [] as SessionMessage.Info[]))
+          .messages({ sessionID: event.sessionID, limit: 100, order: "desc" })
+          .pipe(
+            Effect.map((list) => [...list].reverse()),
+            Effect.orElseSucceed(() => [] as SessionMessage.Info[]),
+          )
         event.system.push({ type: "text", text: delegationStatus(ownMessageStreak(history)).text })
       }),
     )

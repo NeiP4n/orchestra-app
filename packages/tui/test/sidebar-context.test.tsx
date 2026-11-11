@@ -318,7 +318,9 @@ test("the session scope renders Claude-style auto-compaction header and progress
     expect(text).toContain("Group")
     expect(text).toContain("Auto-compaction at:")
     expect(text).toContain("Context limit ✎")
-    expect(text).toContain("45% of context limit")
+    // Percent is in the Context heading once, not duplicated on a spacer-like row below the bar.
+    expect(lines.filter((line) => line.includes("45% used"))).toHaveLength(1)
+    expect(text).not.toContain("45% of context limit")
     expect(text).toContain("Input")
     expect(text).toContain("Cache read")
     expect(text).toContain("Free space")
@@ -513,7 +515,8 @@ test("sidebar context renders Russian localization for auto-compaction and progr
     const text = lines.join("\n")
     expect(text).toContain("Автосжатие при:")
     expect(text).toContain("Весь лимит ✎")
-    expect(text).toContain("45% из 100% лимита контекста")
+    expect(lines.filter((line) => line.includes("45%"))).toHaveLength(1)
+    expect(text).not.toContain("45% из 100% лимита контекста")
     expect(text).toContain("Инструменты и MCP")
   } finally {
     setup.renderer.destroy()

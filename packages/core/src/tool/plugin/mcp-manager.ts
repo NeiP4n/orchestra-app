@@ -3,6 +3,12 @@ export * as McpManagerTool from "./mcp-manager.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import { Effect, Option, Schema } from "effect"
+import { CapabilityInspect } from "../../capabilities/inspect.js"
+import { CapabilityRegistry } from "../../capabilities/registry.js"
+import { Tool as ToolService } from "../../tool.js"
+import { Skill } from "../../skill.js"
+import { Config } from "../../config.js"
+import { operatorEnableRequest } from "../../mcp/disabled.js"
 import { McpAcquire } from "../../mcp/acquire.js"
 import { McpCatalog } from "../../mcp/catalog.js"
 import { McpLifecycle } from "../../mcp/lifecycle.js"
@@ -16,10 +22,10 @@ import { acquireCeiling, MCP_SURVEY_METADATA_KEY } from "./orchestra.js"
 export const name = "mcp_manager"
 
 const description = [
-  "Manage the MCP fleet lifecycle as the Orchestrator. The fleet is AI-managed: servers stay persistently disabled until a task needs them.",
-  "Actions: inspect lists every configured server with its origin (orchestra = untouched catalog install, user = user-managed), status, discovered tools, leases and pins. enable persistently enables a server and verifies it actually works (connected AND tools discovered). disable persistently disables it (config preserved, survives restart) — refused while another task leases it or the operator pinned it. remove deletes a server's config entry after archiving it (restore brings it back); Orchestra-managed servers can be removed autonomously, user-managed ones only with approved: true after the operator agreed. acquire selects and installs a catalog server for a capability need (need) or a server id, then enables it — selection is ranked by the need with a fallback chain (context7 → deepwiki, serena → native symbols/grep, playwright → agent-desktop), and when no server fits confidently it answers with an ask-card (candidates + recommendation) instead of guessing. lease/release stake or free a task's claim on a server so other work cannot disable it mid-task. pin/unpin mark an operator keep-on decision.",
+  "Manage the MCP fleet lifecycle as the Orchestrator. Operator-disabled servers remain OFF until the operator enables them in the Registry.",
+  "Actions: inspect lists every configured server with its origin (orchestra = untouched catalog install, user = user-managed), status, discovered tools, leases and pins. enable returns an operator approval request without configuration changes or connection attempts. disable persistently disables it (config preserved, survives restart) — refused while another task leases it or the operator pinned it. remove deletes a server's config entry after archiving it (restore brings it back); Orchestra-managed servers can be removed autonomously, user-managed ones only with approved: true after the operator agreed. acquire selects and installs a catalog server for a capability need (need) or a server id, excluding operator-disabled servers — selection is ranked by the need with a fallback chain (context7 → deepwiki, serena → native symbols/grep, playwright → agent-desktop), and when no server fits confidently it answers with an ask-card (candidates + recommendation) instead of guessing. lease/release stake or free a task's claim on a server so other work cannot disable it mid-task. pin/unpin mark an operator keep-on decision.",
   "Pass role when acting for a specific role: servers outside that role's MCP ceiling are refused — enabling globally never grants a role access. Pass holder (a session or task id) on lease/release, and on disable to release your own lease first.",
-  "Never enable the whole catalog: enable only what the current task needs, and disable what no active task needs anymore.",
+  "Never re-enable an operator-disabled server. Request operator approval in the Registry. Disable only what no active task needs anymore.",
 ].join("\n")
 
 export const Input = Schema.Struct({
@@ -131,6 +137,26 @@ export const Plugin = {
             switch (input.action) {
               case "inspect": {
                 const rows = yield* guard(McpLifecycle.inspect(lifecycle))
+                const tools = yield* Effect.serviceOption(ToolService.Service)
+                const skills = yield* Effect.serviceOption(Skill.Service)
+                const config = yield* Effect.serviceOption(Config.Service)
+                const registered = Option.isSome(tools) ? yield* tools.value.list() : []
+                const indexedSkills = Option.isSome(skills) ? yield* skills.value.list() : []
+                const documents = Option.isSome(config) ? yield* config.value.entries() : []
+                const plugins = documents.flatMap((row) => row.type === "document" ? row.info.plugins ?? [] : [])
+                  .map((row) => typeof row === "string" ? row : row.package)
+                  .filter((id): id is string => typeof id === "string")
+                  .map((value, index) => {
+                    const id = value.startsWith("-") ? value.slice(1) : value
+                    // Local specifiers or URLs can contain paths/credentials; never put them in the compact index.
+                    return { id: /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+(?:@[a-z0-9._-]+)?$/i.test(id)
+                      ? id : `configured-plugin-${index + 1}`, disabled: value.startsWith("-") }
+                  })
+                const capabilities = CapabilityInspect.inspect({ at: Date.now(), mcpEnabled: McpCatalog.mcpEnabled(process.env),
+                  mcp: rows.map((row) => ({ name: row.name, disabled: row.disabled, status: row.status, tools: row.tools })),
+                  native: CapabilityInspect.localToolIDs(registered, [...rows.map((row) => row.name), ...McpCatalog.all.map((row) => row.id)]),
+                  skills: indexedSkills.map((row) => String(row.id)), plugins,
+                })
                 const active = rows.filter((row) => row.status === "connected").length
                 const lines = rows.map((row) => {
                   const parts = [
@@ -195,6 +221,7 @@ export const Plugin = {
                           ...installable.map((entry) => `- ${entry.id}: ${entry.description}`),
                         ]
                       : []),
+                    ...CapabilityRegistry.summary(capabilities),
                     `No MCP server needed for these — native tools cover them:`,
                     ...McpCatalog.nativeAnalogues.map(
                       (analogue) => `- ${analogue.id}: ${analogue.description} (use ${analogue.nativeTools.join(", ")})`,
@@ -216,11 +243,7 @@ export const Plugin = {
                 if (!server) return yield* fail("Action enable needs a server id.")
                 const refusal = yield* checkRole(server)
                 if (refusal) return yield* fail(refusal)
-                const outcome = yield* guard(McpLifecycle.enable(lifecycle, server))
-                if (input.holder) yield* guard(McpLifecycle.acquireLease(lifecycle, server, input.holder, input.note))
-                return {
-                  output: `${server}: ${outcome.state} — ${outcome.detail}${outcome.tools.length > 0 ? ` Tools: ${outcome.tools.join(", ")}.` : ""}`,
-                }
+                return { output: operatorEnableRequest("MCP server", server) }
               }
               case "disable": {
                 const server = requireServer()
@@ -253,12 +276,18 @@ export const Plugin = {
                 let server: string
                 let chain: readonly McpSelect.Fallback[]
                 let explanation = ""
+                const configured = yield* lifecycle.configured()
+                const runtime = yield* lifecycle.servers()
+                const disabled = new Set([
+                  ...Object.entries(configured).filter(([, row]) => row.disabled === true).map(([id]) => id),
+                  ...runtime.filter((row) => row.status.status === "disabled").map((row) => String(row.name)),
+                ])
                 if (explicit) {
                   server = explicit
                   chain = McpSelect.fallbackChain(explicit)
                 } else {
                   const ratings = yield* readRatings()
-                  const decision = McpSelect.selectForTask(need!, { ratings })
+                  const decision = McpSelect.selectForTask(need!, { ratings, disabled })
                   if (decision.kind === "native")
                     return { output: `${decision.explanation} No server was installed.` }
                   if (decision.kind === "ask")
@@ -291,6 +320,11 @@ export const Plugin = {
                         `Use native tools instead: ${attempt.tools.join(", ")}. No server was installed.`,
                       ].join(" "),
                     }
+                  const configured = yield* lifecycle.configured()
+                  if (disabled.has(attempt.server) || configured[attempt.server]?.disabled === true) {
+                    tried.push(`${attempt.server} (disabled by operator)`)
+                    continue
+                  }
                   const refusal = yield* checkRole(attempt.server)
                   if (refusal) {
                     if (attempt.server === server) return yield* fail(refusal)
@@ -303,16 +337,13 @@ export const Plugin = {
                       output: `${attempt.server}: needs authorization before it can be installed — ${ensured.detail} Nothing was installed.`,
                     }
                   if (ensured.state === "healthy" || ensured.state === "degraded") {
-                    // A catalog install lands enabled in the runtime; make the
-                    // enabled state the persistent one too, then verify.
-                    const outcome = yield* guard(McpLifecycle.enable(lifecycle, attempt.server))
                     if (input.holder)
                       yield* guard(McpLifecycle.acquireLease(lifecycle, attempt.server, input.holder, input.note))
                     return {
                       output: [
                         ...(explanation ? [explanation] : []),
                         ...(tried.length > 0 ? [`${tried.join("; ")}; fell back to ${attempt.server}.`] : []),
-                        `${attempt.server}: acquired (${ensured.action}) and ${outcome.state} — ${outcome.detail}${outcome.tools.length > 0 ? ` Tools: ${outcome.tools.join(", ")}.` : ""}`,
+                        `${attempt.server}: acquired (${ensured.action}) and ${ensured.state} - ${ensured.detail}${ensured.tools.length > 0 ? ` Tools: ${ensured.tools.join(", ")}.` : ""}`,
                       ].join(" "),
                     }
                   }

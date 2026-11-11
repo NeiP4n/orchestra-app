@@ -1,5 +1,6 @@
 export * as McpRoleProfiles from "./role-profiles.js"
 
+import { RETIRED_CATALOG_SERVERS } from "./retired.js"
 import { Note } from "@orchestra/schema/note"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { RoleToolkits } from "../roles/toolkits.js"
@@ -57,7 +58,7 @@ export function serversOf(tools: readonly string[]): readonly string[] {
     if (notServers.has(prefix)) return []
     return [aliases[prefix] ?? prefix]
   })
-  return [...new Set(servers)].toSorted()
+  return [...new Set(servers)].filter((server) => !RETIRED_CATALOG_SERVERS.has(server)).toSorted()
 }
 
 // A server is required for a role when the role's own rules name it as part of how the role
@@ -114,10 +115,36 @@ const agentProfile = (
 // note chat (deny-all except note/read/question) reach no MCP server at all; the President
 // runs under the group supervisor ruleset, which denies everything but federation/questions.
 export const standalone: readonly Profile[] = [
-  agentProfile("orchestrator", "orchestrator", true, [], "Unrestricted: it inspects the connected servers and allocates them to roles; its planning and durable team facts live in the native board and notes, so no MCP server is required.", String(Orchestra.agent)),
-  agentProfile("president", "supervisor", false, [], "Group supervisor ruleset denies tools; a group chat coordinates, it does not call MCP servers.", String(Orchestra.president)),
-  agentProfile("build", "agent", true, [], "The default agent carries no MCP narrowing of its own; configured permissions decide."),
-  agentProfile("general", "agent", true, [], "General-purpose subagent with no MCP narrowing of its own; configured permissions decide."),
+  agentProfile(
+    "orchestrator",
+    "orchestrator",
+    true,
+    [],
+    "Unrestricted: it inspects the connected servers and allocates them to roles; its planning and durable team facts live in the native board and notes, so no MCP server is required.",
+    String(Orchestra.agent),
+  ),
+  agentProfile(
+    "president",
+    "supervisor",
+    false,
+    [],
+    "Group supervisor ruleset denies tools; a group chat coordinates, it does not call MCP servers.",
+    String(Orchestra.president),
+  ),
+  agentProfile(
+    "build",
+    "agent",
+    true,
+    [],
+    "The default agent carries no MCP narrowing of its own; configured permissions decide.",
+  ),
+  agentProfile(
+    "general",
+    "agent",
+    true,
+    [],
+    "General-purpose subagent with no MCP narrowing of its own; configured permissions decide.",
+  ),
   agentProfile(
     "explore",
     "agent",
@@ -125,7 +152,14 @@ export const standalone: readonly Profile[] = [
     serversOf(["webfetch", "websearch"]).map((server) => ({ server, access: "allowed" as Access })),
     "Read-only codebase explorer: deny-all except native search/read and web access, whose implied MCP documentation and fetch servers are the ones listed.",
   ),
-  agentProfile("notes", "agent", false, [], "The note chat is deny-all except the note tool, reading and questions.", String(Note.agent)),
+  agentProfile(
+    "notes",
+    "agent",
+    false,
+    [],
+    "The note chat is deny-all except the note tool, reading and questions.",
+    String(Note.agent),
+  ),
   agentProfile("compaction", "agent", false, [], "Hidden utility agent; no tool access is granted for MCP work."),
   agentProfile("title", "agent", false, [], "Hidden utility agent under a deny-all ruleset."),
   agentProfile("summary", "agent", false, [], "Hidden utility agent under a deny-all ruleset."),
@@ -145,7 +179,10 @@ export function forRole(id: string) {
  * standalone agents. Unknown agents get no profile: callers treat that as unrestricted
  * legacy behaviour rather than inventing a restriction.
  */
-export function forAgent(agent: string, roles: readonly (Orchestra.RoleSpec & { readonly id: string })[] = Orchestra.roles) {
+export function forAgent(
+  agent: string,
+  roles: readonly (Orchestra.RoleSpec & { readonly id: string })[] = Orchestra.roles,
+) {
   const role = roles.find((item) => String(Orchestra.role(item.id)) === agent)
   if (role) return fromRole(role)
   return standalone.find((profile) => profile.agent === agent)
@@ -160,5 +197,7 @@ export function allows(profile: Profile, server: string) {
 /** The servers the role requires that are not in the given installed set. */
 export function missingRequired(profile: Profile, installed: readonly string[]) {
   const present = new Set(installed)
-  return profile.servers.filter((grant) => grant.access === "required" && !present.has(grant.server)).map((grant) => grant.server)
+  return profile.servers
+    .filter((grant) => grant.access === "required" && !present.has(grant.server))
+    .map((grant) => grant.server)
 }

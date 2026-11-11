@@ -1,6 +1,6 @@
 import { expect } from "bun:test"
 import path from "path"
-import { Clock, Deferred, Effect } from "effect"
+import { Clock, Deferred, Effect, Exit } from "effect"
 import { TestClock } from "effect/testing"
 import { Command } from "@orchestra/core/command"
 import { Bus } from "@orchestra/core/bus"
@@ -447,6 +447,34 @@ it.live("retains Promise plugin groups for later registrations and ignores a dis
     expect(yield* commands.get("late")).toBeUndefined()
     yield* Effect.promise(register)
     expect(yield* commands.get("late")).toBeUndefined()
+  }),
+)
+
+it.effect("preserves Promise OAuth removal hooks through both adapters and keeps native records on refusal", () =>
+  Effect.gen(function* () {
+    const plugins = yield* Plugin.Service
+    const credentials = yield* Credential.Service
+    const integrations = yield* Integration.Service
+    const integrationID = Integration.ID.make("google")
+    const methodID = Integration.MethodID.make("antigravity")
+    const calls: string[] = []
+    let refuse = true
+    yield* plugins.activate([{ ...fromPromise({ id: "linked-account-owner", async setup(ctx) {
+      await ctx.integration.transform(editor => editor.method.update({
+        integrationID, method: { id: methodID, type: "oauth", label: "Managed OAuth" },
+        async authorize() { return { mode: "code", url: "https://example.invalid/authorize", instructions: "Paste code", async callback() { return { type: "oauth", methodID, access: "test-access", refresh: "test-refresh", expires: 1 } } } },
+        async remove(_value, id) { calls.push(id); if (refuse) throw new Error("synthetic store refusal") },
+      }))
+    } }), revision: "1" }])
+    yield* plugins.awaitActivation
+    const created = yield* credentials.create({ integrationID, value: Credential.OAuth.make({ type: "oauth", methodID, access: "test-access", refresh: "test-refresh", expires: 1 }) })
+    const failed = yield* Effect.exit(credentials.remove(created.id))
+    expect(Exit.isFailure(failed)).toBe(true)
+    expect(yield* credentials.get(created.id)).toEqual(created)
+    refuse = false
+    yield* integrations.connection.remove(created.id)
+    expect(yield* credentials.get(created.id)).toBeUndefined()
+    expect(calls).toEqual([created.id, created.id])
   }),
 )
 

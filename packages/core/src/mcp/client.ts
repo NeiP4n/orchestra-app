@@ -1,5 +1,7 @@
 export * as McpClient from "./client.js"
 
+import { mcpMayStart } from "./disabled.js"
+
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import {
@@ -41,8 +43,7 @@ const DEFAULT_CATALOG_TIMEOUT = 30_000
 const RUNNER_STARTUP_TIMEOUT = 5 * 60 * 1_000
 const RUNNERS = new Set(["npx", "uvx", "bunx", "pnpx"])
 const DEFAULT_EXECUTION_TIMEOUT = 5 * 60 * 1_000 // 5 minutes: a tool call that runs longer is stuck, not working
-// No MCP call runs without a timeout, whatever the config says: even an
-// explicit per-server timeout is clamped to this hard wall.
+// MCP execution is clamped to this wall unless the operator acknowledges full limits disable.
 const MAX_EXECUTION_TIMEOUT_MS = 30 * 60 * 1_000
 // Tools that legitimately run longer than the 5-minute default: a language
 // server starting up behind Serena, a remote model answering behind
@@ -58,8 +59,7 @@ const TOOL_EXECUTION_TIMEOUT_MS: Readonly<Record<string, number>> = {
 /**
  * Execution timeout for one tool call, in milliseconds. Explicit per-server
  * config wins; then the per-tool table; then the 5-minute default. The hard
- * wall caps everything, so no call runs without a timeout whatever the config
- * says. `tool` is the raw tool name the server sees (no `<server>_` prefix).
+ * wall caps execution unless the operator acknowledges full limits disable. `tool` is the raw tool name the server sees (no `<server>_` prefix).
  */
 export function executionTimeoutFor(
   server: string,
@@ -69,6 +69,7 @@ export function executionTimeoutFor(
 ): number {
   const fallback =
     tool === undefined ? DEFAULT_EXECUTION_TIMEOUT : (TOOL_EXECUTION_TIMEOUT_MS[`${server}:${tool}`] ?? DEFAULT_EXECUTION_TIMEOUT)
+  if (Limits.fullyDisabled(env)) return Limits.UNBOUNDED_MS
   return Math.min(Limits.timeout(configured, fallback, env), MAX_EXECUTION_TIMEOUT_MS)
 }
 const TERMINATE_TIMEOUT = 1_000
@@ -260,6 +261,12 @@ export const connect = Effect.fnUntraced(function* (
 ) {
   // The SDK takes list-changed handlers at construction, but consumers register after connect. On a
   // modern connection the SDK opens the subscriptions/listen stream behind these itself.
+  let closed = false
+  const mayRequest = () => !closed && mcpMayStart(config)
+  const guard = <A, E>(effect: Effect.Effect<A, E>) => Effect.suspend((): Effect.Effect<A, E | Error> =>
+    mayRequest() ? effect : Effect.fail(new Error(`MCP server "${server}" is disabled or closed.`)),
+  )
+  if (!mayRequest()) return yield* Effect.fail(new Error(`MCP server "${server}" is disabled.`))
   const changed = { tools: () => {}, prompts: () => {}, resources: () => {} }
   const listChanged = (key: keyof typeof changed) => ({
     autoRefresh: false,
@@ -277,11 +284,11 @@ export const connect = Effect.fnUntraced(function* (
   // Two more attempts, 250 ms and 1 s later, while the failure is transient and the deadline has not passed.
   const retrying = <A, E>(what: string, effect: Effect.Effect<A, E>, deadline = Infinity) =>
     Effect.retry(
-      effect,
+      guard(effect),
       Schedule.max([Schedule.exponential("250 millis", 4), Schedule.recurs(2)]).pipe(
-        Schedule.setInputType<E>(),
+        Schedule.setInputType<E | Error>(),
         Schedule.while(({ input, now, duration }) =>
-          !isTransient(input) || now + Duration.toMillis(duration) >= deadline
+          !mayRequest() || !isTransient(input) || now + Duration.toMillis(duration) >= deadline
             ? Effect.succeed(false)
             : Effect.logWarning(`retrying ${what}`, { server, error: describe(input) }).pipe(Effect.as(true)),
         ),
@@ -295,6 +302,7 @@ export const connect = Effect.fnUntraced(function* (
       : DEFAULT_STARTUP_TIMEOUT)
 
   const initialize = Effect.fnUntraced(function* (transport: Transport) {
+    if (!mayRequest()) return yield* Effect.fail(new Error(`MCP server "${server}" is disabled.`))
     const runFork = Effect.runForkWith(yield* Effect.context())
     const client = new Client(clientInfo, {
       capabilities: {
@@ -424,6 +432,7 @@ export const connect = Effect.fnUntraced(function* (
     const client = exit.value
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
+        closed = true
         // Close only aborts streams; the legacy session lives on until the server expires it unless
         // terminated explicitly. Terminate first: close aborts the signal the DELETE shares.
         const transport = session.transport
@@ -446,7 +455,7 @@ export const connect = Effect.fnUntraced(function* (
     const catalog = { timeout: config.timeout?.catalog ?? DEFAULT_CATALOG_TIMEOUT }
     const executionFor = (tool?: string) => executionTimeoutFor(server, tool, config.timeout?.execution)
     const request = <A>(what: string, run: (signal: AbortSignal) => Promise<A>) =>
-      Effect.tryPromise({ try: run, catch: failure }).pipe(
+      guard(Effect.tryPromise({ try: run, catch: failure })).pipe(
         Effect.tapError((error) => Effect.logWarning(`failed to ${what}`, { server, error: error.message })),
       )
     // Reads are safe to retry on transient failures; a failed read never
@@ -520,7 +529,10 @@ export const connect = Effect.fnUntraced(function* (
         return operation.pipe(Effect.map(toCallToolResult))
       },
       onClose: (callback) => {
-        client.onclose = () => callback(lastError ? `Connection closed: ${lastError}` : "Connection closed")
+        client.onclose = () => {
+          closed = true
+          callback(lastError ? `Connection closed: ${lastError}` : "Connection closed")
+        }
       },
       onSessionExpired: (callback) => {
         session.expired = callback

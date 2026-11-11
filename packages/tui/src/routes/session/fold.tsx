@@ -1,3 +1,4 @@
+import { HoverAction } from "../../component/hover-action"
 import { tr } from "../../util/i18n"
 import { createMemo, createSignal, Show } from "solid-js"
 import type { RGBA } from "@opentui/core"
@@ -13,11 +14,11 @@ export function FoldedText(props: { text: string; width: number; maxRows: number
     <box flexDirection="column" flexShrink={0}>
       <text fg={props.color ?? theme.text.base} wrapMode="word">{open() || folded().hidden === 0 ? props.text : folded().head}</text>
       <Show when={folded().hidden > 0}>
-        <box onMouseUp={() => setOpen((value) => !value)}>
+        <HoverAction onClick={() => setOpen((value) => !value)}>
           <text fg={theme.hue.accent[200]} wrapMode="none" selectable={false}>
             {open() ? tr("▾ collapse") : tr("▸ {count} more lines", { count: folded().hidden })}
           </text>
-        </box>
+        </HoverAction>
       </Show>
     </box>
   )
@@ -37,7 +38,7 @@ export function ErrorCard(props: { message: string; width: number }) {
       }
     >
       <box flexDirection="column" flexShrink={0}>
-        <box flexDirection="row" gap={1} onMouseUp={() => setOpen((value) => !value)}>
+        <HoverAction flexShrink={1} minWidth={0} flexDirection="row" gap={1} onClick={() => setOpen((value) => !value)}>
           <text fg={theme.text.feedback.error.base} wrapMode="none" selectable={false}>
             ✗
           </text>
@@ -47,7 +48,7 @@ export function ErrorCard(props: { message: string; width: number }) {
           <text fg={theme.hue.accent[200]} wrapMode="none" selectable={false} flexShrink={0}>
             {open() ? tr("▾ collapse") : tr("▸ more")}
           </text>
-        </box>
+        </HoverAction>
         <Show when={open()}>
           <box paddingLeft={2} paddingTop={1}>
             <text fg={theme.text.muted} wrapMode="word">{props.message}</text>

@@ -56,7 +56,6 @@ export const Definitions = {
   "app.toggle.paste_summary": keybind("none", "Toggle paste summary"),
   "command.palette.show": keybind("ctrl+p", "List available commands"),
   "help.show": keybind("none", "Open help dialog"),
-  "docs.open": keybind("none", "Open documentation"),
   "orchestra.settings": keybind("none", "Open settings"),
   "server.pair": keybind("none", "Pair device"),
   "service.restart": keybind("none", "Restart service"),
@@ -165,6 +164,7 @@ export const Definitions = {
   "session.tab.select.10": keybind("<leader>0", "Switch to session tab 10"),
 
   "stash.delete": keybind("ctrl+d", "Delete stash entry"),
+  "model.dialog.default": keybind("ctrl+d", "Save selected model as the default for new sessions"),
   "model.dialog.provider": keybind("ctrl+a", "Open provider list from model dialog"),
   "model.dialog.favorite": keybind("ctrl+f", "Toggle model favorite status"),
   "model.dialog.collections": keybind("ctrl+g", "Open model collections and endpoints from model dialog"),
@@ -176,7 +176,6 @@ export const Definitions = {
   "model.cycle_favorite_reverse": keybind("none", "Previous favorite model"),
   "mcp.list": keybind("none", "List MCP servers"),
   "compat.list": keybind("none", "Other agent tools (.claude, .codex, ...)"),
-  "provider.connect": keybind("none", "Connect integration"),
   "agent.list": keybind("none", "Deprecated: the agent picker is agent.panel"),
   "agent.panel": keybind("shift+tab,<leader>a", "Switch agent"),
   "agent.cycle": keybind("none", "Next agent"),

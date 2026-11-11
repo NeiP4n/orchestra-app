@@ -40,3 +40,21 @@ describe("startOAuthListener", () => {
     await second.close()
   })
 })
+
+
+for (const success of [true, false]) it(`callback page waits for actual token exchange result (${success})`, async () => {
+  const listener = await startOAuthListener({ deferResult: true })
+  try {
+    let received = false
+    const response = fetch(callback("?code=deferred&state=expected")).then(result => { received = true; return result })
+    await listener.waitForCallback()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(received).toBe(false)
+    listener.finish(success)
+    const result = await response
+    expect(result.status).toBe(success ? 200 : 400)
+    const body = await result.text()
+    expect(body.includes("You've successfully authenticated")).toBe(success)
+    expect(body).not.toContain("deferred")
+  } finally { await listener.close() }
+})

@@ -125,7 +125,7 @@ export const Plugin = {
         options: { codemode: false, guide, triggers: ["workspace|воркспейс|рабоч\\S+ (пространств|област)"] },
         description: [
           "Create Orchestra workspaces and federated groups. Available only to a project's main Orchestrator; workers should ask their Orchestrator to do this. Actions: list, create_session, create_group.",
-          "Never invent paths or IDs, and never emulate a team by creating extra worker sessions in the current project: a project's team comes only from its own template. A group chat only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions. Never silently fall back to no sandbox.",
+          "Never invent paths or IDs. For workers inside this project use sessions create with an available role, not workspace_forge; templates recommend roles, not a fixed roster. A group chat only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions. Never silently fall back to no sandbox.",
         ].join("\n"),
         input: Input,
         output: Output,
@@ -171,14 +171,16 @@ export const Plugin = {
 
             switch (input.action) {
               case "list": {
-                const projects = yield* orchestra.projects()
+                const ownGroups = (yield* federation.groups()).filter(group => group.projects.includes(mainSession.id))
+                const allowed = new Set<string>([mainSession.id, ...(yield* federation.linked(mainSession.id)).map(project=>project.id), ...ownGroups.flatMap(group=>group.projects)])
+                const projects = (yield* orchestra.projects()).filter(project=>allowed.has(project.id))
                 const templates = yield* orchestra.templates()
                 const roles = yield* orchestra.roles()
-                const groups = yield* federation.groups()
+                const groups = ownGroups
                 return {
                   output: [
                     "Projects:",
-                    ...(projects.length ? projects.map(projectLine) : ["(none)"]),
+                    ...(projects.length ? projects.map(project => project.id === mainSession.id ? projectLine(project) : `- ${project.id}: ${project.name}`) : ["(none)"]),
                     "",
                     "AI team templates (use exact ID as team):",
                     ...(templates.length
@@ -192,7 +194,7 @@ export const Plugin = {
                     "",
                     "Federated groups:",
                     ...(groups.length
-                      ? groups.map((group) => `- ${group.name}: projects ${group.projects.join(", ")}; coordinator ${group.projects[0] ?? "(none)"}; supervisor ${group.supervisor ?? "(none)"}`)
+                      ? groups.map((group) => `- ${group.name}: projects ${group.projects.join(", ")}; coordinator ${group.projects[0] ?? "(none)"}`)
                       : ["(none)"]),
                     "",
                     "Sandbox: none, environment (default), strict. The selected directory must already exist; sandbox modes need a git repo; strict also needs bwrap.",
@@ -301,6 +303,11 @@ export const Plugin = {
                     const project = projects.find((item) => item.id === member.projectID)
                     if (!project) return yield* new ToolFailure({ message: `Member ${index + 1}: unknown project ID "${member.projectID}". Call list and use an exact ID.` })
                     if (usedIDs.has(project.id)) return yield* new ToolFailure({ message: `Project ${project.id} appears more than once in the group.` })
+                    if (project.id !== mainSession.id) yield* permission.confirm({
+                      action: "federation", resources: [`create_group:${groupName}:project:${project.id}`], save: [], metadata: input,
+                      sessionID: context.sessionID, agent: context.agent,
+                      source: { type: "tool", messageID: context.messageID, id: context.id },
+                    })
                     usedIDs.add(project.id)
                     specs.push({ kind: "existing", project })
                     continue

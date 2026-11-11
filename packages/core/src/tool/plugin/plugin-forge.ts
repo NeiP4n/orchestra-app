@@ -5,6 +5,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import { categorizePlugin, PLUGIN_CATEGORIES, type PluginCategory } from "@orchestra/plugin/category"
 import { Effect, Schema } from "effect"
 import { Config } from "../../config.js"
+import { operatorEnableRequest } from "../../mcp/disabled.js"
 import { ForgeJournal } from "./forge-journal.js"
 
 export const name = "plugin_forge"
@@ -15,7 +16,7 @@ const description = [
   "Actions: list shows all active, disabled, and configured plugins with their status;",
   "add registers/configures a new plugin package or specifier;",
   "remove unregisters/removes a plugin from configuration;",
-  "enable re-enables a disabled plugin in configuration;",
+  "enable requests operator approval only; disabled plugins cannot be re-enabled by add;",
   "disable disables a plugin in configuration (marking it inactive with '-' prefix without removing).",
 ].join("\n")
 
@@ -126,6 +127,13 @@ export const Plugin = {
                 })
               }
 
+              if (input.action === "enable")
+                return { output: { output: operatorEnableRequest("plugin", target) } }
+              if (input.action === "add" && configured.some((entry) => {
+                const raw = typeof entry === "string" ? entry : entry.package
+                return raw.startsWith("-") && matchesTarget(entry, target)
+              })) return { output: { output: operatorEnableRequest("plugin", target) } }
+
               if (input.action === "add") {
                 const already = configured.some((entry) => matchesTarget(entry, target))
                 if (already) {
@@ -167,29 +175,6 @@ export const Plugin = {
                   previous: configured.find((entry) => matchesTarget(entry, target)) ?? null,
                 })
                 return { output: { output: `Plugin "${target}" removed from configuration. Recorded in the autoloop journal (forge.removed); roll back with plugin_forge action=add.` } }
-              }
-
-              if (input.action === "enable") {
-                let found = false
-                const next = configured.map((entry) => {
-                  if (matchesTarget(entry, target)) {
-                    found = true
-                    return typeof entry === "string" && entry.startsWith("-") ? entry.slice(1) : entry
-                  }
-                  return entry
-                })
-                if (!found) {
-                  next.push(target)
-                }
-                yield* updatePlugins(next)
-                yield* ForgeJournal.recordForge({
-                  kind: "plugin",
-                  action: "enabled",
-                  name: target,
-                  by: context.sessionID,
-                  previous: configured.find((entry) => matchesTarget(entry, target)) ?? null,
-                })
-                return { output: { output: `Plugin "${target}" enabled in configuration. Recorded in the autoloop journal (forge.enabled).` } }
               }
 
               if (input.action === "disable") {

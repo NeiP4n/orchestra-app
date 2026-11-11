@@ -1,4 +1,5 @@
 import type { SessionInfo } from "@orchestra/client/promise"
+import { Dynamic } from "solid-js/web"
 import { Key } from "@solid-primitives/keyed"
 import { createMemo, createSignal, For, Index, onCleanup, Show } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
@@ -13,6 +14,7 @@ import { Tooltip } from "@orchestra/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ServerConnection } from "@/runtime/server/registry"
 import { SessionTabAvatarView } from "@/shell/layout/session-tab-avatar"
+import { sessionHref } from "@/shell/routes/session"
 import { sessionLabel } from "@/session/title"
 import { shouldOpenSessionInBackground } from "./open"
 import { createAltHold } from "./alt-hold"
@@ -24,6 +26,8 @@ import {
   type HomeSessionRecord,
   type OpenSessionOptions,
 } from "./controller"
+
+type SessionRowEvent<T extends Event> = T & { currentTarget: HTMLButtonElement | HTMLAnchorElement }
 
 const SHOW_HOME_SESSION_ARCHIVE = true
 
@@ -38,7 +42,7 @@ const HOME_SESSION_LONG_PRESS_MS = 500
 function isBackgroundOpen(event: MouseEvent) {
   return shouldOpenSessionInBackground({
     button: event.button,
-    mac: typeof navigator === "object" && /(Mac|iPod|iPhone|iPad)/.test(navigator.platform),
+    mac: /(Mac|iPod|iPhone|iPad)/.test(navigator.platform),
     meta: event.metaKey,
     ctrl: event.ctrlKey,
     shift: event.shiftKey,
@@ -47,6 +51,7 @@ function isBackgroundOpen(event: MouseEvent) {
 }
 
 export type HomeSessionsViewProps = {
+  navigationLinks?: boolean
   language: ReturnType<typeof useLanguage>
   groups: HomeSessionGroup[]
   archivedGroups: HomeSessionGroup[]
@@ -116,6 +121,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
       aria-label={props.language.t("sidebar.project.recentSessions")}
     >
       <div
+        data-slot="home-session-tree-header"
         class="sticky top-0 z-30 shrink-0 bg-v2-background-bg-base pb-3 pt-6 lg:pt-12"
         onWheel={props.onWheel}
       >
@@ -172,7 +178,10 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
           class="relative ml-auto h-[calc(100cqh-112px)] w-3 md:h-[calc(100cqh-120px)] lg:h-[calc(100cqh-144px)]"
         />
       </div>
-      <div class="-mr-3 min-h-[calc(100cqh-108px)] md:min-h-[calc(100cqh-108px)] lg:min-h-[calc(100cqh-132px)]">
+      <div
+        data-slot="home-session-tree-content"
+        class="-mr-3 min-h-[calc(100cqh-108px)] md:min-h-[calc(100cqh-108px)] lg:min-h-[calc(100cqh-132px)]"
+      >
         <Show
           when={!props.loading}
           fallback={
@@ -561,8 +570,7 @@ function HomeSessionRow(
   // deferred focus runs.
   const rowSelector = () => `[data-component="home-session-row-container"][data-session-id="${sessionID()}"]`
 
-  const rowButton = () =>
-    document.querySelector<HTMLButtonElement>(`${rowSelector()} [data-component="home-session-row"]`)
+  const rowButton = () => document.querySelector<HTMLElement>(`${rowSelector()} [data-component="home-session-row"]`)
 
   const renameInput = () =>
     document.querySelector<HTMLInputElement>(`${rowSelector()} [data-component="home-session-rename"]`)
@@ -690,8 +698,10 @@ function HomeSessionRow(
           </div>
         }
       >
-        <button
-          type="button"
+        <Dynamic
+          component={props.navigationLinks ? "a" : "button"}
+          type={props.navigationLinks ? undefined : "button"}
+          href={props.navigationLinks ? sessionHref(props.server, props.record.session.id) : undefined}
           data-component="home-session-row"
           aria-haspopup="menu"
           aria-expanded={!!menu()}
@@ -702,7 +712,7 @@ function HomeSessionRow(
             hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none
           `}
           classList={{ "gap-1.5": props.desktop, "gap-2": !props.desktop }}
-          onMouseDown={(event) => {
+          onMouseDown={(event: SessionRowEvent<MouseEvent>) => {
             if (event.button === 1) event.preventDefault()
           }}
           onMouseEnter={() => {
@@ -712,7 +722,7 @@ function HomeSessionRow(
           }}
           onFocus={() => props.onPreloadSession(props.record.session)}
           onMouseLeave={() => props.onHoverSession(undefined)}
-          onPointerDown={(event) => {
+          onPointerDown={(event: SessionRowEvent<PointerEvent>) => {
             suppressClick = false
 
             if (event.pointerType !== "touch") return
@@ -727,7 +737,7 @@ function HomeSessionRow(
               openMenu(element, x, y)
             }, HOME_SESSION_LONG_PRESS_MS)
           }}
-          onPointerMove={(event) => {
+          onPointerMove={(event: SessionRowEvent<PointerEvent>) => {
             if (!longPressStart) return
 
             if (Math.abs(event.clientX - longPressStart.x) <= 8 && Math.abs(event.clientY - longPressStart.y) <= 8)
@@ -739,13 +749,15 @@ function HomeSessionRow(
             clearLongPress()
             suppressClick = false
           }}
-          onKeyDown={(event) => {
+          onKeyDown={(event: SessionRowEvent<KeyboardEvent>) => {
             if (event.key !== "ContextMenu" && (event.key !== "F10" || !event.shiftKey)) return
             event.preventDefault()
             const bounds = event.currentTarget.getBoundingClientRect()
             openMenu(event.currentTarget, bounds.left + 12, bounds.bottom)
           }}
-          onClick={(event) => {
+          onClick={(event: SessionRowEvent<MouseEvent>) => {
+            event.preventDefault()
+
             // The flag stays set until the long-press compatibility click
             // arrives, however delayed; keyboard activation (detail 0) is
             // never that click and passes through.
@@ -761,7 +773,7 @@ function HomeSessionRow(
 
             props.onOpenSession(props.record.session, { background: isBackgroundOpen(event) })
           }}
-          onAuxClick={(event) => {
+          onAuxClick={(event: SessionRowEvent<MouseEvent>) => {
             if (!isBackgroundOpen(event)) return
             event.preventDefault()
             props.onOpenSession(props.record.session, { background: true })
@@ -788,7 +800,7 @@ function HomeSessionRow(
               desktop={props.desktop}
             />
           </div>
-        </button>
+        </Dynamic>
       </Show>
       <Menu
         modal={false}
@@ -843,13 +855,23 @@ function HomeSessionRow(
             group-hover/session:opacity-100 focus-within:opacity-100
           `}
         >
-          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")}>
+          <Tooltip
+            class="flex shrink-0 items-center"
+            placement="bottom"
+            value={
+              props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")
+            }
+          >
             <IconButton
               data-action="home-session-archive"
               variant="ghost-muted"
               size="large"
               icon={<Icon name={props.archivedMode ? "rotate-ccw" : "archive"} />}
-              aria-label={props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")}
+              aria-label={
+                props.archivedMode
+                  ? props.language.t("home.sessions.restoreSession")
+                  : props.language.t("common.archive")
+              }
               onClick={(event) => {
                 event.preventDefault()
                 event.stopPropagation()

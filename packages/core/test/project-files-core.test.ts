@@ -23,8 +23,7 @@ const it = testEffect(
 
 // Pure-format tests below never touch a syncer or restorer, so the
 // Database.Service requirement is never used and the cast is safe there.
-const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.runPromise(effect as Effect.Effect<A, E, never>)
+const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(effect as Effect.Effect<A, E, never>)
 
 const fixture = async (): Promise<string> => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "orchestra-project-files-"))
@@ -73,6 +72,45 @@ describe("ProjectFiles index", () => {
     expect(dod?.sha256).toMatch(/^[0-9a-f]{64}$/)
     const readBack = await run(ProjectFiles.ProjectFilesIndex.readIndex(dir))
     expect(readBack.entries.length).toBe(index.entries.length)
+  })
+
+  test("on-demand runtime artifacts are registered, private, and never change the git split", async () => {
+    const dir = await fixture()
+    const before = ProjectFiles.ProjectFilesRegistry.gitignoreLines()
+    const runtime = [
+      "memory.db",
+      "memory.db-wal",
+      "memory.db-shm",
+      "codegraph.db",
+      "codegraph.db-wal",
+      "codegraph.db-shm",
+      "checkpoints/a/manifest.json",
+      "work/developer/result.txt",
+      "sessions/session-1.json",
+      "triggers/shared.json",
+    ]
+    for (const rel of runtime) {
+      await write(dir, rel, rel.endsWith(".json") ? "{}" : "SQLite binary fixture\u0000")
+      expect(ProjectFiles.ProjectFilesRegistry.descriptorForPath(rel)).toMatchObject({ git: false, optional: true })
+    }
+    await write(dir, "memory.db.backup-unrecognised", "unknown")
+    const index = await run(ProjectFiles.ProjectFilesIndex.refreshIndex(dir))
+    for (const rel of runtime) expect(index.entries.find((entry) => entry.path === rel)?.kind).not.toBe("unknown")
+    expect(index.entries.find((entry) => entry.path === "memory.db.backup-unrecognised")?.kind).toBe("unknown")
+    const health = await run(ProjectFiles.ProjectFilesHealth.checkHealth(dir))
+    expect(health.files.filter((file) => runtime.includes(file.path) && file.status === "unchecked")).toEqual([])
+    expect(health.files.find((file) => file.path === "memory.db")?.detail).toContain("integrity not checked")
+    for (const rel of runtime) expect(before.some((line) => line === `!.orchestra/${rel}`)).toBe(false)
+    expect(ProjectFiles.ProjectFilesRegistry.gitignoreLines()).toEqual(before)
+  })
+
+  test("missing optional runtime artifacts do not invent missing-file defects", async () => {
+    const dir = await fixture()
+    const health = await run(ProjectFiles.ProjectFilesHealth.checkHealth(dir))
+    for (const descriptor of ProjectFiles.ProjectFilesRegistry.CORE_DESCRIPTORS.filter((entry) => entry.optional))
+      expect(health.files.some((file) => file.path === descriptor.rel)).toBe(false)
+    // Existing required-file checks remain strict.
+    expect(health.files.find((file) => file.path === "dod.yaml")?.status).toBe("missing")
   })
 
   test("a missing index reads as empty, a corrupt index fails loudly", async () => {
@@ -270,6 +308,7 @@ describe("ProjectFiles sync and restore frameworks", () => {
       const dir = yield* Effect.tryPromise(() => fixture())
       yield* Effect.tryPromise(() => write(dir, "dod.yaml", "task_id: X\nleaves: []\n"))
       const kv = yield* KV.Service
+      yield* kv.set("orchestra/project/prj_a", { id: "prj_a", name: "A", directory: dir, created: 1 })
       const report = yield* ProjectFiles.ProjectFilesSync.syncAll(dir, { kv })
       expect(report.files.every((file) => file.status === "ok")).toBe(true)
       expect(report.files.map((file) => file.file)).toContain("rules.yaml")
@@ -307,7 +346,10 @@ describe("ProjectFiles sync and restore frameworks", () => {
   test("every git-tracked file has a negation in the repo root .gitignore", async () => {
     // Line endings follow the checkout (CRLF on Windows), so the file is
     // normalized before the per-line membership check.
-    const gitignore = (await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")).replaceAll("\r\n", "\n")
+    const gitignore = (await readFile(path.join(import.meta.dir, "..", "..", "..", ".gitignore"), "utf8")).replaceAll(
+      "\r\n",
+      "\n",
+    )
     for (const line of ProjectFiles.ProjectFilesRegistry.gitignoreLines()) {
       expect(gitignore).toContain(`${line}\n`)
     }

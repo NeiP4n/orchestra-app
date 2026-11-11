@@ -18,11 +18,11 @@ const session = (modelID: string) =>
   }) as unknown as SessionSchema.Info
 
 /** Records which catalog model the resolver was asked for, without loading a provider package. */
-const layer = (selected: Ref.Ref<string | undefined>) =>
+const layer = (selected: Ref.Ref<string | undefined>, fallback?: SessionRunnerModel.Resolved) =>
   SessionRunnerModel.layer.pipe(
     Layer.provide(
       Layer.succeed(ModelResolver.Service, {
-        resolve: () => Effect.succeed(undefined),
+        resolve: () => Ref.set(selected, "UNREQUESTED_DEFAULT").pipe(Effect.as(fallback)),
         resolveModel: (model) =>
           Ref.set(selected, model.id).pipe(
             Effect.as(
@@ -103,3 +103,27 @@ describe("SessionRunnerModel.resolve", () => {
     )
   }, 60_000)
 })
+
+for (const requested of [
+  { providerID: "removed-provider", id: "chosen-model" },
+  { providerID: "opencode", id: "muse-spark-1.3-contributor-free" },
+]) {
+  it.live(`never silently replaces explicit missing ${requested.providerID}/${requested.id} with a configured default`, () =>
+    Effect.gen(function* () {
+      const selected = yield* Ref.make<string | undefined>(undefined)
+      const other = info("other")
+      const fallback = SessionRunnerModel.resolved(
+        LanguageModel.make({ id: "iceman-free", provider: "opencode", route: OpenAIChat.route }),
+        { capabilities: other.capabilities, cost: other.cost, limit: other.limit },
+      )
+      const value = { ...session(requested.id), model: Model.Ref.make({ providerID: Provider.ID.make(requested.providerID), id: Model.ID.make(requested.id) }) }
+      const failure = yield* Effect.gen(function* () {
+        const models = yield* SessionRunnerModel.Service
+        return yield* models.resolve(value, () => Effect.succeed([other])).pipe(Effect.flip)
+      }).pipe(Effect.provide(layer(selected, fallback)))
+      expect(failure).toMatchObject({ _tag: "SessionRunnerModel.ModelUnavailableError", providerID: requested.providerID, modelID: requested.id })
+      expect(yield* Ref.get(selected)).toBeUndefined()
+    }),
+    15_000,
+  )
+}

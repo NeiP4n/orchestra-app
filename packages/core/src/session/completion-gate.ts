@@ -104,6 +104,19 @@ const AI_OWNER = "AI"
 const AI_OWNER_ID = "local-ai"
 const WORK_ACTIONS = new Set(["next", "take", "add", "check", "uncheck"])
 
+// A <team-report> whose outcome leaves the task open.
+const OPEN_REPORT = /<team-report[^>]*outcome="(?:partial|incomplete|failed|stopped|blocked)"/i
+
+// Phrases of giving up, and the tools whose use shows the agent looked or asked first.
+const GIVE_UP =
+  /не знаю|не могу|не смог|не получилось|не удалось|нет возможности|\b(?:i )?(?:do not|don't) know\b|\bcan(?:'|no)t\b|\bcannot\b|\bcouldn't\b|\bunable to\b/i
+const LOOKUP_TOOLS = new Set([
+  "websearch", "webfetch", "research", "memory", "grep", "codegraph", "symbols", "question", "sessions", "subagent", "peer", "federation", "skill", "note",
+])
+
+// The state line a BrowserAgent report starts with.
+const STATE_LINE = /^\s*(?:DONE|PARTLY DONE|NOT DONE)\b/i
+
 // A reply whose last paragraph announces work instead of reporting it.
 const PROMISE =
   /^(?:(?:ok(?:ay)?|now|next|then|first)[,:]?\s+)?(?:i(?:'ll| will| am going to|'m going to)|let me|next,? i|now i|сейчас|теперь|далее|дальше|затем|следующ\S* шаг|(?:я\s+)?(?:сделаю|запущу|проверю|исправлю|добавлю|начну|займусь|продолжу))(?=[\s,.!:;…]|$)/iu
@@ -113,12 +126,21 @@ const PROMISE =
 // forever on a report that will never come.
 const STALE_DISPATCH_MS = 30 * 60 * 1000
 
+// A short message with no address and no page verb ("hi", "how are you") is conversation, not a task.
+const PAGE_VERB =
+  /(?:https?:|www\.|\b[a-z0-9-]+\.(?:com|org|net|io|ru|dev|app|ai)\b|\b(?:open|go to|visit|click|type|search|find|log ?in|sign ?in|register|sign up|download|buy|book|fill|navigate|scrape|check|read)\b|открой|зайди|найди|нажми|введи|войди|зарегистр|скачай|купи|забронируй|проверь|прочитай)/i
+export const conversational = (text: string) => {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  return words.length > 0 && words.length <= 8 && !PAGE_VERB.test(text)
+}
+
 export function check(
   messages: ReadonlyArray<SessionMessage.Info>,
   board: Dod.Status,
   now?: DateTime.DateTime,
   sessionID?: string,
   reviews?: ReviewGates,
+  agent?: string,
 ) {
   const max = limit()
   if (max === 0) return undefined
@@ -127,10 +149,69 @@ export function check(
   const nudges = turn.filter((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)
   const last = turn.findLast((message) => message.type === "assistant")
   if (!last || last.type !== "assistant" || last.error || last.finish !== "stop") return undefined
+  // The BrowserAgent must end a turn with a state line and must have worked in the page. A weak model that
+  // stops after a search, or with an empty answer, is sent back to work; when the reminders are spent it is asked
+  // for an explicit NOT DONE with the reason, so the Orchestrator never gets silence.
+  if (agent === "team-browser-agent") {
+    // A greeting or a question is answered and the turn ends: there is no page task to finish or report on.
+    const opener = start >= 0 ? messages[start] : undefined
+    const asked = opener?.type === "user" ? opener.text : ""
+    if (conversational(asked)) return undefined
+    const said = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
+    const usedBrowser = turn.some((message) => message.type === "assistant" && tools(message).some((tool) => tool.name === "browser"))
+    if (STATE_LINE.test(said) && (usedBrowser || /^\s*NOT DONE/i.test(said))) return undefined
+    if (nudges.length > max) return undefined
+    if (nudges.length === max)
+      return reminder([
+        "Completion check (final): you are stopping without a report.",
+        "Write the report now. Its first line is NOT DONE (or PARTLY DONE if part of the task worked), then one or two plain sentences saying what you did in the page and exactly what stopped you. Do not call any tool.",
+      ])
+    return reminder([
+      "Completion check: the page work is not finished and you have not reported.",
+      usedBrowser
+        ? "Continue in the browser with the next step (snapshot, then click or type by ref). Try another route if the last one failed."
+        : "You have not used the browser tool yet. Do the task in the page with the browser tool (open, snapshot, click, type); fetch and search are not a substitute for the page.",
+      "End with the first line DONE, PARTLY DONE or NOT DONE and a short plain summary.",
+    ])
+  }
+  // A worker that came back partial, failed or blocked has not finished the task: the Orchestrator sends it on (the
+  // same worker with a hint, or another role) before it tells the operator. Limited by the reminder count.
+  {
+    const lastReport = turn.findLastIndex((message) => message.type === "synthetic" && message.text.includes("<team-report"))
+    const report = lastReport >= 0 ? turn[lastReport] : undefined
+    if (report?.type === "synthetic" && OPEN_REPORT.test(report.text) && nudges.length < max) {
+      const after = turnCalls(turn.slice(lastReport + 1))
+      const acted = after.some(
+        (call) =>
+          (call.name === "sessions" && ["send", "create", "answer"].includes(String(call.input.action))) ||
+          call.name === "interact" ||
+          call.name === "question",
+      )
+      if (!acted)
+        return reminder([
+          "Completion check: a worker's report says the task is partial, failed or blocked, and you have not acted on it.",
+          "Do not hand this to the operator yet. Send the task on: to the same worker with a specific hint, or to another role that knows it better (researcher, architect, debugger). Search for the missing information yourself if that is quicker. Write to the operator only after these tries, and list them.",
+        ])
+    }
+  }
   // A model that answers a nudge without doing anything has said it is done twice; believe it.
   const previous = turn.findLastIndex((message) => message.type === "synthetic" && message.metadata?.[MetadataKey] === true)
   if (previous >= 0 && !turn.slice(previous + 1).some((message) => message.type === "assistant" && tools(message).length > 0))
     return undefined
+  // "I do not know / I cannot" with no look-up and no question to a colleague is not an answer: it goes back to work.
+  {
+    const said = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
+    if (said.length > 0 && said.length <= 600 && GIVE_UP.test(said) && nudges.length < max) {
+      const tried = turnCalls(turn).some((call) => LOOKUP_TOOLS.has(call.name))
+      if (!tried)
+        return reminder([
+          "Completion check: you are giving up without trying to find out.",
+          agent?.startsWith("team-")
+            ? "Look it up first (research or websearch, the repository, project notes, memory). If that is not enough, ask a question that names the colleague role that would know (researcher, architect, debugger). Report that you could not only after that, with the list of what you tried."
+            : "Search yourself, or send the task to the colleague role that knows it (sessions: researcher, architect, debugger), or return it to the worker with a hint. Tell the operator that it failed only after those tries, with the list.",
+        ])
+    }
+  }
   const text = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
   // Asking the operator is a legitimate place to stop.
   if (tools(last).some((tool) => tool.name === "question") || /[?？]\s*$/.test(text)) return undefined
@@ -268,6 +349,27 @@ const isBoardFile = (path: string) => /(^|\/)dod\.yaml$/.test(path.replaceAll("\
 // in-place sed. Reading the board (cat, grep) is not a touch.
 const writesBoard = (command: string) =>
   /(^|\/)dod\.yaml/.test(command.replaceAll("\\", "/")) && /(>>?|tee\b|sed\b[^\n]*-i)/.test(command)
+
+/** A short text of the latest turn for the rule judge: its tool calls and its last reply. */
+export function turnDigest(messages: ReadonlyArray<SessionMessage.Info>): string {
+  const start = messages.findLastIndex((message) => message.type === "user")
+  const turn = messages.slice(start + 1)
+  const calls = turnCalls(turn)
+    .slice(-12)
+    .map((call) => `- ${call.name} ${JSON.stringify(call.input).slice(0, 220)}`)
+  const last = turn.findLast((message) => message.type === "assistant")
+  const said =
+    last && last.type === "assistant"
+      ? last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim().slice(0, 1200)
+      : ""
+  return [`Calls:`, ...(calls.length ? calls : ["- none"]), `Reply: ${said || "(empty)"}`].join("\n")
+}
+
+/** How many times the rule judge has already sent this turn back. */
+export function judgedCount(messages: ReadonlyArray<SessionMessage.Info>, key: string): number {
+  const start = messages.findLastIndex((message) => message.type === "user")
+  return messages.slice(start + 1).filter((message) => message.type === "synthetic" && message.metadata?.[key] === true).length
+}
 
 function turnCalls(turn: ReadonlyArray<SessionMessage.Info>) {
   return turn.flatMap((message) =>

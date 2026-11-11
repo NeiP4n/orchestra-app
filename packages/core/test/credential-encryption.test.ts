@@ -68,6 +68,59 @@ describe("CredentialEncryption", () => {
     writeFileSync(keyFile, Buffer.alloc(5))
     expect(() => CredentialEncryption.loadOrCreateKey(keyFile)).toThrow(CredentialEncryption.KeyFileError)
   })
+
+  test("creates the key file atomically: no temp file survives, contents are exactly the key", async () => {
+    await using directory = await tmpdir("g2-keys-")
+    const keyFile = path.join(directory.path, "credential.key")
+    const key = CredentialEncryption.loadOrCreateKey(keyFile)
+    const { readdirSync, readFileSync } = await import("node:fs")
+    // A torn create used to leave credential.key.<pid>.tmp files behind; an
+    // interrupted run must never be mistaken for a written key.
+    expect(readdirSync(directory.path)).toEqual(["credential.key"])
+    expect(readFileSync(keyFile)).toEqual(Buffer.from(key))
+  })
+
+  test("a crashed creation (0-byte key file) reads as corrupt, never as a valid key", async () => {
+    await using directory = await tmpdir("g2-keys-")
+    const keyFile = path.join(directory.path, "credential.key")
+    const { writeFileSync } = await import("node:fs")
+    writeFileSync(keyFile, Buffer.alloc(0))
+    expect(() => CredentialEncryption.loadOrCreateKey(keyFile)).toThrow(CredentialEncryption.KeyFileError)
+    try {
+      CredentialEncryption.loadOrCreateKey(keyFile)
+      expect.unreachable()
+    } catch (error) {
+      expect((error as InstanceType<typeof CredentialEncryption.KeyFileError>).reason).toBe("corrupt")
+    }
+  })
+
+  test("boots past a crashed key creation (0-byte file) by generating a fresh key when nothing is sealed", async () => {
+    await using directory = await tmpdir("g2-keys-")
+    const dbFile = path.join(directory.path, "test.db")
+    const keyFile = path.join(directory.path, "credential.key")
+    const { writeFileSync, readFileSync } = await import("node:fs")
+    writeFileSync(keyFile, Buffer.alloc(0))
+    const integrationID = Integration.ID.make("anymodel")
+    const exit = await withKeyFile(keyFile, () =>
+      runWithDatabase(
+        Effect.gen(function* () {
+          const credentials = yield* Credential.Service
+          const created = yield* credentials.create({
+            integrationID,
+            value: Credential.Key.make({ type: "key", key: FAKE_KEY }),
+          })
+          return yield* credentials.get(created.id)
+        }),
+        dbFile,
+        directory.path,
+      ),
+    )
+    expect(Exit.isSuccess(exit)).toBeTrue()
+    if (!Exit.isSuccess(exit)) return
+    expect(exit.value?.value).toEqual(Credential.Key.make({ type: "key", key: FAKE_KEY }))
+    // The regenerated key is a real 32-byte key that seals and re-opens the row.
+    expect(readFileSync(keyFile).length).toBe(32)
+  })
 })
 
 const it = testEffect(LayerNode.compile(LayerNode.group([Credential.node, Bus.node, Database.node])))

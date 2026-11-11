@@ -7,6 +7,9 @@ import { DialogSelect } from "../ui/dialog-select"
 import { useToast } from "../ui/toast"
 import { useT } from "../util/i18n"
 import { CategoryRail } from "../ui/category-rail"
+import { DialogSecurity } from "./dialog-security"
+import { DialogUserProfile } from "./dialog-user-profile"
+import { UserNameEdit } from "./user-name-bar"
 import { SculkSprite } from "./sculk-sprite-view"
 
 type Setting = {
@@ -33,6 +36,9 @@ const toggle = { values: [false, true], labels: ["off", "on"] } as const
 // (thinking visibility has a session command, the diff viewer picks its
 // own source, the DevTools bar follows Developer mode and the channel).
 export const settings: Setting[] = [
+  { title: "Параметры безопасности", category: "Безопасность", description: "Реальные механизмы, текущие локальные лимиты и отсутствие жёстких защит. Без секретов и фейковых переключателей.", path: ["_security"], default: "открыть" },
+  { title: "Профиль пользователя", category: "Профиль", description: "Обращение, манера, язык и стиль работы. Всё видно и редактируется оператором; не храните секреты.", path: ["_profile"], default: "открыть" },
+  { title: "Имя пользователя", category: "Профиль", description: "Как ИИ обращается к вам. Нажмите, чтобы изменить.", path: ["user_name"], default: "vibecoder" },
   {
     title: "Language",
     category: "General",
@@ -63,12 +69,12 @@ export const settings: Setting[] = [
   },
   {
     title: "Permissions",
-    category: "Agent",
+    category: "Безопасность",
     description: "Ask before the AI runs commands and edits files, or accept automatically",
     path: ["session", "permissions"],
     default: "prompt",
     values: ["prompt", "autoaccept"],
-    labels: ["prompt", "auto accept"],
+    labels: ["prompt", "принимать сами · расширено"],
     keywords: ["approve", "accept", "permission requests", "yolo"],
   },
   {
@@ -168,6 +174,11 @@ export function DialogConfig(props: { current?: string }) {
     const index = setting.values?.indexOf(current)
     return t(index === undefined || index < 0 ? String(current) : (setting.labels?.[index] ?? String(current)))
   }
+  const defaultDisplay = (setting?: Setting) => {
+    if (!setting) return ""
+    const index = setting.values?.indexOf(setting.default)
+    return t(index === undefined || index < 0 ? String(setting.default) : setting.labels?.[index] ?? String(setting.default))
+  }
   const changed = (setting: Setting) => stored(setting) !== undefined && value(setting) !== setting.default
 
   const filteredSettings = createMemo(() => {
@@ -215,6 +226,9 @@ export function DialogConfig(props: { current?: string }) {
     if (saving()) return
     const setting = settings[index]
     if (!setting) return
+    if (settingID(setting) === "_security") return dialog.replace(() => <DialogSecurity />)
+    if (settingID(setting) === "_profile") return dialog.replace(() => <DialogUserProfile />)
+    if (settingID(setting) === "user_name") return dialog.replace(() => <UserNameEdit />)
     const current = value(setting)
     const choices = values(setting)
     if (!choices) return
@@ -239,8 +253,9 @@ export function DialogConfig(props: { current?: string }) {
   )
 
   return (
-    <box flexDirection="row" flexGrow={1}>
+    <box flexDirection="row" width="100%" minWidth={0}>
       <CategoryRail
+        width={20}
         items={railItems()}
         selected={selectedCategory()}
         onSelect={setSelectedCategory}
@@ -249,7 +264,10 @@ export function DialogConfig(props: { current?: string }) {
           <SculkSprite kind="sensor" state={vibrating() ? "vibrating" : "idle"} backdrop={theme.background.base} />
         }
       />
+      <box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
       <DialogSelect
+      compact
+      tall
       title={t("Settings")}
       titleView={
         <box flexDirection="row" gap={1} alignItems="center">
@@ -266,33 +284,11 @@ export function DialogConfig(props: { current?: string }) {
       onMove={(option) => setSelected(option.value)}
       onSelect={(option) => void change(1, option.value)}
       footer={
-        <box flexDirection="column" gap={0} paddingTop={1} border={["top"]} borderColor={theme.border.base} width="100%">
-          <box flexDirection="row" justifyContent="space-between" width="100%" alignItems="flex-start">
-            <box flexGrow={1} minWidth={0} paddingRight={2}>
-              <text fg={theme.text.base} wrapMode="word">
-                {t(currentSetting()?.description ?? "")}
-              </text>
-              <box flexDirection="row" gap={2} paddingTop={0}>
-                <Show when={currentSetting()?.default !== undefined}>
-                  <text fg={theme.text.muted}>
-                    default: <span style={{ fg: theme.text.base }}>{String(currentSetting()?.default)}</span>
-                  </text>
-                </Show>
-                <Show when={currentSetting() && changed(currentSetting()!)}>
-                  <text fg={theme.text.action.primary.base} attributes={TextAttributes.BOLD}>
-                    ● {t("modified")}
-                  </text>
-                </Show>
-              </box>
-            </box>
-            <box flexDirection="column" flexShrink={0} alignItems="flex-end">
-              <text fg={theme.text.muted}>
-                {`←/→ ${t("change")} · tab ${t("category")}`}
-              </text>
-              <text fg={theme.text.muted}>
-                {`alt+↑/↓ ${t("section")} · ctrl+r ${t("reset")}`}
-              </text>
-            </box>
+        <box flexDirection="column" gap={0} width="100%">
+          <text fg={theme.text.base} wrapMode="word">{t(currentSetting()?.description ?? "")}</text>
+          <box flexDirection="row" gap={1} flexWrap="wrap">
+            <Show when={currentSetting() && changed(currentSetting()!)}><text fg={theme.text.muted}>{`${t("Current value")}: ${currentSetting() ? display(currentSetting()!) : ""} · ${t("Default value")}: ${defaultDisplay(currentSetting())}`}</text></Show>
+            <text fg={theme.text.muted}>{`←/→ ${t("change")} · Tab ${t("category")} · Alt+↑/↓ ${t("section")} · Ctrl+R ${t("reset")}`}</text>
           </box>
         </box>
       }
@@ -329,6 +325,7 @@ export function DialogConfig(props: { current?: string }) {
         },
       ]}
       />
+      </box>
     </box>
   )
 }

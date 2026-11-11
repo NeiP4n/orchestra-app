@@ -1,4 +1,4 @@
-import { expect } from "bun:test"
+import { afterAll, expect } from "bun:test"
 import { Cause, Context, Effect, Fiber, RcMap, Schedule } from "effect"
 import { Browser } from "@orchestra/plugin-browser/rpc"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -21,6 +21,16 @@ import { offlineModels } from "./fixture/models"
 import { tmpdirScoped } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
+// The browser.tabs.* plugin is offered only with ORCHESTRA_BROWSER_PLUGIN=1 (38834d81) and the gate is read when
+// the plugin layer is built, so the variable is set before the app layer exists and restored after the file.
+const previousPlugin = process.env.ORCHESTRA_BROWSER_PLUGIN
+process.env.ORCHESTRA_BROWSER_PLUGIN = "1"
+afterAll(() => {
+  if (previousPlugin === undefined) delete process.env.ORCHESTRA_BROWSER_PLUGIN
+  else process.env.ORCHESTRA_BROWSER_PLUGIN = previousPlugin
+})
+
+// 6s idle time: on the Windows runner plugin activation alone took 3.8s, so 2s evicted the context before the first call.
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([Database.node, Bus.node, Session.node, LocationServiceMap.node, LocationActivity.node]),
@@ -30,7 +40,7 @@ const it = testEffect(
       LocationActivity.node.replace(
         makeGlobalNode({
           service: LocationActivity.Service,
-          layer: LocationActivity.layer({ timeToLive: "2 seconds", sweepInterval: "100 millis" }),
+          layer: LocationActivity.layer({ timeToLive: "6 seconds", sweepInterval: "100 millis" }),
           deps: [Bus.node, LocationServiceMap.node, SessionExecution.node, SessionStore.node],
         }),
       ),

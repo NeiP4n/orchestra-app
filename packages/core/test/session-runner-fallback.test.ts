@@ -221,6 +221,15 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     info("lix", "lix-test-model"),
   ]
 
+  test("Kilo 503 never discovers OpenCode as an automatic fallback", () => {
+    const gateway = new ProviderInternalError({ message: "Gateway unavailable", http: http(503) })
+    const available = [info("kilo-free", "kilo-auto/free"), info("opencode", "beam-free"), info("lix", "lix-test-model")]
+    expect(chain({ cause: asFailure(gateway), current: "kilo-free/kilo-auto/free", catalog: available })).toEqual([model("lix/lix-test-model")])
+    expect(chain({ cause: asFailure(gateway), current: "kilo-free/kilo-auto/free", catalog: available.slice(0, 2) })).toEqual([])
+    const explicit = model("opencode/beam-free")
+    expect(SessionRunnerLLM.fallbackModel({ cause: asFailure(gateway), current: model("kilo-free/kilo-auto/free"), models: [explicit], refused: new Set() })).toEqual(explicit)
+  })
+
   test("a main session outside Anymodel falls back across providers", () => {
     expect(chain({ cause: asFailure(invalidRequest), current: "opencode/crouton-alpha-free", catalog })).toEqual([
       model("opencode/minimax-free"),
@@ -228,6 +237,26 @@ describe("mainSessionFallbackChain (G2-14)", () => {
       model("anymodel/anymodel-coder"),
       model("lix/lix-test-model"),
     ])
+  })
+
+  test("a spent quota skips the whole current provider, like an authentication failure", () => {
+    const quota = new QuotaExceededError({ message: "Antigravity quota exhausted" })
+    expect(chain({ cause: asFailure(quota), current: "opencode/crouton-alpha-free", catalog })).toEqual([
+      model("anymodel/sonnet-5"),
+      model("anymodel/anymodel-coder"),
+      model("lix/lix-test-model"),
+    ])
+  })
+
+  test("a model with a price per token is never a fallback", () => {
+    const paid = Model.Info.default(Provider.ID.make("lix"), Model.ID.make("lix-test-model"))
+    const priced = {
+      ...paid,
+      cost: [{ input: 3, output: 15, cache: { read: 0, write: 0 } }],
+    } as unknown as Model.Info
+    const withPaid = catalog.map((item) => (item.providerID === "lix" ? priced : item))
+    const result = chain({ cause: asFailure(auth), current: "opencode/crouton-alpha-free", catalog: withPaid })
+    expect(result).not.toContainEqual(model("lix/lix-test-model"))
   })
 
   test("an authentication failure skips the whole current provider", () => {
@@ -240,8 +269,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     ])
     expect(chain({ cause: asFailure(auth), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
   })
 
@@ -249,8 +276,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     expect(chain({ cause: asFailure(invalidRequest), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("anymodel/anymodel-coder"),
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
   })
 
@@ -289,8 +314,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     const gatewayDown = new ProviderInternalError({ message: "bad gateway", http: http(502) })
     expect(chain({ cause: asFailure(gatewayDown), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
     // A 500 is a model-level failure, not the gateway: Anymodel's other
     // models are still tried first.
@@ -298,8 +321,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     expect(chain({ cause: asFailure(modelDown), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("anymodel/anymodel-coder"),
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
   })
 
@@ -697,8 +718,9 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       const result = yield* drainPrompt(workerSession, "Do the work")
 
       expect(Exit.isFailure(result.exit)).toBe(true)
-      expect(result.requested).toEqual(["worker", "backup", "sonnet-5", "anymodel-coder", "lix-test-model"])
-      expect(result.model).toMatchObject({ providerID: "lix", id: "lix-test-model" })
+      // Two models in a row failing with the same error stop the chain (b66abc39): the rest would fail the same way.
+      expect(result.requested).toEqual(["worker", "backup"])
+      expect(result.model).toMatchObject({ providerID: "fake", id: "backup" })
       expect(result.messages.at(-1)).toMatchObject({
         type: "assistant",
         finish: "error",
@@ -735,4 +757,23 @@ describe("SessionRunnerLLM fallback while draining a session", () => {
       })
     }),
   )
+})
+
+describe("endOnUser", () => {
+  test("a request never ends on an assistant message (no prefill)", async () => {
+    const { SessionRunnerLLM } = await import("@orchestra/core/session/runner/llm")
+    expect(SessionRunnerLLM.endOnUser([{ role: "user" }, { role: "assistant" }]).at(-1)?.role).toBe("user")
+    expect(SessionRunnerLLM.endOnUser([{ role: "user" }])).toHaveLength(1)
+    expect(SessionRunnerLLM.endOnUser([{ role: "assistant" }, { role: "tool" }]).at(-1)?.role).toBe("tool")
+  })
+})
+
+describe("team agents do not switch models by themselves", () => {
+  test("only the operator's flag lets a team agent fall back; other sessions keep their chain", async () => {
+    const { SessionRunnerLLM } = await import("@orchestra/core/session/runner/llm")
+    expect(SessionRunnerLLM.mayFallBack("team-browser-agent", undefined)).toBe(false)
+    expect(SessionRunnerLLM.mayFallBack("team-developer", "0")).toBe(false)
+    expect(SessionRunnerLLM.mayFallBack("team-developer", "1")).toBe(true)
+    expect(SessionRunnerLLM.mayFallBack("build", undefined)).toBe(true)
+  })
 })

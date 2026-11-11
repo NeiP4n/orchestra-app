@@ -1,3 +1,4 @@
+import { runtimeLimits } from "./runtime-limits.js"
 export * as Autoloop from "./service.js"
 
 import { randomBytes } from "node:crypto"
@@ -274,7 +275,8 @@ const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
       const opened = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
       const stored = AutoloopCards.storedRules(opened.view)
       const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
-      const limits = yield* Ref.get(state.limits)
+      const configuredLimits = yield* Ref.get(state.limits)
+      const limits = runtimeLimits(configuredLimits)
       const autonomy = yield* Ref.get(state.autonomy)
       const decided = yield* Effect.try({
         try: () =>

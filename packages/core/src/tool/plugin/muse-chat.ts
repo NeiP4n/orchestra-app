@@ -159,7 +159,7 @@ export const Plugin = {
     yield* ctx.tool.transform((editor) => {
       editor.add({
         name: "orchestra_list_agents",
-        description: "List Orchestra agents (id and name) that a Muse chat can delegate work to. Hidden agents are never listed.",
+        description: "Muse Spark (Meta) chats only; other models ignore the orchestra_* session tools. List Orchestra agents (id and name) that a Muse chat can delegate work to. Hidden agents are never listed.",
         input: Schema.Struct({}),
         output: Output,
         options: { codemode: false },

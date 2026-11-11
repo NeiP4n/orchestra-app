@@ -17,6 +17,8 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
     const data = useData()
     const event = useEvent()
     const [available, setAvailable] = createSignal(false)
+    // True once the server answered, so "unavailable" is not confused with "not asked yet".
+    const [checked, setChecked] = createSignal(false)
     const [focus, setFocus] = createSignal<string>()
     const storage = useStorage()
     const [store, update] = storage.store<SessionTerminalsState>("session-terminal-selection", {
@@ -26,9 +28,11 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
       initial: {},
     })
 
+    const loading = new Set<string>()
     const refresh = async (sessionID: string) => {
       if (!terminals[sessionID]) updateTerminals((draft) => (draft[sessionID] = []))
-      const result = await client.api.experimental.persistentPty.list({ sessionID })
+      loading.add(sessionID)
+      const result = await client.api.experimental.persistentPty.list({ sessionID }).finally(() => loading.delete(sessionID))
       updateTerminals((draft) => (draft[sessionID] = result))
       const selected = store.sessions[sessionID]
       if (!selected || result.some((terminal) => terminal.id === selected)) return
@@ -64,6 +68,7 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
           .then((info) => {
             // Servers that predate the field omit it; keep offering terminals as clients did before.
             setAvailable(info.capabilities?.persistentPty !== false)
+            setChecked(true)
             if (!available()) return
             Object.keys(terminals).forEach((sessionID) => {
               void refresh(sessionID).catch((error) =>
@@ -73,6 +78,7 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
           })
           .catch((error) => {
             setAvailable(false)
+            setChecked(true)
             console.error("Failed to read server terminal support", error)
           })
       }),
@@ -80,12 +86,15 @@ export const { use: useSessionTerminals, provider: SessionTerminalsProvider } = 
 
     return {
       available,
+      checked,
       get(sessionID: string) {
         return {
           terminals: terminals[sessionID] ?? [],
           selectedTerminalID: store.sessions[sessionID] ?? null,
         }
       },
+      // True once the terminals of a session were listed, even when the list is empty.
+      terminalsLoaded: (sessionID: string) => terminals[sessionID] !== undefined && !loading.has(sessionID),
       refresh,
       selectTerminal,
       async newTerminal(sessionID: string): Promise<PersistentPtyInfo> {

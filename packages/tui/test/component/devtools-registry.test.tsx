@@ -28,6 +28,7 @@ const registryManager: Hub.Manager =
 
 async function render(
   options: RegistryPanelOptions & {
+    language?: "en" | "ru"
     onShell?: (shell: string) => void
     aiTools?: AiToolsAccess
     plugins?: RegistryPluginsAccess
@@ -52,7 +53,7 @@ async function render(
   const app = await testRender(
     () => (
       <TestTuiContexts>
-        <ConfigProvider config={createTuiResolvedConfig()}>
+        <ConfigProvider config={createTuiResolvedConfig({ language: options.language })}>
           <ThemeProvider mode="dark" source={emptyThemeSource}>
             <Keymap.Provider>
               <ToastProvider>
@@ -74,7 +75,7 @@ async function render(
   )
   app.renderer.start()
   // The programs tab carries the search; the AI tools tab, first when offered, has none.
-  await app.waitForFrame((frame) => frame.includes("Registry") && (frame.includes("Search") || frame.includes("AI tools")))
+  await app.waitForFrame((frame) => frame.includes(options.language === "ru" ? "Реестр" : "Registry") && (frame.includes(options.language === "ru" ? "Поиск" : "Search") || frame.includes(options.language === "ru" ? "ИИ-инструменты" : "AI tools")))
   return app
 }
 
@@ -265,7 +266,7 @@ test("Registry Plugins tab toggles built-ins through the plugin lifecycle", asyn
   const plugins: RegistryPluginsAccess = {
     registered: () => [
       { id: "test.builtin", source: "builtin", active: active() },
-      { id: "opencode.plugins", source: "builtin", active: true },
+      { id: "orchestra.plugins", source: "builtin", active: true },
     ],
     list: () => [{ id: "test.builtin", target: "test.builtin", status: active() ? "active" : "inactive" }],
     activate: async (id) => {
@@ -285,7 +286,7 @@ test("Registry Plugins tab toggles built-ins through the plugin lifecycle", asyn
     expect(tab).toBeDefined()
     await app.mockMouse.click(tab!.line.indexOf("Plugins"), tab!.y)
     await app.waitForFrame((frame) => frame.includes("test.builtin") && frame.includes("Disable"))
-    expect(app.captureCharFrame()).not.toContain("opencode.plugins")
+    expect(app.captureCharFrame()).not.toContain("orchestra.plugins")
     const { x, y } = cell(app, "test.builtin", "Disable")
     await app.mockMouse.click(x, y)
     await app.waitForFrame((frame) => frame.includes("test.builtin") && frame.includes("Enable"))
@@ -534,7 +535,7 @@ test("AI tools open first, read in full and install through the config", async (
     await app.mockMouse.click(install.x + 2, install.y)
     await app.waitFor(() => calls.length === 1)
     expect(calls[0]?.[0]).toBe("context7")
-    await app.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Remove")))
+    await app.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Disable MCP")))
 
     // the programs tab holds the search
     await openTab(app, "Programs")
@@ -584,4 +585,60 @@ test("a mirror 404 offers a system update that clears the warning", async () => 
   } finally {
     app.renderer.destroy()
   }
+})
+
+
+for (const language of ["en", "ru"] as const) test(`Registry plugin count and keyboard titles follow ${language}`, async () => {
+  await using tmp = await tmpdir()
+  const app = await render({ probe, manager: registryManager, directory: tmp.path, language, plugins: {
+    registered: () => [{ id: "test.plugin", source: "builtin", active: true }],
+    list: () => [], activate: async () => true, deactivate: async () => true,
+  } })
+  try {
+    const label = language === "en" ? "Plugins" : "Плагины"
+    const lines = app.captureCharFrame().split("\n")
+    const y = lines.findIndex((line) => line.includes(label))
+    await app.mockMouse.click(lines[y].indexOf(label) + 1, y)
+    await app.waitForFrame((frame) => frame.includes("test.plugin"))
+    expect(app.captureCharFrame()).toContain(language === "en" ? "1 plugin" : "Плагинов: 1")
+    if (process.env.CAPTURE_REGISTRY_LOCALE) await Bun.write(`${process.env.CAPTURE_REGISTRY_LOCALE}-${language}.json`, JSON.stringify(app.captureSpans()))
+  } finally { app.renderer.destroy() }
+})
+
+test("MCP installation survives panel restart and OFF stays installed with explicit enable", async () => {
+  await using tmp = await tmpdir()
+  const saved: Record<string, { disabled?: boolean }> = {}
+  const access: AiToolsAccess = {
+    installed: () => Object.keys(saved), disabled: () => Object.keys(saved).filter((key) => saved[key].disabled),
+    set: async (id, config) => { if (config) saved[id] = structuredClone(config); else delete saved[id] },
+  }
+  const options = { probe: () => true, terminalProbe: () => true, manager: "winget" as const, directory: tmp.path, aiTools: access }
+  const first = await render(options)
+  try {
+    await first.waitForFrame((frame) => frame.includes("Context7"))
+    const target = cell(first, "Context7", "Install")
+    await first.mockMouse.click(target.x + 2, target.y)
+    await first.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Disable MCP")))
+  } finally { first.renderer.destroy() }
+  // New panel has no optimistic state. Global MCP switch can be OFF with zero live servers.
+  const second = await render(options)
+  try {
+    await second.waitForFrame((frame) => frame.includes("AI tools (MCP) 1/6"))
+    const target = cell(second, "Context7", "Disable MCP")
+    await second.mockMouse.click(target.x + 2, target.y)
+    await second.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("OFF") && line.includes("Enable MCP")))
+    expect(saved.context7.disabled).toBe(true)
+  } finally { second.renderer.destroy() }
+  const third = await render({ ...options, language: "ru" })
+  try {
+    const frame = await third.waitForFrame((frame) => frame.includes("Включить MCP"))
+    expect(frame).toContain("1/6")
+    const row = frame.split("\n").find((line) => line.includes("Context7"))!
+    expect(row).toContain("OFF")
+    expect(row).not.toContain("Установить")
+    expect(frame).toContain("Свежая документация")
+    expect(frame).not.toContain("Up-to-date documentation")
+    await Bun.write("/tmp/mcp-restart-ru-frame.txt", frame)
+    await Bun.write("/tmp/mcp-restart-ru-spans.json", JSON.stringify(third.captureSpans()))
+  } finally { third.renderer.destroy() }
 })

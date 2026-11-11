@@ -49,6 +49,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Minutes between activation checks for idle workers.",
     default: "5",
   },
+  ORCHESTRA_AGENT_CURSOR: {
+    purpose: "Show the agent's cursor in the Browser tab where its browser tool clicked or typed (\"0\" turns it off).",
+    default: "On.",
+  },
   ORCHESTRA_API_KEY: {
     purpose: "API key for the opencode provider, used when no stored credential exists.",
   },
@@ -57,23 +61,79 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "Auto-detected from the terminal.",
     readIn: "injected-env",
   },
+  ORCHESTRA_BROWSER_CAPTURE: {
+    purpose: "Windows: opt in to automatic real-window capture with \"1\"; default keeps the lighter windowless browser view.",
+    default: "Off; opt in only after checking resource use.",
+  },
   ORCHESTRA_BROWSER_CDP_URL: {
     purpose: "CDP HTTP endpoint for the local browser plugin.",
     default: "\"http://127.0.0.1:9222\"",
     readIn: "injected-env",
   },
+  ORCHESTRA_BROWSER_DEBUG: {
+    purpose: "Show the Browser tab's input debug lines on screen (\"1\"). The log file is always written.",
+    default: "Off.",
+  },
+  ORCHESTRA_BROWSER_GFX: {
+    purpose: "How the Browser tab draws the page: \"sixel\", \"kitty\", \"blocks\" (quadrant block characters) or \"auto\" (the renderer detects the terminal's graphics).",
+    default: "Auto on every OS: negotiated kitty/sixel, otherwise safe blocks.",
+  },
+  ORCHESTRA_BROWSER_HALFBLOCKS: {
+    purpose: "Draw the Browser tab's page as colored block characters (\"1\") instead of kitty or sixel graphics, for terminals that print graphics data as text. \"0\" asks for the terminal's own graphics even on Windows.",
+    default: "Off. The terminal's graphics protocol is detected on every OS; unsupported terminals use blocks.",
+  },
+  ORCHESTRA_BROWSER_HEADLESS: {
+    purpose: "Built-in launch of the browser plugin starts Chromium headless (\"0\" opens a visible window).",
+    default: "Headless.",
+  },
   ORCHESTRA_BROWSER_LAUNCHER: {
     purpose: "Shell command that starts the browser when the CDP endpoint does not answer.",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_LAUNCH_WAIT_MS: {
+    purpose: "How long the browser plugin waits for the CDP endpoint after a built-in launch, in milliseconds.",
+    default: "20000.",
+  },
+  ORCHESTRA_BROWSER_LIMIT: {
+    purpose: "Legacy alias: off bypasses the explicitly configured ORCHESTRA_BROWSER_MAX ceiling.",
+    default: "No fixed profile ceiling.",
   },
   ORCHESTRA_BROWSER_LOCAL: {
     purpose: "Local browser for the browser plugin (\"0\" disables it).",
     default: "Enabled.",
   },
+  ORCHESTRA_BROWSER_LOCAL_TEST: {
+    purpose: "Allow explicitly requested 5-minute browser schedule tests only on exact loopback or local file pages; checked again at each dispatch and read.",
+    default: "Off.",
+  },
+  ORCHESTRA_BROWSER_MAX: {
+    purpose: "Optional positive integer ceiling for active Orchestra Chrome profiles; unset means no fixed ceiling. Low free RAM warns but does not block.",
+    default: "Unlimited.",
+  },
+  ORCHESTRA_BROWSER_PIXEL_MOUSE: {
+    purpose: "Pixel-exact pointer in the Browser tab while control is on (\"0\" turns it off).",
+    default: "On; falls back to terminal cells when the terminal sends no pixel reports.",
+  },
+  ORCHESTRA_BROWSER_PLUGIN: {
+    purpose: "Offer the browser plugin (browser.tabs.*, its own Chromium on a debugging port) to agents (\"1\"). The `browser` tool tied to the Browser tab is always offered.",
+    default: "Off.",
+  },
   ORCHESTRA_BROWSER_PROFILE: {
     purpose: "Profile directory for the browser plugin's built-in launch.",
     default: "\"<data>/orchestra/browser-profile\" (the opencode profile when it exists and the orchestra one does not).",
     readIn: "injected-env",
+  },
+  ORCHESTRA_BROWSER_SCALE: {
+    purpose: "Device scale (1 to 3) of the Browser tab's captured Chrome; 2 draws Chrome's own tabs and buttons twice as large.",
+    default: "1.",
+  },
+  ORCHESTRA_BROWSER_STRIP: {
+    purpose: "Hide the pane's own tab strip and address row (\"0\"). They are drawn above the windowless Chrome picture, which has no Chrome top bar; a captured window shows Chrome's own bar.",
+    default: "On.",
+  },
+  ORCHESTRA_BROWSER_STRIP_SNAP: {
+    purpose: "Moves pointer events in Chrome's tab strip to the strip's centre line so the close button can be hit (\"0\" turns it off).",
+    default: "On.",
   },
   ORCHESTRA_BUMP: {
     purpose: "Release version bump for the script build (\"major\"/\"minor\"/\"patch\").",
@@ -86,6 +146,10 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_CHANNEL: {
     purpose: "Release channel for the script build; overrides the channel derived from the git branch. (Also a build-time define elsewhere — this entry is the script's runtime read.)",
     default: "The current git branch (\"detached\" without one).",
+  },
+  ORCHESTRA_CHROME_PATH: {
+    purpose: "Full path of the Chrome or Edge executable the Browser tab starts, when the usual install places are not used.",
+    default: "Off: the usual install places are searched.",
   },
   ORCHESTRA_CLIENT: {
     purpose: "Client name reported to the server (for example \"acp\").",
@@ -215,7 +279,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "Watcher enabled.",
   },
   ORCHESTRA_DISABLE_LIMITS: {
-    purpose: "Opt out of step/token limits (\"1\"); ORCHESTRA_ENFORCE_LIMITS=1 still forces them on.",
+    purpose: "Legacy OFF request only; no longer disables limits without operator acknowledgement in Safety settings.",
     default: "Limits enforced.",
     readIn: "injected-env",
   },
@@ -250,7 +314,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     default: "None (falls back to CLAUDE_CODE_SSE_PORT).",
   },
   ORCHESTRA_ENFORCE_LIMITS: {
-    purpose: "Force step/token limits on (\"1\"), even when ORCHESTRA_DISABLE_LIMITS is set.",
+    purpose: "Force step/token limits on (\"1\"), overriding an acknowledged UI disable. OFF alone does not disable.",
     default: "Limits enforced unless disabled.",
     readIn: "injected-env",
   },
@@ -319,7 +383,7 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   },
   ORCHESTRA_GATEWAY_UPSTREAM_URL: {
     purpose: "Upstream chat-completions URL for the gateway.",
-    default: "\"https://opencode.ai/zen/v1/chat/completions\"",
+    default: "\"https://ai-gateway.kilo.ai/api/v1/chat/completions\"",
     readIn: "injected-env",
     setBy: "`orchestra gateway`",
   },
@@ -349,9 +413,21 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
     purpose: "Minimum log level (DEBUG/INFO/WARN/ERROR).",
     default: "INFO",
   },
+  ORCHESTRA_MCP: {
+    purpose: "Turn MCP servers on for agents (\"1\"). Off: no server connects and no MCP tools exist; the native tools (websearch, webfetch, research, browser) are used.",
+    default: "Off.",
+  },
+  ORCHESTRA_MCP_CHROME_DEVTOOLS: {
+    purpose: "Let acquisition install the chrome-devtools MCP server, which starts a Chrome of its own (\"1\"). The `browser` tool is used otherwise.",
+    default: "Off.",
+  },
   ORCHESTRA_MCP_PER_DIRECTORY: {
     purpose: "Run MCP servers with the project directory as their working directory.",
     default: "Off (empty working directory).",
+  },
+  ORCHESTRA_MCP_PLAYWRIGHT: {
+    purpose: "Let acquisition install the playwright MCP server, which starts a Chrome of its own (\"1\"). The `browser` tool is used otherwise.",
+    default: "Off.",
   },
   ORCHESTRA_MODELS_PATH: {
     purpose: "Path to a local models file.",
@@ -425,6 +501,18 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_REPO_ROOT: {
     purpose: "Override for the repository root the recovery service repairs.",
     default: "The ancestor directory holding packages/core.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT: {
+    purpose: "\"1\" collects numbers-only measurements of each model request (sizes and counts, no text).",
+    default: "Off.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT_DIR: {
+    purpose: "Folder the request measurements are written to.",
+    default: "The measurements folder inside the app log folder.",
+  },
+  ORCHESTRA_REQUEST_MEASUREMENT_RETENTION_DAYS: {
+    purpose: "How many days request measurement files are kept.",
+    default: "The built-in retention.",
   },
   ORCHESTRA_REQUEST_REPORT: {
     purpose: "Enable per-request reports (any value).",
@@ -502,12 +590,20 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_STORY: {
     purpose: "TUI storybook story to open (\"1\" opens the index).",
   },
+  ORCHESTRA_TEAM_MODEL_FALLBACK: {
+    purpose: "Let a team agent (BrowserAgent, workers) switch to a fallback model by itself when its model fails. Off by default: only the Orchestrator changes a team agent's model.",
+    default: "Off.",
+  },
   ORCHESTRA_TEST_HOME: {
     purpose: "Override for the home directory (tests).",
     default: "The real home directory.",
   },
   ORCHESTRA_TEST_ONBOARDING: {
     purpose: "Run the desktop onboarding flow in test mode (\"1\").",
+    default: "Off.",
+  },
+  ORCHESTRA_TEST_PERMISSION_DIAG: {
+    purpose: "Tests only: logs which branch the permission check took.",
     default: "Off.",
   },
   ORCHESTRA_TOOL_ROUTER: {
@@ -553,10 +649,6 @@ export const ENV_REGISTRY: Readonly<Record<string, EnvVar>> = {
   ORCHESTRA_ZED_DB: {
     purpose: "Override path to Zed's database file.",
     default: "The standard macOS/Linux Zed database locations.",
-  },
-  ORCHESTRA_ZEN_BROWSER_ALLOW_LOCAL_URLS: {
-    purpose: "Lift the zen_browser SSRF gate for local URLs (\"1\"/\"true\"/\"on\"), for local testing only.",
-    default: "Off — localhost and LAN URLs are refused.",
   },
   ORCHESTRA_ZEN_MIRROR: {
     purpose: "Mirror Zen provider requests (\"all\" mirrors everything).",

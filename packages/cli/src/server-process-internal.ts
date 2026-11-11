@@ -268,6 +268,28 @@ const processEffect = Effect.fnUntraced(function* (options: Options, probe?: Man
       console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}`)
       if (foreground && !environmentPassword)
         console.log("server password saved — run `orchestra service get password` to show it")
+      // Which code this server runs: its git commit (when started from a checkout) and start time, written beside the
+      // data so `orchestra service status` can show it. The version number alone does not change between commits.
+      yield* Effect.promise(async () => {
+      try {
+        const { execFileSync } = await import("node:child_process")
+        const { mkdirSync, writeFileSync } = await import("node:fs")
+        const here = new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
+        let sha = "unknown"
+        try {
+          sha = execFileSync("git", ["rev-parse", "--short=8", "HEAD"], { cwd: here, encoding: "utf8", timeout: 3000, windowsHide: true }).trim() || sha
+        } catch {}
+        mkdirSync(global.data, { recursive: true })
+        writeFileSync(`${global.data}/server-build.json`, JSON.stringify({ sha, startedAt: new Date().toISOString(), pid: process.pid }))
+      } catch {}
+      }).pipe(Effect.ignore)
+      // A normal stop closes the browser sessions' Chromes gracefully, so logins (cookies) reach the profile on disk.
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(async () => {
+          const { BrowserRuntime } = await import("@orchestra/core/browser/runtime")
+          await BrowserRuntime.closeAllGraceful(4000)
+        }).pipe(Effect.ignore),
+      )
       if (options.mode === "service") return yield* server.shutdown
       if (options.mode === "stdio") return yield* waitForStdinClose()
       reachedListening = true

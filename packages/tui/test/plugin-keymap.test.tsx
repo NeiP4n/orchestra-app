@@ -140,7 +140,9 @@ async function copyPlugin() {
 
 async function search(setup: Fixture, query: string) {
   setup.mockInput.pressKey("p", { ctrl: true })
-  await setup.waitForFrame((frame) => frame.includes("Commands"))
+  await setup.waitForFrame(
+    (frame) => frame.includes("All ·") && frame.includes("Search") && frame.includes("tab category"),
+  )
   await setup.waitFor(() => setup.renderer.currentFocusedEditor instanceof InputRenderable)
   await setup.mockInput.typeText(query)
 }

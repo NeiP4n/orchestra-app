@@ -133,7 +133,7 @@ export interface Interface {
     readonly variables?: SessionEnvironment.Variables
   }) => Effect.Effect<SessionEnvironment.Variables | undefined, NotFoundError>
   readonly view: (input: { sessionID: SessionSchema.ID; idle: number }) => Effect.Effect<void, NotFoundError>
-  readonly remove: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
+  readonly remove: (sessionID: SessionSchema.ID, options?: { readonly recursive?: boolean }) => Effect.Effect<void, NotFoundError>
   readonly setArchived: (input: { sessionID: SessionSchema.ID; archived: boolean }) => Effect.Effect<void, NotFoundError>
   readonly messages: (
     input: SessionStore.MessagesInput,
@@ -393,13 +393,15 @@ const layer = Layer.effect(
         return yield* environments.get(input.sessionID)
       }),
       view: (input) => sessions.forSession(input.sessionID).view(input),
-      remove: Effect.fn("Session.remove")(function* (sessionID) {
+      remove: Effect.fn("Session.remove")(function* (sessionID, options) {
         yield* result.get(sessionID)
         yield* execution.interrupt(sessionID)
         yield* execution.awaitIdle(sessionID)
         yield* transport.close(sessionID)
-        const children = yield* result.list({ parentID: sessionID })
-        yield* Effect.forEach(children.data, (child) => result.remove(child.id), { concurrency: 1, discard: true })
+        if (options?.recursive !== false) {
+          const children = yield* result.list({ parentID: sessionID })
+          yield* Effect.forEach(children.data, (child) => result.remove(child.id), { concurrency: 1, discard: true })
+        }
         yield* environments.clear(sessionID)
         yield* bus.publish(SessionEvent.Deleted, { sessionID })
         yield* bus.remove(sessionID)

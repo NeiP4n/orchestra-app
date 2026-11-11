@@ -251,10 +251,10 @@ describe("Core Performance Benchmarks (Session, EventBus, Storage)", () => {
       const allGuidance = ToolGuidance.render()
       const minimalGuidance = ToolGuidance.render(ToolGuidance.defaultRules, ["read", "edit"])
 
-      expect(allGuidance).toContain("desktop-commander")
-      expect(allGuidance).toContain("context7")
-      expect(minimalGuidance).not.toContain("desktop-commander")
-      expect(minimalGuidance).not.toContain("context7")
+      expect(allGuidance).toContain("research")
+      expect(allGuidance).toContain("websearch")
+      expect(minimalGuidance).not.toContain("research")
+      expect(minimalGuidance).not.toContain("websearch")
       expect(minimalGuidance.length).toBeLessThan(allGuidance.length)
 
       // 2. Action snippets filtering

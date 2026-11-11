@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { Keymap } from "../context/keymap"
@@ -16,6 +17,7 @@ export function DialogUpdate(props: {
   restart: () => void
 }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const t = useT()
   const [error, setError] = createSignal<string>()
@@ -102,7 +104,7 @@ export function DialogUpdate(props: {
               ? t("Update available")
               : t("Update")}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -172,18 +174,22 @@ export function DialogUpdate(props: {
       <Show when={buttons().length > 0}>
         <box flexDirection="row" justifyContent="flex-end" paddingBottom={1}>
           <For each={buttons()}>
-            {(button, index) => (
+            {(button, index) => {
+              const hover = createHoverFeedback()
+              return (
               <box
                 paddingLeft={1}
                 paddingRight={1}
-                backgroundColor={active() === index() ? theme.background.action.primary.focused : undefined}
+                backgroundColor={hover.background() ?? (active() === index() ? theme.background.raised.base : undefined)}
+                onMouseOver={hover.onMouseOver}
+                onMouseOut={hover.onMouseOut}
                 onMouseUp={() => void button.run()}
               >
-                <text fg={active() === index() ? theme.text.action.primary.focused : theme.text.muted}>
+                <text fg={active() === index() ? theme.text.base : theme.text.muted}>
                   {button.label}
                 </text>
               </box>
-            )}
+            )}}
           </For>
         </box>
       </Show>

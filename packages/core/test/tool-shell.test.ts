@@ -28,6 +28,7 @@ import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionStore } from "@orchestra/core/session/store"
+import { Plot } from "@orchestra/core/plot"
 import { Permission } from "@orchestra/core/permission"
 import { PermissionSaved } from "@orchestra/core/permission/saved"
 import { Plugin } from "@orchestra/core/plugin"
@@ -134,6 +135,7 @@ const shellPluginSupervisor = makeLocationNode({
     Config.node,
     Environment.node,
     FileAccess.node,
+    Plot.node,
     Permission.node,
     Session.node,
     Job.node,
@@ -145,6 +147,7 @@ const shellPluginSupervisor = makeLocationNode({
 })
 
 const nodes = LayerNode.group([
+  Plot.node,
   Database.node,
   Bus.node,
   Job.node,
@@ -849,6 +852,21 @@ describe("ShellTool ordinary shell syntax", () => {
 })
 
 describe("ShellTool", () => {
+  it.live("foreign live plot blocks redirect and interpreter writes before shell launch", () => Effect.acquireUseRelease(
+    Effect.promise(() => tmpdir()), tmp => withSession(tmp.path, registry => Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const plots = yield* Plot.Service
+      const other = yield* sessions.create({location:{directory:AbsolutePath.make(tmp.path)},title:"Other team"})
+      yield* plots.claim({sessionID:other.id,directory:tmp.path,paths:["held.txt"],purpose:"other-team file"})
+      const file=path.join(tmp.path,"held.txt")
+      for(const command of isWindows ? [`Set-Content -LiteralPath '${file}' changed`] : [`printf changed > '${file}'`, `python3 -c 'open("${file}","w").write("changed")'`]) {
+        const result=yield* executeTool(registry,call({command}))
+        expect(JSON.stringify(result)).toContain("another team holds plot")
+        expect(yield* Effect.promise(()=>Bun.file(file).exists())).toBe(false)
+      }
+    })),tmp=>Effect.promise(()=>tmp[Symbol.asyncDispose]()),
+  ))
+
   it.live("returns both parallel CodeMode shell results", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => tmpdir()),
@@ -1344,6 +1362,7 @@ describe("ShellTool", () => {
             Config.node,
             Environment.node,
             FileAccess.node,
+            Plot.node,
             Permission.node,
             Session.node,
             Job.node,

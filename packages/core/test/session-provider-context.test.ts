@@ -19,7 +19,7 @@ import { SessionProviderContext } from "@orchestra/core/session/provider-context
 import { SessionRunnerModel } from "@orchestra/core/session/runner/model"
 import { toLLMMessages } from "@orchestra/core/session/runner/to-llm-message"
 import { SessionSchema } from "@orchestra/core/session/schema"
-import { InstructionStateTable, SessionTable } from "@orchestra/core/session/sql"
+import { InstructionStateTable, SessionMessageTable, SessionTable } from "@orchestra/core/session/sql"
 import { SessionStore } from "@orchestra/core/session/store"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Model } from "@orchestra/schema/model"
@@ -355,14 +355,37 @@ it.effect("falls back to an earlier compatible native or local checkpoint", () =
   }),
 )
 
-it.effect("rejects malformed persisted native windows instead of silently dropping them", () =>
+it.effect("quarantines a malformed native window without losing the surrounding transcript", () =>
   Effect.gen(function* () {
     const s = yield* setup
-    yield* s.compact({ ...providerContext, messages: [{ role: "invalid", content: [] }] })
-    expect(yield* SessionHistory.load(s.db, sessionID, target).pipe(Effect.flip)).toMatchObject({
+    const before = yield* s.prompt("before malformed checkpoint")
+    const malformed = { ...providerContext, messages: [{ role: "invalid", content: [] }] }
+    yield* s.compact(malformed)
+    const after = yield* s.prompt("after malformed checkpoint")
+    const row = yield* s.db
+      .select()
+      .from(SessionMessageTable)
+      .where(eq(SessionMessageTable.session_id, sessionID))
+      .orderBy(asc(SessionMessageTable.seq))
+      .all()
+      .pipe(Effect.map((rows) => rows.find((row) => row.type === "compaction")))
+    if (!row) throw new Error("Malformed checkpoint was not persisted")
+    // The individual decoder must still reject the malformed payload. Quarantine
+    // belongs to the history loader, not to a permissive native-message decoder.
+    expect(yield* SessionHistory.decodeMessageRow(row).pipe(Effect.flip)).toMatchObject({
       _tag: "Session.MessageDecodeError",
+      messageID: row.id,
     })
+    const expected = [
+      { id: before, type: "user" as const, text: "before malformed checkpoint" },
+      { id: after, type: "user" as const, text: "after malformed checkpoint" },
+    ]
+    const history = yield* SessionHistory.load(s.db, sessionID, target)
+    expect(history.map(({ id, type, ...message }) => ({ id, type, text: "text" in message ? message.text : undefined })))
+      .toEqual(expected)
     const store = yield* SessionStore.Service
-    expect(yield* store.context(sessionID).pipe(Effect.flip)).toMatchObject({ _tag: "Session.MessageDecodeError" })
+    expect(yield* store.context(sessionID)).toEqual(history)
+    // Quarantine skips the bad row; it does not delete or rewrite source data.
+    expect(yield* s.db.select().from(SessionMessageTable).where(eq(SessionMessageTable.id, row.id)).get()).toEqual(row)
   }),
 )

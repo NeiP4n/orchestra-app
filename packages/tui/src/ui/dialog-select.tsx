@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "./hover-feedback"
 import { CliRenderEvents, InputRenderable, RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { Keymap, type KeymapCommand } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -51,6 +52,7 @@ export interface DialogSelectProps<T> {
   sectionNavigation?: boolean
   // For long, sectioned lists: let the list use most of the screen instead of half of it.
   tall?: boolean
+  compact?: boolean
 }
 
 type DialogSelectActionBase<T> = {
@@ -111,7 +113,12 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   type FooterHint = NonNullable<DialogSelectProps<T>["footerHints"]>[number]
   type VisibleAction = (Action & { label: string }) | FooterHint
 
+  const compact = () => props.compact !== false
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
+  const returnHover = createHoverFeedback()
+  const clearSearchHover = createHoverFeedback()
+  const retryHover = createHoverFeedback()
   const theme = useTheme().surface("dialog")
   const config = useConfig().data
   const t = useT()
@@ -242,7 +249,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     if (props.loading || props.error) return 4
     const headers = grouped().reduce((acc, [category], i) => {
       if (!category) return acc
-      return acc + (i > 0 ? 2 : 1)
+      return acc + (i > 0 && !compact() ? 2 : 1)
     }, 0)
     return flat().reduce((acc, option) => acc + 1 + (option.details?.length ?? 0), headers)
   })
@@ -253,6 +260,10 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   )
 
   const selected = createMemo(() => flat()[store.selected])
+  // Category/filter reconciliation can change the selected option without moveTo().
+  // Report that actual option too, so a footer never describes the previous row.
+  const selectedValue = createMemo(() => selected()?.value, undefined, { equals: isDeepEqual })
+  createEffect(on(selectedValue, () => { const option = selected(); if (option) props.onMove?.(option) }))
 
   createEffect(
     on(
@@ -393,7 +404,6 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       selection = option
       resetSelection = !preserve
     }
-    if (option) props.onMove?.(option)
     scrollToSelection(center)
   }
 
@@ -694,13 +704,16 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     const item = action.item
     const active = createMemo(() => isActionFocused(item))
     const disabled = createMemo(() => isActionDisabled(item))
+    const hover = createHoverFeedback("primary", () => !disabled())
     return (
       <box
         flexDirection="row"
         gap={1}
         alignItems="center"
         flexShrink={0}
-        backgroundColor={active() ? theme.background.action.primary.focused : theme.background.action.primary.base}
+        backgroundColor={hover.background() ?? (active() ? theme.background.action.primary.focused : theme.background.action.primary.base)}
+        onMouseOver={hover.onMouseOver}
+        onMouseOut={hover.onMouseOut}
         onMouseUp={() => trigger(item)}
       >
         <text
@@ -739,8 +752,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   return (
-    <box gap={1} paddingBottom={1} flexGrow={1}>
-      <box paddingLeft={4} paddingRight={4}>
+    <box gap={compact() ? 0 : 1} paddingBottom={compact() ? 0 : 1} flexGrow={compact() ? 0 : 1} minWidth={0}>
+      <box paddingLeft={compact() ? 1 : 4} paddingRight={compact() ? 1 : 4}>
         <box flexDirection="row" justifyContent="space-between" alignItems="center">
           {props.titleView ?? (
             <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
@@ -748,7 +761,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
             </text>
           )}
           <box
-            backgroundColor={theme.background.raised.base}
+            backgroundColor={closeHover.background() ?? theme.background.raised.base}
+            onMouseOver={closeHover.onMouseOver}
+            onMouseOut={closeHover.onMouseOut}
             paddingLeft={1}
             paddingRight={1}
             onMouseUp={() => (props.onCancel ?? dialog.clear)()}
@@ -757,7 +772,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </box>
         </box>
         <Show when={props.renderFilter !== false}>
-          <box paddingTop={1}>
+          <box paddingTop={compact() ? 0 : 1}>
             <input
               onInput={(e) => {
                 if (props.locked) return
@@ -785,7 +800,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </box>
         </Show>
       </box>
-      <box flexGrow={1} flexShrink={1}>
+      <box flexGrow={compact() ? 0 : 1} flexShrink={1} minWidth={0}>
         <Show
           when={!props.loading}
           fallback={
@@ -820,6 +835,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                     flexDirection="row"
                     gap={1}
                     alignItems="center"
+                    backgroundColor={retryHover.background()}
+                    onMouseOver={retryHover.onMouseOver}
+                    onMouseOut={retryHover.onMouseOut}
                     onMouseUp={() => props.onRetry?.()}
                   >
                     <box
@@ -847,7 +865,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       <box paddingLeft={4} paddingRight={4} paddingTop={1} gap={1} flexDirection="column">
                         <text fg={theme.text.muted}>{t("No items available")}</text>
                         <Show when={props.onCancel}>
-                          <box flexDirection="row" gap={1} onMouseUp={() => props.onCancel?.()}>
+                          <box flexDirection="row" gap={1} backgroundColor={returnHover.background()} onMouseOver={returnHover.onMouseOver} onMouseOut={returnHover.onMouseOut} onMouseUp={() => props.onCancel?.()}>
                             <box backgroundColor={theme.background.raised.base} paddingLeft={1} paddingRight={1}>
                               <text fg={theme.text.base} attributes={TextAttributes.BOLD}>Esc</text>
                             </box>
@@ -866,6 +884,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       <box
                         flexDirection="row"
                         gap={1}
+                        backgroundColor={clearSearchHover.background()}
+                        onMouseOver={clearSearchHover.onMouseOver}
+                        onMouseOut={clearSearchHover.onMouseOut}
                         onMouseUp={() => {
                           if (input) input.value = ""
                           setStore("filter", "")
@@ -896,7 +917,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                   {([category, options], index) => (
                     <>
                       <Show when={category}>
-                        <box paddingTop={index() > 0 ? 1 : 0} paddingLeft={3}>
+                        <box paddingTop={index() > 0 && !compact() ? 1 : 0} paddingLeft={3}>
                           <text fg={theme.hue.accent[200]} attributes={TextAttributes.BOLD}>
                             {category}
                           </text>
@@ -936,7 +957,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                               <box
                                 flexDirection="row"
                                 paddingLeft={current() || option.gutter ? 1 : 3}
-                                paddingRight={3}
+                                paddingRight={compact() ? 1 : 3}
                                 gap={1}
                                 backgroundColor={
                                   active()
@@ -990,11 +1011,13 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         </Show>
       </box>
       <Show when={props.footer || visibleActions().length || flat().length > 0} fallback={<box flexShrink={0} />}>
-        <box paddingRight={2} paddingLeft={4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
+        <box paddingRight={compact() ? 1 : 2} paddingLeft={compact() ? 1 : 4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
           <box
             flexDirection={dimensions().width < 60 ? "column" : "row"}
             flexWrap={dimensions().width < 60 ? undefined : "wrap"}
-            gap={dimensions().width < 60 ? 0 : 2}
+            gap={compact() ? undefined : dimensions().width < 60 ? 0 : 2}
+            columnGap={compact() ? 1 : undefined}
+            rowGap={compact() ? 0 : undefined}
           >
             {props.footer}
             <For each={left()}>{(item) => <FooterAction item={item} />}</For>

@@ -5,6 +5,7 @@ import { createAnimatedPresence } from "@/runtime/animated-presence"
 import type { SessionUserActions } from "@orchestra/session-ui/actions"
 import { Button } from "@orchestra/ui/button"
 import { Icon } from "@orchestra/ui/icon"
+import { TuiSessionStatus } from "@/tui/session-status"
 import { IconButton } from "@orchestra/ui/icon-button"
 import { InlineInput } from "@orchestra/ui/inline-input"
 import { Keybind } from "@orchestra/ui/keybind"
@@ -577,6 +578,7 @@ function MessageTimelineView(
               <Show when={sessionID()} keyed>
                 {(_id) => (
                   <div class="shrink-0 flex items-center gap-2">
+                    <TuiSessionStatus sessionID={sessionID()} />
                     {props.search}
                     <ExtensionSlot
                       at="session.header"

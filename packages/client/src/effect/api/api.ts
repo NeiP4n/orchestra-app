@@ -4691,6 +4691,139 @@ export interface RoomApi<E = never> {
   }
 }
 
+export type OrchestraProjectTemplateListOutput = ReadonlyArray<{ readonly id: string; readonly name: string }>
+export type OrchestraProjectTemplateListOperation<E = never> = () => Effect.Effect<
+  OrchestraProjectTemplateListOutput,
+  E
+>
+
+export type OrchestraProjectTemplatePrepareSaveInput = {
+  readonly projectID: Orchestra.ProjectID
+  readonly browsers: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly chat?: string | undefined
+    readonly mode?: "headless" | "window" | "capture" | undefined
+  }>
+  readonly templateID?: string | undefined
+}
+export type OrchestraProjectTemplatePrepareSaveOutput = {
+  readonly token: string
+  readonly name: string
+  readonly details: string
+  readonly unresolvedRoles?: ReadonlyArray<string> | undefined
+  readonly browserBindings?:
+    | ReadonlyArray<{ readonly browser: number; readonly reason: "missing" | "child" | "foreign" | "unlisted" }>
+    | undefined
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  readonly omittedLinks?:
+    | ReadonlyArray<{
+        readonly browser: number
+        readonly link: number
+        readonly reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+export type OrchestraProjectTemplatePrepareSaveOperation<E = never> = (
+  input: OrchestraProjectTemplatePrepareSaveInput,
+) => Effect.Effect<OrchestraProjectTemplatePrepareSaveOutput, E>
+
+export type OrchestraProjectTemplateConfirmSaveInput = {
+  readonly token: string
+  readonly browsers: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly chat?: string | undefined
+    readonly mode?: "headless" | "window" | "capture" | undefined
+  }>
+  readonly omitUnsafeLinks?: boolean | undefined
+  readonly omitInvalidBrowserBindings?: boolean | undefined
+  readonly acceptUnresolvedRoles?: boolean | undefined
+}
+export type OrchestraProjectTemplateConfirmSaveOutput = void
+export type OrchestraProjectTemplateConfirmSaveOperation<E = never> = (
+  input: OrchestraProjectTemplateConfirmSaveInput,
+) => Effect.Effect<OrchestraProjectTemplateConfirmSaveOutput, E>
+
+export type OrchestraProjectTemplatePrepareCreateInput = {
+  readonly templateID: string
+  readonly settingsDirectory: string
+}
+export type OrchestraProjectTemplatePrepareCreateOutput = {
+  readonly token: string
+  readonly name: string
+  readonly details: string
+  readonly unresolvedRoles?: ReadonlyArray<string> | undefined
+  readonly browserBindings?:
+    | ReadonlyArray<{ readonly browser: number; readonly reason: "missing" | "child" | "foreign" | "unlisted" }>
+    | undefined
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  readonly omittedLinks?:
+    | ReadonlyArray<{
+        readonly browser: number
+        readonly link: number
+        readonly reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+export type OrchestraProjectTemplatePrepareCreateOperation<E = never> = (
+  input: OrchestraProjectTemplatePrepareCreateInput,
+) => Effect.Effect<OrchestraProjectTemplatePrepareCreateOutput, E>
+
+export type OrchestraProjectTemplateConfirmCreateInput = { readonly token: string }
+export type OrchestraProjectTemplateConfirmCreateOutput = {
+  readonly projectID: string
+  readonly mainSessionID: string
+  readonly browsers: {
+    readonly importID: string
+    readonly projectID: string
+    readonly createdAt: number
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode: "headless" | "window" | "capture"
+    }>
+  }
+}
+export type OrchestraProjectTemplateConfirmCreateOperation<E = never> = (
+  input: OrchestraProjectTemplateConfirmCreateInput,
+) => Effect.Effect<OrchestraProjectTemplateConfirmCreateOutput, E>
+
+export type OrchestraProjectTemplateFinishCreateInput = { readonly token: string }
+export type OrchestraProjectTemplateFinishCreateOutput = void
+export type OrchestraProjectTemplateFinishCreateOperation<E = never> = (
+  input: OrchestraProjectTemplateFinishCreateInput,
+) => Effect.Effect<OrchestraProjectTemplateFinishCreateOutput, E>
+
+export type OrchestraProjectTemplateBrowsersInput = { readonly projectID: Orchestra.ProjectID }
+export type OrchestraProjectTemplateBrowsersOutput = {
+  readonly importID: string
+  readonly projectID: string
+  readonly createdAt: number
+  readonly browsers: ReadonlyArray<{
+    readonly id: string
+    readonly name: string
+    readonly chat?: string | undefined
+    readonly mode: "headless" | "window" | "capture"
+  }>
+} | null
+export type OrchestraProjectTemplateBrowsersOperation<E = never> = (
+  input: OrchestraProjectTemplateBrowsersInput,
+) => Effect.Effect<OrchestraProjectTemplateBrowsersOutput, E>
+
 export type OrchestraProjectListOutput = ReadonlyArray<Orchestra.Project>
 export type OrchestraProjectListOperation<E = never> = () => Effect.Effect<OrchestraProjectListOutput, E>
 
@@ -4970,6 +5103,15 @@ export type OrchestraLinkListOperation<E = never> = (
 ) => Effect.Effect<OrchestraLinkListOutput, E>
 
 export interface OrchestraApi<E = never> {
+  readonly projectTemplate: {
+    readonly list: OrchestraProjectTemplateListOperation<E>
+    readonly prepareSave: OrchestraProjectTemplatePrepareSaveOperation<E>
+    readonly confirmSave: OrchestraProjectTemplateConfirmSaveOperation<E>
+    readonly prepareCreate: OrchestraProjectTemplatePrepareCreateOperation<E>
+    readonly confirmCreate: OrchestraProjectTemplateConfirmCreateOperation<E>
+    readonly finishCreate: OrchestraProjectTemplateFinishCreateOperation<E>
+    readonly browsers: OrchestraProjectTemplateBrowsersOperation<E>
+  }
   readonly project: {
     readonly list: OrchestraProjectListOperation<E>
     readonly create: OrchestraProjectCreateOperation<E>

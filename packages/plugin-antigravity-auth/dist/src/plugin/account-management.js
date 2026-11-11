@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { AntigravityAccountsRpc } from "./account-rpc.js";
 import { parseRefreshParts } from "./auth.js";
 import { checkAccountsQuota } from "./quota.js";
-import { accountTokenHash, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts } from "./storage.js";
+import { deleteAccountIdentity, accountTokenHash, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts } from "./storage.js";
 export const accountID = (account) => account.id ?? accountTokenHash(account.refreshToken);
 export const accountPoolIdentity = (accounts) => createHash("sha256")
     .update(accounts.filter(account => account.enabled !== false).map(accountID).sort().join(":")).digest("hex");
@@ -167,14 +167,7 @@ export async function registerAccountManagement(ctx, client, beforeWrite, refres
                     storage.activeIndexByFamily = { claude: index, gemini: index };
                 }
                 if (action === "delete") {
-                    const cursors = { active: storage.accounts[storage.activeIndex], claude: storage.accounts[storage.activeIndexByFamily?.claude ?? storage.activeIndex], gemini: storage.accounts[storage.activeIndexByFamily?.gemini ?? storage.activeIndex] };
-                    storage.accounts.splice(index, 1);
-                    const cursor = (selected) => {
-                        const found = storage.accounts.findIndex(item => item === selected && item.enabled !== false);
-                        return found >= 0 ? found : Math.max(0, storage.accounts.findIndex(item => item.enabled !== false));
-                    };
-                    storage.activeIndex = cursor(cursors.active);
-                    storage.activeIndexByFamily = { claude: cursor(cursors.claude), gemini: cursor(cursors.gemini) };
+                    deleteAccountIdentity(storage, id);
                 }
                 else {
                     if (storage.accounts[storage.activeIndex]?.enabled === false) {

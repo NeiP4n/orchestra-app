@@ -7,6 +7,8 @@ import { Effect, Schema } from "effect"
 import { DesktopIsolation } from "../../desktop-isolation.js"
 import { isDesktopCaptureEnabled, makeHost } from "./desktop.js"
 
+const BROWSER_HINT = " To see or drive the page the user has open in the Browser tab, load and use the `browser` tool (info, text, screenshot, click, type): it works without real-screen access."
+
 export const name = "desktop_inspect"
 
 export const description = [
@@ -490,7 +492,7 @@ export const Plugin = {
       // needs the real-screen opt-in (no single app to name: any non-empty
       // allowlist with a future expiry will do).
       const denial = DesktopIsolation.realScreenDenial(process.env)
-      if (denial) return yield* new ToolFailure({ message: `desktop_inspect is blocked: ${denial}` })
+      if (denial) return yield* new ToolFailure({ message: `desktop_inspect is blocked: ${denial}${BROWSER_HINT}` })
       if (process.platform !== "win32") return { output: UNSUPPORTED }
       const query = input.query?.trim() ?? ""
       if (input.action === "find" && query === "")
@@ -512,7 +514,7 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, core: true },
+          options: { codemode: false },
           description,
           input: Input,
           output: Output,

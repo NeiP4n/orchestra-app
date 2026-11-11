@@ -1,0 +1,89 @@
+/* The TUI centers a calm logo/status window over the real prompt. Keep that
+   order in normal flow so the controls stay reachable in short windows. */
+[data-slot="new-session-stage"] {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: auto;
+  padding: 32px 24px 24px;
+  scrollbar-gutter: stable;
+}
+
+[data-slot="new-session-column"] {
+  position: relative;
+  flex-shrink: 0;
+  margin-block: auto;
+}
+
+[data-slot="new-session-logo-window"] {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 8px 16px;
+  background: var(--v2-background-bg-base);
+}
+
+[data-component="new-session-wordmark"] {
+  width: min(440px, 100%);
+  font-family: var(--font-family-mono);
+}
+
+@container (max-width: 600px) {
+  [data-slot="new-session-stage"] {
+    padding: 20px 12px 24px;
+  }
+
+  [data-slot="new-session-logo-window"] {
+    width: min(320px, 100%);
+    padding-inline: 8px;
+  }
+}
+
+/* The TUI mini-skill actions belong to the prompt frame, not a detached
+   toolbar. Their saved above/below placement and hidden state still apply. */
+[data-slot="new-session-prompt"] {
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  background: var(--v2-background-bg-base);
+}
+
+[data-slot="new-session-prompt"] > div {
+  gap: 0;
+}
+
+[data-slot="new-session-prompt"] [data-component="composer-mini-skills"] {
+  padding: 4px 8px;
+}
+
+[data-slot="new-session-prompt"] [data-component="composer"] {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+/* Keep the complete prompt and project controls above the tip in short desktop
+   windows. Only decoration/spacing compress; the actual input stays full size. */
+@media (max-height: 500px) {
+  [data-slot="new-session-stage"] {
+    padding-block: 8px;
+  }
+
+  [data-slot="new-session-logo-window"] {
+    padding-block: 0;
+  }
+
+  [data-component="new-session-wordmark"] {
+    width: min(240px, 100%);
+  }
+
+  [data-slot="new-session-controls"] {
+    margin-top: 8px;
+    gap: 6px;
+  }
+
+  [data-slot="new-session-tip-footer"] {
+    padding-block: 4px;
+  }
+}

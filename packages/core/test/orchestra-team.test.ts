@@ -1,3 +1,4 @@
+import { ProjectTemplateReader } from "../src/project-template-reader"
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
 import { Mode } from "@orchestra/schema/mode"
@@ -15,6 +16,7 @@ import { Bus } from "@orchestra/core/bus"
 import { Autoloop } from "@orchestra/core/autoloop/service"
 import { orchestraRules } from "@orchestra/core/autoloop/orchestrator"
 import type { RunRow } from "@orchestra/core/autoloop/kernel/decide"
+import { Skill } from "@orchestra/core/skill"
 import { Model } from "@orchestra/core/model"
 import { Provider } from "@orchestra/core/provider"
 import { Agent } from "@orchestra/core/agent"
@@ -27,14 +29,22 @@ import { CompactionPolicy } from "@orchestra/core/session/compaction-policy"
 import { SessionPlan } from "@orchestra/core/session/plan"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { createHash } from "node:crypto"
 import { Session } from "@orchestra/core/session"
 import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionStore } from "@orchestra/core/session/store"
+import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
+import { Rules } from "@orchestra/core/rules"
+import { ProjectTable } from "@orchestra/core/project/sql"
 import { SessionTable } from "@orchestra/core/session/sql"
 import { eq } from "drizzle-orm"
+import { Trigger } from "@orchestra/core/trigger"
+import { CredentialVault } from "@orchestra/core/credential-vault/index"
+import { ScheduleView } from "@orchestra/core/schedule-view"
+import { ScheduleRequests } from "@orchestra/core/schedule-requests"
 import { KV } from "@orchestra/core/kv"
 import { Form as FormService } from "@orchestra/core/form"
 import { tmpdir } from "./fixture/tmpdir"
@@ -45,7 +55,7 @@ import { Location } from "@orchestra/core/location"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { location } from "./fixture/location"
 import { TeamPlugin } from "@orchestra/core/plugin/team"
-import { isLimitReport } from "@orchestra/core/plugin/team"
+import { EXPLORE_LIMIT, isLimitReport } from "@orchestra/core/plugin/team"
 import { SandboxPlugin } from "@orchestra/core/plugin/sandbox"
 import type { ShellCreateBefore } from "@orchestra/plugin/effect/shell"
 import { agentHost, host } from "./plugin/host"
@@ -180,6 +190,7 @@ const it = testEffect(
       Orchestra.node,
       Federation.node,
       Agent.node,
+      Skill.node,
       FormService.node,
       Autoloop.node,
     ]),
@@ -534,7 +545,7 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   ),
 
-  it.live("forgetting a project releases its task reservation and cancels only its queued input", () =>
+  it.live("deleting a project removes owned sessions and reservations while preserving another project", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-forget-tasks-")))
       const orchestra = yield* Orchestra.Service
@@ -566,12 +577,12 @@ describe("Orchestra team", () => {
 
       yield* orchestra.remove(project.id)
 
-      // Forgetting coordination records does not delete the session or its persisted history.
-      yield* untilNoPending(worker.id)
-      expect(yield* sessions.get(worker.id)).toMatchObject({ id: worker.id })
-      expect(yield* sessions.get(project.main!)).toMatchObject({ id: project.main })
+      // Revised deletion contract: owned session history is deleted, not orphaned.
+      const store = yield* SessionStore.Service
+      expect(yield* store.get(worker.id)).toBeUndefined()
+      expect(yield* store.get(project.main!)).toBeUndefined()
       expect(yield* orchestra.owners()).not.toHaveProperty(worker.id)
-      expect((yield* sessions.inbox(worker.id)).some((item) => item.type === "user")).toBe(false)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
 
       // Reservations and queued work belonging to a different project survive.
       expect(yield* orchestra.pending(otherWorker.id)).toBeNumber()
@@ -581,6 +592,166 @@ describe("Orchestra team", () => {
       expect((yield* orchestra.projects()).map((item) => item.id)).not.toContain(project.id)
     }).pipe(Effect.scoped),
   ),
+
+  it.live("project removal deletes only owned active triggers and their schedule views", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-trigger-delete-")))
+      const orchestra = yield* Orchestra.Service, kv = yield* KV.Service
+      const first = yield* orchestra.create({ name: "Removed trigger owner", directory: tmp.path })
+      const other = yield* orchestra.create({ name: "Surviving trigger owner", directory: tmp.path })
+      const make = (projectID: string, id: string) => {
+        const made = Trigger.create({ kind: "interval", spec: "60", prompt: "Do not run after removal" }, { id, projectID, now: Date.now(), existing: 0 })
+        if (!made.ok) throw Error(made.error)
+        return made.trigger
+      }
+      const owned = make(first.id, "trg_removed_owner"), foreign = make(other.id, "trg_surviving_owner")
+      yield* kv.set(Trigger.key(first.id, owned.id), owned as never)
+      yield* kv.set(Trigger.key(other.id, foreign.id), foreign as never)
+      // Even malformed placement is not permission to remove another project's trigger.
+      const misplacedKey = Trigger.key(first.id, "foreign-placement")
+      yield* kv.set(misplacedKey, foreign as never)
+      ScheduleView.sync(owned, String(first.main))
+      ScheduleView.sync(foreign, String(other.main))
+      yield* orchestra.remove(first.id)
+      expect(yield* kv.get(Trigger.key(first.id, owned.id))).toBeUndefined()
+      expect(ScheduleView.list(String(first.main)).map(item => item.id)).not.toContain(owned.id)
+      expect(Trigger.parse(yield* kv.get(Trigger.key(other.id, foreign.id)))).toEqual(foreign)
+      expect(Trigger.parse(yield* kv.get(misplacedKey))).toEqual(foreign)
+      expect(ScheduleView.list(String(other.main)).map(item => item.id)).toContain(foreign.id)
+      yield* Effect.sleep("50 millis")
+      expect(yield* kv.get(Trigger.key(first.id, owned.id))).toBeUndefined()
+      ScheduleView.remove(foreign.id)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion removes exact owned history and rules but preserves foreign same-directory chats and SQL project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-foreign-")))
+      const orchestra = yield* Orchestra.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service, kv = yield* KV.Service
+      const { db } = yield* Database.Service
+      const project = yield* orchestra.create({ name: "Cleanup owned", directory: tmp.path })
+      const worker = yield* orchestra.createMember({ project, title: "Owned", agent: Orchestra.role("developer") })
+      const foreign = yield* sessions.create({ location: { directory: AbsolutePath.make(tmp.path) }, title: "Unclaimed personal history" })
+      const sqlRow = yield* db.select({ id: SessionTable.project_id }).from(SessionTable).where(eq(SessionTable.id, project.main!)).get().pipe(Effect.orDie)
+      expect(sqlRow).toBeDefined()
+      for (const scope of [Rules.projectScope(project.id), Rules.projectDefaultsScope(project.id), Rules.orchestratorScope(project.id)]) {
+        yield* kv.set("rules/" + scope, [{ id: "owned-rule", text: "Owned rule", by: "operator", at: 1 }])
+        yield* kv.set("rules/history/" + scope, [])
+      }
+      yield* kv.set("rules/project:foreign-project", [{ id: "foreign-rule", text: "Keep", by: "operator", at: 1 }])
+      yield* orchestra.remove(project.id)
+      expect(yield* store.get(project.main!)).toBeUndefined()
+      expect(yield* store.get(worker.id)).toBeUndefined()
+      expect((yield* store.get(foreign.id))?.title).toBe("Unclaimed personal history")
+      expect(yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, sqlRow!.id)).get().pipe(Effect.orDie)).toBeDefined()
+      expect(yield* db.select().from(SessionTable).where(eq(SessionTable.id, worker.id)).get().pipe(Effect.orDie)).toBeUndefined()
+      for (const scope of [Rules.projectScope(project.id), Rules.projectDefaultsScope(project.id), Rules.orchestratorScope(project.id)]) {
+        expect(yield* kv.get("rules/" + scope)).toBeUndefined()
+        expect(yield* kv.get("rules/history/" + scope)).toBeUndefined()
+      }
+      expect(yield* kv.get("rules/project:foreign-project")).toBeDefined()
+      const denied = yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Must not execute after deletion" }).pipe(Effect.exit)
+      expect(Exit.isFailure(denied)).toBe(true)
+      expect(yield* kv.get("orchestra/project-removal/" + project.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion removes only exact project import records and leaves browser files untouched", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-template-kv-")))
+      const orchestra = yield* Orchestra.Service
+      const kv = yield* KV.Service
+      const project = yield* orchestra.create({ name: "Import cleanup", directory: tmp.path })
+      const other = yield* orchestra.create({ name: "Keep imports", directory: tmp.path })
+      const prefixes = ["orchestra/project-import/", "orchestra/template-browsers/", "orchestra/template-requirements/"]
+      const file = path.join(tmp.path, "browser-profile-sentinel")
+      yield* Effect.promise(() => Bun.write(file, "do not remove browser profile files"))
+      for (const prefix of prefixes) {
+        yield* kv.set(prefix + project.id, prefix === "orchestra/project-import/" ? "owned-import" : { projectID: project.id, importID: "owned-import" })
+        yield* kv.set(prefix + other.id, prefix === "orchestra/project-import/" ? "other-import" : { projectID: other.id, importID: "other-import" })
+        yield* kv.set(prefix + project.id + "-similar", { projectID: "similar", importID: "not-owned" })
+      }
+      // The shared receipt is retained independently of the project's pointer to it.
+      yield* kv.set("orchestra/template-import/owned-import", { phase: "published", projectID: project.id, audit: "keep" })
+      yield* kv.set("orchestra/template-import/other-import", { phase: "published", projectID: other.id, audit: "keep" })
+      yield* orchestra.remove(project.id)
+      for (const prefix of prefixes) {
+        expect(yield* kv.get(prefix + project.id)).toBeUndefined()
+        expect(yield* kv.get(prefix + other.id)).toEqual(prefix === "orchestra/project-import/" ? "other-import" : { projectID: other.id, importID: "other-import" })
+        expect(yield* kv.get(prefix + project.id + "-similar")).toEqual({ projectID: "similar", importID: "not-owned" })
+      }
+      expect(yield* kv.get("orchestra/template-import/owned-import")).toEqual({ phase: "published", projectID: project.id, audit: "keep" })
+      expect(yield* Effect.promise(() => Bun.file(file).text())).toBe("do not remove browser profile files")
+      expect((yield* orchestra.projects()).map((item) => item.id)).toContain(other.id)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion retries a persisted cleanup receipt without discovering unrelated history", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-retry-")))
+      const orchestra = yield* Orchestra.Service, store = yield* SessionStore.Service, kv = yield* KV.Service
+      const project = yield* orchestra.create({ name: "Retry cleanup", directory: tmp.path })
+      const plan = { project, sessions: [project.main!], sqlProjects: [] }
+      yield* kv.set("orchestra/project-removal/" + project.id, JSON.parse(JSON.stringify(plan)))
+      for (const prefix of ["orchestra/project-import/", "orchestra/template-browsers/", "orchestra/template-requirements/"]) {
+        yield* kv.set(prefix + project.id, "retry-owned-import")
+      }
+      expect((yield* orchestra.projects()).some(item => item.id === project.id)).toBe(false)
+      yield* orchestra.remove(project.id)
+      expect(yield* store.get(project.main!)).toBeUndefined()
+      expect(yield* kv.get("orchestra/project-removal/" + project.id)).toBeUndefined()
+      expect(yield* kv.get("orchestra/project/" + project.id)).toBeUndefined()
+      for (const prefix of ["orchestra/project-import/", "orchestra/template-browsers/", "orchestra/template-requirements/"]) {
+        expect(yield* kv.get(prefix + project.id)).toBeUndefined()
+      }
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion refuses a foreign child instead of recursively deleting another owner's history", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-child-")))
+      const orchestra = yield* Orchestra.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service
+      const project = yield* orchestra.create({ name: "Keep foreign child", directory: tmp.path })
+      const child = yield* sessions.create({ parentID: project.main!, title: "Foreign child", metadata: { [OrchestraSchema.SessionOwnerMetadataKey]: { projectID: "prj_foreign" } } })
+      const exit = yield* orchestra.remove(project.id).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* store.get(project.main!)).toBeDefined()
+      expect(yield* store.get(child.id)).toBeDefined()
+      expect((yield* orchestra.projects()).some(item => item.id === project.id)).toBe(true)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion removes an unused SQL project only when no sessions remain", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-sql-")))
+      const orchestra = yield* Orchestra.Service
+      const { db } = yield* Database.Service
+      const project = yield* orchestra.create({ name: "Cleanup SQL", directory: tmp.path })
+      const row = yield* db.select({ id: SessionTable.project_id }).from(SessionTable).where(eq(SessionTable.id, project.main!)).get().pipe(Effect.orDie)
+      expect(row).toBeDefined()
+      yield* orchestra.remove(project.id)
+      expect(yield* db.select().from(SessionTable).where(eq(SessionTable.project_id, row!.id)).all().pipe(Effect.orDie)).toEqual([])
+      expect(yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, row!.id)).get().pipe(Effect.orDie)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("forgetting a project removes only its local Vault definitions, never other project slots", () =>
+    Effect.gen(function* () {
+      const orchestra = yield* Orchestra.Service
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-vault-delete-")))
+      const first = yield* orchestra.create({ name: "Vault owner", directory: tmp.path })
+      const a = CredentialVault.local(String(first.id)), b = CredentialVault.local("prj_other_vault")
+      yield* Effect.promise(() => a.createEmptyLocalSlotsFromOperator([{ name: "service", type: "api-key", label: "Service" }]))
+      yield* Effect.promise(() => b.createEmptyLocalSlotsFromOperator([{ name: "other", type: "login", label: "Other" }]))
+      try {
+        yield* orchestra.remove(first.id)
+        expect(yield* Effect.promise(() => a.slots())).toEqual([])
+        expect((yield* Effect.promise(() => b.slots())).map((slot) => slot.name)).toEqual(["other"])
+      } finally {
+        yield* Effect.promise(() => b.removeProjectSlots("prj_other_vault"))
+      }
+    }),
+  )
 
   it.live("does not resolve a removed project's main session as a live orchestrator", () =>
     Effect.gen(function* () {
@@ -990,8 +1161,13 @@ describe("Orchestra team", () => {
             ],
           },
         })
-      // A session without an outstanding task is the operator's own conversation.
-      yield* ask(tester.id)
+      // A session outside every project is the operator's own conversation: it keeps asking the human.
+      const outside = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-outside-")))
+      const stray = yield* sessions.create({
+        location: { directory: AbsolutePath.make(outside.path) },
+        title: "Own conversation",
+      })
+      yield* ask(stray.id)
       yield* ask(developer.id)
       const questions = (sessionID: Session.ID) =>
         sessions
@@ -1014,6 +1190,37 @@ describe("Orchestra team", () => {
       expect(question).toContain("- Postgres: Production")
       expect(question).toContain("- SQLite")
       expect(yield* questions(project.main!)).toHaveLength(1)
+      // A member session between tasks (no outstanding task) is still the orchestrator's to decide for.
+      yield* ask(tester.id)
+      const both = yield* questions(project.main!).pipe(
+        Effect.filterOrFail((found) => found.length > 1),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(both.some((text) => text.includes(`session="${tester.id}"`) && text.includes('task="legacy"'))).toBe(true)
+      expect(both.some((text) => text.includes(`session="${stray.id}"`))).toBe(false)
+      // The interact tool's decision blocks and the web search provider choice are forwarded the same way.
+      const raise = (sessionID: Session.ID, kind: string, description: string) =>
+        bus.publish(Form.Event.Created, {
+          form: {
+            id: Form.ID.create(),
+            sessionID,
+            title: "Decide",
+            metadata: { kind },
+            fields: [{ key: "choice", type: "string", description, options: [{ value: "a", label: "A" }], custom: false }],
+          },
+        })
+      yield* raise(developer.id, "interactive", "Pick the rollout plan")
+      yield* raise(developer.id, "websearch.provider", "Allow Orchestra to search the web?")
+      yield* raise(developer.id, "something.else", "Unrelated form")
+      const more = yield* questions(project.main!).pipe(
+        Effect.filterOrFail((found) => found.length > 3),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(more.some((text) => text.includes("Pick the rollout plan"))).toBe(true)
+      expect(more.some((text) => text.includes("Allow Orchestra to search the web?"))).toBe(true)
+      expect(more.some((text) => text.includes("Unrelated form"))).toBe(false)
       const qItem = (yield* sessions.inbox(project.main!)).find(
         (item) => item.type === "synthetic" && item.payload.text.startsWith("<team-question"),
       )
@@ -1752,6 +1959,109 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   )
 
+  it.live("keeps imported process roles project-local through claims and project removal", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-process-roles-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const kv = yield* KV.Service
+      const first = yield* orchestra.create({ name: "Process A", directory: tmp.path })
+      const second = yield* orchestra.create({ name: "Process B", directory: tmp.path })
+      const id = `process-${createHash("sha256").update(first.id).digest("hex").slice(0, 16)}-1`
+      const spec = { name: "Local reviewer", description: "Only this process", rules: "  preserve rules exactly\r\n", category: "Quality", readOnly: true, tools: ["read"] }
+      const globalBefore = yield* orchestra.roles()
+      const role = yield* orchestra.saveProjectRole(first.id, id, spec)
+      expect(role.rules).toBe(spec.rules)
+      expect(yield* orchestra.roles()).toEqual(globalBefore)
+      expect((yield* orchestra.roles(first.id)).find(item => item.agent === role.agent)).toMatchObject(role)
+      expect((yield* orchestra.roles(second.id)).some(item => item.agent === role.agent)).toBe(false)
+      expect((yield* orchestra.scopedRoles()).find(item => item.agent === role.agent)?.projectID).toBe(first.id)
+      expect(Exit.isFailure(yield* Effect.exit(orchestra.saveProjectRole(second.id, id, spec)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(orchestra.saveProjectRole(first.id, id, { ...spec, rules: "overwrite" })))).toBe(true)
+      const worker = yield* orchestra.createMember({ project: first, agent: role.agent })
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(true)
+      expect(yield* orchestra.projectRoleAllowed(second.main!, role.agent)).toBe(false)
+      expect(Exit.isFailure(yield* Effect.exit(orchestra.createMember({ project: second, agent: role.agent })))).toBe(true)
+      const unclaimed = yield* sessions.create({ agent: role.agent, location: { directory: AbsolutePath.make(tmp.path) } })
+      expect(yield* orchestra.projectRoleAllowed(unclaimed.id, role.agent)).toBe(false)
+      yield* orchestra.claim(worker.id, second.id)
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(false)
+      yield* orchestra.claim(worker.id, first.id)
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(true)
+      yield* kv.set("orchestra/process-skills/" + first.id, { version: 1, projectID: first.id, skills: [] })
+      yield* kv.set("orchestra/process-skill-definitions/" + first.id, { version: 1, projectID: first.id })
+      yield* orchestra.remove(first.id)
+      expect(yield* kv.get("orchestra/process-skills/" + first.id)).toBeUndefined()
+      expect(yield* kv.get("orchestra/process-skill-definitions/" + first.id)).toBeUndefined()
+      expect(yield* orchestra.projectRoleAllowed(worker.id, role.agent)).toBe(false)
+      expect((yield* orchestra.scopedRoles()).some(item => item.agent === role.agent)).toBe(false)
+      expect(yield* orchestra.roles()).toEqual(globalBefore)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("blocks local process agents at prompt, context, tool and permission boundaries outside their project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-process-boundary-")))
+      const orchestra = yield* Orchestra.Service
+      const agents = yield* Agent.Service
+      const sessions = yield* Session.Service
+      const first = yield* orchestra.create({ name: "Process A", directory: tmp.path })
+      const second = yield* orchestra.create({ name: "Process B", directory: tmp.path })
+      const id = `process-${createHash("sha256").update(first.id).digest("hex").slice(0, 16)}-1`
+      const role = yield* orchestra.saveProjectRole(first.id, id, { name: "Scoped reviewer", description: "Local", rules: "Review only", category: "Quality", readOnly: true, tools: ["read"] })
+      const worker = yield* orchestra.createMember({ project: first, agent: role.agent })
+      const foreign = yield* sessions.create({ agent: role.agent, location: { directory: AbsolutePath.make(tmp.path) } })
+      yield* orchestra.claim(foreign.id, second.id)
+      const contexts: Array<(event: SessionContext) => Effect.Effect<void>> = []
+      const prompts: Array<(event: unknown) => Effect.Effect<void, unknown>> = []
+      const before: Array<(event: unknown) => Effect.Effect<void, unknown>> = []
+      const permissions: Array<(event: PermissionEvaluation) => Effect.Effect<void>> = []
+      yield* TeamPlugin.Plugin.effect(host({
+        agent: agentHost(agents),
+        session: { hook: ((name: string, callback: (event: unknown) => Effect.Effect<void, unknown>) => Effect.sync(() => {
+          if (name === "context") contexts.push(callback as (event: SessionContext) => Effect.Effect<void>)
+          if (name === "prompt") prompts.push(callback)
+        }).pipe(Effect.as({ dispose: Effect.void }))) as never },
+        tool: { hook: ((name: string, callback: (event: unknown) => Effect.Effect<void, unknown>) => Effect.sync(() => { if (name === "execute.before") before.push(callback) }).pipe(Effect.as({ dispose: Effect.void }))) as never, transform: () => Effect.die("unused"), reload: () => Effect.void, list: () => Effect.succeed([]) },
+        permission: { hook: (_, callback) => Effect.sync(() => permissions.push(callback)).pipe(Effect.as({ dispose: Effect.void })), list: () => Effect.die("unused"), get: () => Effect.die("unused"), reply: () => Effect.die("unused") },
+      }))
+      const tools = new Map<string, Tool.Info>()
+      yield* OrchestraTool.Plugin.effect(host({
+        session: { hook: () => Effect.succeed({ dispose: Effect.void }) },
+        tool: {
+          transform: callback => Effect.sync(() => { callback({ list: () => [], get: () => undefined, namespace: () => {}, add: tool => { tools.set(tool.name, tool) }, update: () => {}, remove: () => {} }) }).pipe(Effect.as({ dispose: Effect.void })),
+          reload: () => Effect.void, list: () => Effect.succeed([]), hook: () => Effect.succeed({ dispose: Effect.void }),
+        },
+      }))
+      const createThroughTool = (sessionID: Session.ID) => tools.get("sessions")!.execute({ action: "create", role: role.id, newInstance: true, mcp: { servers: [], maxCalls: 0 } }, { sessionID, agent: Orchestra.agent, messageID: SessionMessage.ID.create(), id: Tool.CallID.make("local_role_create"), progress: () => Effect.void })
+      yield* createThroughTool(first.main!)
+      expect((yield* orchestra.sessions(first.id)).filter(session => session.agent === role.agent)).toHaveLength(2)
+      expect(Exit.isFailure(yield* Effect.exit(createThroughTool(second.main!)))).toBe(true)
+      expect((yield* agents.get(role.agent))?.hidden).toBe(true)
+      const tool = (sessionID: Session.ID) => Effect.forEach(before, hook => hook({ sessionID, agent: role.agent, tool: "read", input: {} }))
+      const prompt = (sessionID: Session.ID) => Effect.forEach(prompts, hook => hook({ sessionID, prompt: { text: "Review" } }))
+      const context = (sessionID: Session.ID) => Effect.forEach(contexts, hook => hook({ sessionID, agent: role.agent, system: [], tools: {} } as unknown as SessionContext))
+      const permission = (sessionID: Session.ID, action: string, effect: PermissionEvaluation["effect"] = "allow") => Effect.gen(function* () {
+        const event: PermissionEvaluation = { sessionID, agent: role.agent, action, effect, resources: [tmp.path] }
+        yield* Effect.forEach(permissions, hook => hook(event))
+        return event.effect
+      })
+      yield* tool(worker.id)
+      yield* prompt(worker.id)
+      expect(yield* permission(worker.id, "read")).toBe("allow")
+      expect(yield* permission(worker.id, "edit")).toBe("deny")
+      expect(yield* permission(worker.id, "external_directory", "ask")).toBe("ask")
+      expect(Exit.isFailure(yield* Effect.exit(tool(foreign.id)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(prompt(foreign.id)))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(context(foreign.id)))).toBe(true)
+      expect(yield* permission(foreign.id, "read")).toBe("deny")
+      // The live ownership guard does not wait for asynchronous agent reloads.
+      yield* orchestra.claim(worker.id, second.id)
+      expect(Exit.isFailure(yield* Effect.exit(tool(worker.id)))).toBe(true)
+      expect(yield* permission(worker.id, "read")).toBe("deny")
+    }).pipe(Effect.scoped),
+  )
+
   it.live("operators add their own roles and teams and edit the built-in ones", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-team-")))
@@ -1844,7 +2154,7 @@ describe("Orchestra team", () => {
         host({
           agent: agentHost(agents),
           session: {
-            hook: ((name: string, callback: (event: never) => Effect.Effect<void>) =>
+            hook: ((name: string, callback: (event: unknown) => Effect.Effect<void, unknown>) =>
               Effect.sync(() => {
                 if (name === "context") contexts.push(callback as (event: SessionContext) => Effect.Effect<void>)
                 if (name === "prompt") prompts.push(callback as (event: { sessionID: Session.ID }) => Effect.Effect<void>)
@@ -2054,7 +2364,7 @@ describe("Orchestra team", () => {
             },
           )
           .pipe(Effect.flip)).message,
-      ).toContain("complete ID")
+      ).toBe("Сессия не существует или недоступна: ses. Обновите sessions list; не повторяйте отправку по старому ID.")
 
       // A mode narrows how a session works without changing its role. Planning removes the
       // editing tools from the request and still denies an edit that reaches the permission
@@ -2115,12 +2425,12 @@ describe("Orchestra team", () => {
             }),
           { discard: true },
         )
-      for (let index = 0; index < 6; index++) yield* call("read")
+      for (let index = 0; index < EXPLORE_LIMIT; index++) yield* call("read")
       const refused = yield* call("grep").pipe(Effect.flip)
       expect(refused.message).toContain("without dispatching anything")
       yield* call("sessions", { action: "send" })
       yield* call("shell")
-      for (let index = 0; index < 5; index++) yield* call("read")
+      for (let index = 0; index < EXPLORE_LIMIT - 1; index++) yield* call("read")
       expect((yield* call("read").pipe(Effect.flip)).message).toContain("without dispatching anything")
       yield* Effect.forEach(prompts, (hook) => hook({ sessionID: modeSession, prompt: { text: "go on" } } as never), { discard: true })
       yield* call("read")
@@ -2316,3 +2626,318 @@ describe("Orchestra workflow stages", () => {
     }),
   )
 })
+
+
+it.live("local trigger window applies operator pause/resume/export through the real scheduler with no model call", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-trigger-window-")))
+    const orchestra = yield* Orchestra.Service, kv = yield* KV.Service
+    const project = yield* orchestra.create({name:"Trigger window", directory:tmp.path})
+    const main = yield* orchestra.main(project.id)
+    const made = Trigger.create({kind:"interval",spec:"60",prompt:"private reviewed instruction"},{id:"trg_window",projectID:project.id,now:Date.now(),existing:0})
+    if(!made.ok)throw Error(made.error)
+    yield* kv.set(Trigger.key(project.id,made.trigger.id),made.trigger as never)
+    ScheduleView.sync(made.trigger,String(main.id))
+    for(const action of ["pause","resume","export"] as const){
+      const command=ScheduleRequests.request(made.trigger.id,String(main.id),action)
+      const result=yield* Effect.sync(()=>ScheduleRequests.result(command)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+      expect(result?.ok).toBe(true)
+      const current=Trigger.parse(yield* kv.get(Trigger.key(project.id,made.trigger.id)))!
+      expect(current.enabled).toBe(action!=="pause")
+      expect(current.total).toBe(0)
+      if(action==="export"){
+        const content=yield* Effect.promise(()=>Bun.file(path.join(tmp.path,".orchestra","triggers",`trigger-${command.requestID}.json`)).text())
+        expect(JSON.parse(content).format).toBe("orchestra.trigger-bundle")
+        expect(content).not.toContain("private reviewed instruction")
+      }
+    }
+  }),30_000)
+
+
+it.live("template reader captures real project metadata without reading messages, creating sessions or carrying grants", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-template-live-reader-")))
+    const orchestra = yield* Orchestra.Service
+    const kv = yield* KV.Service
+    const store = yield* SessionStore.Service
+    const project = yield* orchestra.create({ name: "Template source", directory: tmp.path })
+    const main = yield* orchestra.main(project.id)
+    const [slot] = yield* Effect.promise(() => CredentialVault.local(project.id).createEmptyLocalSlotsFromOperator([{ name: "service", type: "api-key", label: "Service" }]))
+    yield* kv.set("rules/orchestrator:" + project.id, [{ id: "r1", text: "Review the result.", by: "operator", at: 1 }])
+    const before = (yield* store.list({ directoryPrefix: AbsolutePath.make(tmp.path) })).map((row) => row.id)
+    const result = yield* ProjectTemplateReader.capture({ kv, getSession: (id) => store.get(Session.ID.make(id)), listSessionsInTree: (directory) => store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }) }, project.id,
+      { name: "Reusable factory", description: "Config only", minOrchestraVersion: "1.0.0" },
+      { browsers: [], vault: [slot], selectedGlobalSlotIDs: new Set(), providers: [], mcp: [] })
+    expect(result.bundle.sessions.some((row) => row.role === Orchestra.agent)).toBe(true)
+    expect(result.bundle.rules.some((row) => row.scope === "orchestrator" && row.text === "Review the result.")).toBe(true)
+    expect(result.bundle.vault.local).toEqual([{ name: "service", type: "api-key", label: "Service" }])
+    expect(result.text).not.toContain(main.id)
+    expect(result.text).not.toContain(project.id)
+    expect(result.text).not.toContain(slot.id)
+    expect((yield* store.list({ directoryPrefix: AbsolutePath.make(tmp.path) })).map((row) => row.id)).toEqual(before)
+    yield* Effect.promise(() => CredentialVault.local(project.id).removeProjectSlots(project.id))
+  }).pipe(Effect.scoped),
+)
+
+it.live("template live materializer writes real sessions/KV/DoD and empty Vault, then resumes without duplicates", () =>
+ Effect.gen(function*(){
+  const {ProjectTemplateLiveStores}=yield* Effect.promise(()=>import('../src/project-template-live-stores'))
+  const {ProjectTemplateBrowserStore}=yield* Effect.promise(()=>import('../src/project-template-browser-store'))
+  const {ProjectTemplate}=yield* Effect.promise(()=>import('../src/project-template'))
+  const {ProjectFilesBootstrap}=yield* Effect.promise(()=>import('../src/project-files/bootstrap'))
+  const {SessionHold}=yield* Effect.promise(()=>import('../src/session/hold'))
+  const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir('template-real-import-')))
+  const kv=yield* KV.Service,sessions=yield* Session.Service,store=yield* SessionStore.Service,database=yield* Database.Service
+  yield* Effect.promise(()=>mkdir(path.join(tmp.path,'browser-data')))
+  const browserStore=ProjectTemplateBrowserStore.make(kv,path.join(tmp.path,'browser-data'));let failOnce=true,failBootstrapOnce=true
+  const vault=(id:string)=>CredentialVault.make({directory:path.join(tmp.path,'vault'),projectID:id,collector:{collect:async()=>{throw Error('must not request secrets')}} as never})
+  const adapter=ProjectTemplateLiveStores.make({kv,sessions,store,root:path.join(tmp.path,'imports'),installedVersion:'1.0.0',timezone:'UTC',
+   availableRoles:async()=>new Set(['orchestrator','team-browser-agent']),availableModels:async()=>new Set(['demo/free']),vault,
+   bootstrap:async(directory,name)=>{await Effect.runPromise(ProjectFilesBootstrap.initialize(directory,name,kv).pipe(Effect.provideService(Database.Service,database)));if(failBootstrapOnce){failBootstrapOnce=false;throw Error('simulated bootstrap completion loss')}},
+   browsers:{ensure:async(r,rows)=>{await browserStore.ensure(r,rows);if(failOnce){failOnce=false;throw Error('simulated browser-store checkpoint loss')}},verify:browserStore.verify},
+  })
+  const removeGuard=SessionHold.addGuard(adapter.held);yield* Effect.addFinalizer(()=>Effect.sync(removeGuard))
+  const template={format:'orchestra.project-template',version:1,name:'Factory',description:'Settings only',minOrchestraVersion:'1.0.0',variables:{projectName:'Fresh factory',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'browser',title:'Inbox',role:'team-browser-agent',model:null}],browsers:[{slot:'inbox',name:'Inbox',mode:'window',links:['https://example.com/inbox'],session:'browser'}],rules:[{scope:'orchestrator',session:null,text:'Check the output.'}],schedules:[{slot:'daily',source:{kind:'cron',spec:'0 9 * * *'},instruction:'Check status',maxPerHour:1,maxPerDay:1,missedPolicy:'skip'}],vault:{local:[{name:'service',type:'api-key',label:'Service'}],globalRequirements:['shared']},providers:[],mcp:[]}
+  const preview=ProjectTemplate.preview(JSON.stringify(template));if(!preview.ok)throw Error(preview.error)
+  const reservation=yield* Effect.promise(()=>adapter.reserve(preview.value.text,preview.value.digest))
+  expect(yield* kv.get('orchestra/project/'+reservation.projectID)).toBeUndefined()
+  const interrupted=yield* Effect.promise(()=>adapter.resume(reservation.id)).pipe(Effect.exit)
+  expect(Exit.isFailure(interrupted)).toBe(true)
+  expect(yield* kv.get('orchestra/project/'+reservation.projectID)).toBeUndefined()
+  expect((yield* (yield* Orchestra.Service).projects()).some(p=>p.id===reservation.projectID)).toBe(false)
+  expect(yield* SessionHold.held(reservation.plan.mainSessionID!)).toBe(true)
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reservation.id)).pipe(Effect.exit))).toBe(true)
+  expect(yield* kv.get('orchestra/project/'+reservation.projectID)).toBeDefined()
+  expect((yield* (yield* Orchestra.Service).projects()).some(p=>p.id===reservation.projectID)).toBe(false)
+  expect(Exit.isFailure(yield* (yield* Orchestra.Service).main(Orchestra.ProjectID.make(reservation.projectID)).pipe(Effect.exit))).toBe(true)
+  expect(yield* SessionHold.held(reservation.plan.mainSessionID!)).toBe(true)
+  const created=yield* Effect.promise(()=>adapter.resume(reservation.id))
+  expect(created.phase).toBe('published');expect((yield* (yield* Orchestra.Service).projects()).some(p=>p.id===reservation.projectID)).toBe(true);expect(yield* SessionHold.held(reservation.plan.mainSessionID!)).toBe(false)
+  const main=yield* (yield* Orchestra.Service).main(Orchestra.ProjectID.make(reservation.projectID));expect(main.title).toBe('Main')
+  const infos=yield* store.list({directoryPrefix:AbsolutePath.make(reservation.directory)})
+  expect(infos).toHaveLength(2);expect(infos[0].permissions).toEqual([]);expect(infos[0].tokens.input).toBe(0)
+  expect(yield* store.messages({sessionID:infos[0].id,limit:1})).toEqual([])
+  expect(Trigger.parse(yield* kv.get(Trigger.key(reservation.projectID,reservation.plan.schedules[0].id)))?.enabled).toBe(false)
+  expect((yield* Effect.promise(()=>vault(reservation.projectID).slots()))[0]).toMatchObject({state:'empty',allowedSessionIDs:[]})
+  expect(yield* kv.get('rules/project-defaults:'+reservation.projectID)).toEqual([])
+  expect(yield* Effect.promise(()=>Bun.file(path.join(tmp.path,'browser-data','browser-profiles',reservation.plan.browsers[0].id+'.tabs.json')).json())).toEqual({tabs:[{url:'https://example.com/inbox'}]})
+  expect(yield* Effect.promise(()=>Bun.file(path.join(tmp.path,'browser-data','browser-profiles',reservation.plan.browsers[0].id,'Cookies')).exists())).toBe(false)
+  expect(yield* Effect.promise(()=>Bun.file(path.join(reservation.directory,Dod.FILE)).exists())).toBe(true)
+  yield* Effect.promise(()=>adapter.resume(reservation.id))
+  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reservation.directory)})).toHaveLength(2)
+  const missing=yield* kv.get(ProjectTemplateLiveStores.RECEIPT+reservation.id)
+  yield* kv.remove(ProjectTemplateLiveStores.RECEIPT+reservation.id)
+  expect(yield* SessionHold.held(reservation.plan.mainSessionID!)).toBe(true)
+  yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reservation.id,missing!)
+  const other=yield* Effect.promise(()=>adapter.reserve(preview.value.text,preview.value.digest))
+  const changed=structuredClone(other);changed.plan.rules[0].scope='global'
+  yield* kv.set(ProjectTemplateLiveStores.RECEIPT+other.id,JSON.parse(JSON.stringify(changed)))
+  const globalBefore=yield* kv.get('rules/global')
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(other.id)).pipe(Effect.exit))).toBe(true)
+  expect(yield* kv.get('rules/global')).toEqual(globalBefore)
+  expect(yield* store.get(Session.ID.make(other.plan.mainSessionID!))).toBeUndefined()
+ }).pipe(Effect.scoped),30_000)
+
+it.live("v2 live import persists process before publication and resumes without carrying execution rights", () =>
+ Effect.gen(function* () {
+  const { ProjectTemplateV2 } = yield* Effect.promise(() => import('../src/project-template-v2'))
+  const { ProjectTemplateV2Runtime } = yield* Effect.promise(() => import('../src/project-template-v2-runtime'))
+  const { ProjectTemplateLiveStores } = yield* Effect.promise(() => import('../src/project-template-live-stores'))
+  const { ProjectTemplateBrowserStore } = yield* Effect.promise(() => import('../src/project-template-browser-store'))
+  const { ProcessSkills } = yield* Effect.promise(() => import('../src/process-skills'))
+  const { Skill } = yield* Effect.promise(() => import('../src/skill'))
+  const { SessionHold } = yield* Effect.promise(() => import('../src/session/hold'))
+  const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir('v2-live-process-')))
+  const kv = yield* KV.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service, orchestra = yield* Orchestra.Service
+  yield* Effect.promise(() => mkdir(path.join(tmp.path,'data')))
+  const data = path.join(tmp.path,'data')
+  const {ProjectTemplateCoreRoles}=yield* Effect.promise(()=>import('../src/project-template-core-roles'))
+  const core=ProjectTemplateCoreRoles.current([])[0]
+  const local = { agent:'team-process-reviewer', name:'Review process', description:'Review work', rules:'  Keep exact process rules.\r\n', category:'Quality', readOnly:true, tools:['read','skill'], autoTools:false }
+  const content = '# Process skill\nRead guide.md.\n'
+  const source = {format:'orchestra.project-template',version:2,name:'Process factory',description:'Process only',minOrchestraVersion:'1.0.0',variables:{projectName:'Imported process',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'reviewer',title:'Review',role:local.agent,model:null}],browsers:[],rules:[{scope:'role',role:local.agent,session:null,text:'Never publish without approval.'}],schedules:[],vault:{local:[],globalRequirements:[]},providers:[],mcp:[],process:{playbook:'Review the result before publishing.',recommendedRoles:[local.agent],roles:[core,local],skills:[{id:'review',name:'Review',entry:'SKILL.md',description:'Review work',files:[{path:'SKILL.md',content,sha256:ProjectTemplateV2.hash(content)},{path:'guide.md',content:'Check the result.\n',sha256:ProjectTemplateV2.hash('Check the result.\n')}],dependencies:[]}],skillAssignments:[{target:{kind:'project'},skills:['review']},{target:{kind:'role',role:local.agent},skills:[]},{target:{kind:'session',session:'main'},skills:['review']}],sessionModels:[{session:'main',models:[{provider:'demo',id:'free',variant:null},{provider:'demo',id:'backup',variant:'careful'}]},{session:'reviewer',models:[]}],programs:[]}}
+  const preview = ProjectTemplateV2.preview(JSON.stringify(source)); if(!preview.ok) throw Error(preview.error)
+  let changed=0,failOnce=true,failProcessOnce=true
+  const process = ProjectTemplateV2Runtime.make({kv,dataDirectory:data,installedVersion:'1.0.0',destination:async()=>({roles:[core],skills:[],models:new Set(['demo/free','demo/backup#careful']),programs:new Set(),mcp:new Map(),providers:new Set()}),changed:async()=>{changed++;await Effect.runPromise(orchestra.reload())}})
+  const vault=(id:string)=>CredentialVault.make({directory:path.join(tmp.path,'vault'),projectID:id,collector:{collect:async()=>{throw Error('must not request secrets')}} as never})
+  const adapter=ProjectTemplateLiveStores.make({kv,sessions,store,root:path.join(tmp.path,'imports'),installedVersion:'1.0.0',timezone:'UTC',process:{...process,ensure:async r=>{await process.ensure(r);if(failProcessOnce){failProcessOnce=false;throw Error('process checkpoint lost')}}},
+    availableRoles:async()=>new Set(['orchestrator']),availableModels:async()=>new Set(['demo/free','demo/backup#careful']),vault,browsers:ProjectTemplateBrowserStore.make(kv,data),bootstrap:async()=>{if(failOnce){failOnce=false;throw Error('publication checkpoint lost')}}})
+  const guard=SessionHold.addGuard(adapter.held);yield* Effect.addFinalizer(()=>Effect.sync(guard))
+  const rejected=structuredClone(source);rejected.process.roles[0].rules='Changed core runtime rules.'
+  const invalid=ProjectTemplateV2.preview(JSON.stringify(rejected));if(!invalid.ok)throw Error(invalid.error)
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.reserve(invalid.value.text,invalid.value.digest)).pipe(Effect.exit))).toBe(true)
+  const reserved=yield* Effect.promise(()=>adapter.reserve(preview.value.text,preview.value.digest))
+  expect(reserved.process?.digest).toBe(preview.value.digest)
+  const globalBefore=yield* orchestra.roles()
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
+  expect((yield* orchestra.projects()).some(project=>project.id===reserved.projectID)).toBe(false)
+  expect(yield* store.get(Session.ID.make(reserved.plan.mainSessionID!))).toBeUndefined()
+  expect(yield* orchestra.playbook(Orchestra.ProjectID.make(reserved.projectID))).toBeUndefined()
+  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})).toEqual([])
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
+  expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(true)
+  const change=yield* orchestra.changes.pipe(Stream.take(1),Stream.runCollect,Effect.forkScoped({startImmediately:true}))
+  const published=yield* Effect.promise(()=>adapter.resume(reserved.id))
+  expect(yield* Fiber.join(change)).toHaveLength(1)
+  expect(published.phase).toBe('published')
+  expect(changed).toBe(1)
+  expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(false)
+  const localAgent='team-'+ProcessSkills.namespace(reserved.projectID)+'2'
+  expect((yield* orchestra.roles(Orchestra.ProjectID.make(reserved.projectID))).find(role=>role.agent===localAgent)?.rules).toBe(local.rules)
+  expect(yield* orchestra.roles()).toEqual(globalBefore)
+  expect(yield* orchestra.playbook(Orchestra.ProjectID.make(reserved.projectID))).toEqual({name:'Process factory',text:source.process.playbook})
+  const imported=yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})
+  expect(imported).toHaveLength(2)
+  expect(imported.every(session=>session.permissions?.length===0 && session.tokens.input===0 && session.tokens.output===0)).toBe(true)
+  const main=imported.find(session=>session.id===reserved.plan.mainSessionID)!
+  expect(main.metadata?.["orchestra:worker-models"]).toEqual([{providerID:'demo',id:'free'},{providerID:'demo',id:'backup',variant:'careful'}])
+  expect(yield* store.messages({sessionID:main.id,limit:1})).toEqual([])
+  const catalog=yield* Skill.Service
+  const skillID=Skill.ID.make(ProcessSkills.namespace(reserved.projectID)+'1')
+  expect((yield* catalog.get(skillID,{sessionID:main.id,agent:'orchestrator'}))?.content).toBe(content)
+  expect(yield* catalog.get(skillID,{sessionID:'ses_foreign',agent:'orchestrator'})).toBeUndefined()
+  yield* Effect.promise(()=>adapter.resume(reserved.id))
+  expect(yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})).toHaveLength(2)
+  const {ProjectTemplateV2OwnerReader}=yield* Effect.promise(()=>import('../src/project-template-v2-owner-reader'))
+  const {ProjectTemplateV2Reader}=yield* Effect.promise(()=>import('../src/project-template-v2-reader'))
+  const exported=yield* Effect.promise(()=>ProjectTemplateV2Reader.capture(ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core]},reserved.projectID),reserved.projectID,{name:'Roundtrip process',description:'Process only',minOrchestraVersion:'1.0.0'},{browsers:[],vault:[],selectedGlobalSlotIDs:new Set<string>(),providers:[],mcp:[]}))
+  expect(exported.bundle.process.playbook).toBe(source.process.playbook)
+  expect(exported.bundle.process.roles.find(role=>role.agent===localAgent)?.rules).toBe(local.rules)
+  expect(exported.bundle.process.skills[0].files).toEqual(source.process.skills[0].files)
+  expect(exported.bundle.process.skills[0].id).toBe(skillID)
+  expect(exported.bundle.process.sessionModels.find(row=>row.models.length>0)?.models).toEqual(source.process.sessionModels[0].models)
+  expect(exported.text).not.toContain(reserved.directory)
+  expect(exported.text).not.toContain(reserved.projectID)
+  expect(exported.text).not.toContain(main.id)
+  expect(exported.bundle.process.skillAssignments).toContainEqual({target:{kind:'role',role:localAgent},skills:[]})
+  const second=yield* Effect.promise(()=>adapter.reserve(exported.text,exported.digest))
+  yield* Effect.promise(()=>adapter.resume(second.id))
+  const third=yield* Effect.promise(()=>ProjectTemplateV2Reader.capture(ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core]},second.projectID),second.projectID,{name:'Roundtrip process',description:'Process only',minOrchestraVersion:'1.0.0'},{browsers:[],vault:[],selectedGlobalSlotIDs:new Set<string>(),providers:[],mcp:[]}))
+  expect(third.bundle.process.skills[0].files).toEqual(exported.bundle.process.skills[0].files)
+  expect(third.bundle.process.playbook).toBe(exported.bundle.process.playbook)
+  expect(third.bundle.process.roles.map(role=>({name:role.name,rules:role.rules,readOnly:role.readOnly,tools:role.tools}))).toEqual(exported.bundle.process.roles.map(role=>({name:role.name,rules:role.rules,readOnly:role.readOnly,tools:role.tools})))
+  expect(third.bundle.process.sessionModels.map(row=>JSON.stringify(row.models)).sort()).toEqual(exported.bundle.process.sessionModels.map(row=>JSON.stringify(row.models)).sort())
+  expect(yield* orchestra.roles()).toEqual(globalBefore)
+  const {ProjectTemplateOperator}=yield* Effect.promise(()=>import('../src/project-template-operator'))
+  const operator=ProjectTemplateOperator.make({kv,store,dataDirectory:data,installedVersion:'1.0.0',live:()=>adapter,processStores:projectID=>ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core]},projectID)})
+  const saved=yield* Effect.promise(()=>operator.prepareSave(reserved.projectID,[]))
+  expect(JSON.parse(saved.details).version).toBe(2)
+  yield* Effect.promise(()=>operator.confirmSave(saved.token,[]))
+  const library=yield* Effect.promise(()=>operator.list())
+  expect(library).toHaveLength(1)
+  expect(library[0].id).toStartWith('process:')
+  yield* orchestra.update(Orchestra.ProjectID.make(reserved.projectID),{name:'Updated process factory'})
+  const staleUpdate=yield* Effect.promise(()=>operator.prepareSave(reserved.projectID,[],library[0].id))
+  yield* orchestra.update(Orchestra.ProjectID.make(reserved.projectID),{name:'Final process factory'})
+  expect(Exit.isFailure(yield* Effect.promise(()=>operator.confirmSave(staleUpdate.token,[])).pipe(Effect.exit))).toBe(true)
+  const update=yield* Effect.promise(()=>operator.prepareSave(reserved.projectID,[],library[0].id))
+  yield* Effect.promise(()=>operator.confirmSave(update.token,[]))
+  yield* Effect.promise(()=>operator.confirmSave(update.token,[]))
+  const afterUpdate=yield* Effect.promise(()=>operator.list())
+  expect(afterUpdate).toHaveLength(1)
+  expect(afterUpdate[0].id).toBe(library[0].id)
+  expect(afterUpdate[0].name).toBe('Final process factory')
+  const create=yield* Effect.promise(()=>operator.prepareCreate(library[0].id,data))
+  expect(JSON.parse(create.details).process.skills[0].files).toEqual(source.process.skills[0].files)
+  const created=yield* Effect.promise(()=>operator.confirmCreate(create.token))
+  expect(created.projectID).not.toBe(reserved.projectID)
+  yield* Effect.promise(()=>operator.finishCreate(create.token))
+  const resumed=yield* Effect.promise(()=>operator.confirmCreate(create.token))
+  expect(resumed.projectID).toBe(created.projectID)
+  const initial=yield* orchestra.create({name:'Initial v2 source',directory:tmp.path})
+  yield* orchestra.main(initial.id)
+  const initialExport=yield* Effect.promise(()=>operator.prepareSave(initial.id,[]))
+  const initialBundle=JSON.parse(initialExport.details)
+  expect(initialBundle.version).toBe(2)
+  expect(initialBundle.process.roles.some((role:{agent:string})=>role.agent==='orchestrator')).toBe(true)
+  expect(initialBundle.process.skills).toEqual([])
+  const {SkillFile}=yield* Effect.promise(()=>import('../src/config/plugin/skill-file'))
+  const legacyRoot=path.join(tmp.path,'skills','legacy-review')
+  yield* Effect.promise(()=>mkdir(legacyRoot,{recursive:true}))
+  const legacyDocument='---\nname: Legacy review\nmetadata:\n  orchestra/export:\n    version: 1\n    files: [SKILL.md, guide.md]\n    dependencies: []\n---\n# Review the work\n'
+  yield* Effect.promise(()=>Bun.write(path.join(legacyRoot,'SKILL.md'),legacyDocument))
+  yield* Effect.promise(()=>Bun.write(path.join(legacyRoot,'guide.md'),'Exact legacy guide.\r\n'))
+  yield* Effect.promise(()=>Bun.write(path.join(legacyRoot,'private.md'),'NEIGHBOR_PRIVATE_DATA_CANARY'))
+  const legacyParsed=SkillFile.parse(path.join(tmp.path,'skills'),path.join(legacyRoot,'SKILL.md'),legacyDocument)
+  if(legacyParsed._tag!=='Parsed')throw Error('Legacy fixture must parse')
+  const owningLegacy=ProjectTemplateOperator.make({kv,store,dataDirectory:data,installedVersion:'1.0.0',live:()=>adapter,processStores:projectID=>ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core],legacyCatalogs:async input=>input.sessionIDs.map(sessionID=>({sessionID,directory:tmp.path,skills:[legacyParsed.skill]}))},projectID)})
+  const legacyPrepared=yield* Effect.promise(()=>owningLegacy.prepareSave(initial.id,[]))
+  const capturedLegacy=JSON.parse(legacyPrepared.details)
+  expect(capturedLegacy.process.skills).toHaveLength(1)
+  expect(capturedLegacy.process.skills[0].files.map((file:{path:string})=>file.path)).toEqual(['SKILL.md','guide.md'])
+  expect(capturedLegacy.process.skills[0].files[0].content).toBe(legacyDocument)
+  expect(capturedLegacy.process.skillAssignments[0].target.kind).toBe('session')
+  expect(legacyPrepared.details).not.toContain('NEIGHBOR_PRIVATE_DATA_CANARY')
+  expect(legacyPrepared.details).not.toContain(legacyRoot)
+  yield* Effect.promise(()=>owningLegacy.confirmSave(legacyPrepared.token,[]))
+  const legacyLibrary=(yield* Effect.promise(()=>owningLegacy.list())).find(row=>row.name==='Initial v2 source')!
+  const legacyCreate=yield* Effect.promise(()=>owningLegacy.prepareCreate(legacyLibrary.id,data))
+  const legacyImported=yield* Effect.promise(()=>owningLegacy.confirmCreate(legacyCreate.token))
+  yield* Effect.promise(()=>owningLegacy.finishCreate(legacyCreate.token))
+  const legacyRoundtrip=yield* Effect.promise(()=>ProjectTemplateV2Reader.capture(ProjectTemplateV2OwnerReader.make({kv,store,orchestra,coreRoles:async()=>[core]},legacyImported.projectID),legacyImported.projectID,{name:'Legacy roundtrip',description:'Process only',minOrchestraVersion:'1.0.0'},{browsers:[],vault:[],selectedGlobalSlotIDs:new Set<string>(),providers:[],mcp:[]}))
+  expect(legacyRoundtrip.bundle.process.skills[0].files).toEqual(capturedLegacy.process.skills[0].files)
+  expect(legacyRoundtrip.bundle.process.skillAssignments[0].skills).toHaveLength(1)
+  const {ProjectTemplateLibrary}=yield* Effect.promise(()=>import('../src/project-template-library'))
+  const {ProjectTemplate}=yield* Effect.promise(()=>import('../src/project-template'))
+  const {process:omittedProcess,...legacySource}=source
+  const legacy=ProjectTemplate.preview(JSON.stringify({...legacySource,version:1}));if(!legacy.ok)throw Error(legacy.error)
+  yield* Effect.promise(()=>ProjectTemplateLibrary.local(data).saveSerialized(legacy.value.text,'legacy_template',legacy.value.digest))
+  expect((yield* Effect.promise(()=>operator.list())).some(row=>row.id==='legacy_template')).toBe(true)
+  const legacyUpdate=yield* Effect.promise(()=>operator.prepareSave(reserved.projectID,[],'legacy_template'))
+  expect(JSON.parse(legacyUpdate.details).version).toBe(1)
+  expect(legacyUpdate.name).toBe(source.name)
+  yield* Effect.promise(()=>operator.confirmSave(legacyUpdate.token,[]))
+  yield* Effect.promise(()=>operator.confirmSave(legacyUpdate.token,[]))
+  const legacyUpdated=yield* Effect.promise(()=>ProjectTemplateLibrary.local(data).preview('legacy_template'))
+  expect(legacyUpdated.bundle.version).toBe(1)
+  expect(legacyUpdated.bundle.name).toBe('Final process factory')
+  expect((yield* Effect.promise(()=>ProjectTemplateLibrary.local(data).list())).filter(row=>row.state==='ready')).toHaveLength(1)
+  const broken=structuredClone(published);broken.process!.template=broken.process!.template.replace('Review the result before publishing.','Changed playbook.')
+  yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reserved.id,JSON.parse(JSON.stringify(broken)))
+  expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
+  yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reserved.id,JSON.parse(JSON.stringify(published)))
+ }).pipe(Effect.scoped),30_000)
+
+it.live("reviewed trigger activation checks current KV configuration and keeps publication and firing history unchanged", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-reviewed-trigger-")))
+    const orchestra = yield* Orchestra.Service, kv = yield* KV.Service
+    const project = yield* orchestra.create({name:"Reviewed triggers",directory:tmp.path})
+    const main = yield* orchestra.main(project.id)
+    const made = Trigger.create({kind:"interval",spec:"60",prompt:"Read status only"},{id:"trg_reviewed_window",projectID:project.id,now:Date.now(),existing:0})
+    if(!made.ok) throw Error(made.error)
+    const paused = {...made.trigger,enabled:false,nextAt:null,publishApproved:false,total:2,fired:[Date.now()-1000]}
+    const key = Trigger.key(project.id,paused.id)
+    yield* kv.set(key,paused as never)
+    ScheduleView.sync(paused,String(main.id))
+    const digest = ScheduleView.list(String(main.id)).find(item=>item.id===paused.id)!.review!.digest
+    const first = ScheduleRequests.requestReviewedResume(paused.id,String(main.id),digest)
+    const result = yield* Effect.sync(()=>ScheduleRequests.result(first)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+    expect(result.ok).toBe(true)
+    const enabled = Trigger.parse(yield* kv.get(key))!
+    expect(enabled.enabled).toBe(true)
+    expect(enabled.publishApproved).toBe(false)
+    expect(enabled.maxPerHour).toBe(paused.maxPerHour)
+    expect(enabled.maxPerDay).toBe(paused.maxPerDay)
+    expect(enabled.fired).toEqual(paused.fired)
+    expect(enabled.total).toBe(2)
+
+    // Projection is deliberately stale: KV already changed before a reviewed command arrives.
+    yield* kv.set(key,{...paused,prompt:"Unreviewed changed instruction"} as never)
+    ScheduleView.sync(paused,String(main.id))
+    const stale = ScheduleRequests.requestReviewedResume(paused.id,String(main.id),digest)
+    const refused = yield* Effect.sync(()=>ScheduleRequests.result(stale)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+    expect(refused.ok).toBe(false)
+    expect(refused.message).toContain("изменился")
+    expect(Trigger.parse(yield* kv.get(key))?.enabled).toBe(false)
+
+    const unbound = {...paused,browserSessionID:"unknown_browser"}
+    yield* kv.set(key,unbound as never)
+    ScheduleView.sync(unbound,String(main.id))
+    const browserReview = ScheduleView.list(String(main.id)).find(item=>item.id===paused.id)!.review!
+    const unboundCommand = ScheduleRequests.requestReviewedResume(paused.id,String(main.id),browserReview.digest)
+    const unboundResult = yield* Effect.sync(()=>ScheduleRequests.result(unboundCommand)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+    expect(unboundResult.ok).toBe(false)
+    expect(unboundResult.message).toContain("Браузер")
+    expect(Trigger.parse(yield* kv.get(key))?.enabled).toBe(false)
+  }),30_000)

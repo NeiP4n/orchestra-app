@@ -34,11 +34,13 @@ const makeWriteFixture = () => {
   const fixture: {
     assertions: Permission.AssertInput[]
     writes: string[]
+    moves: { from: string; to: string }[]
     denyAction?: string
     formatFile: (target: string) => Effect.Effect<boolean>
   } = {
     assertions: [],
     writes: [],
+    moves: [],
     formatFile: () => Effect.succeed(false),
   }
 
@@ -83,6 +85,8 @@ const withTool = <A, E, R>(
       AppNodeBuilder.build(LayerNode.group([Tool.node, FileAccess.node, FileMutation.node, writeToolNode]), [
         Environment.node.replace(
           transformEnvironmentFiles((files) => ({
+            move: (from, to) =>
+              files.move(from, to).pipe(Effect.tap(() => Effect.sync(() => fixture.moves.push({ from, to })))),
             write: (target, content) =>
               Effect.sync(() => fixture.writes.push(target)).pipe(Effect.andThen(files.write(target, content))),
           })),
@@ -101,9 +105,33 @@ const call = (input: typeof WriteTool.Input.Type, id = "call-write") => ({
   call: { type: "tool-call" as const, id, name: "write", input },
 })
 
+function assertAtomicWrite(fixture: { writes: string[]; moves: { from: string; to: string }[] }, target: string) {
+  return Effect.gen(function* () {
+    expect(fixture.writes).toHaveLength(1)
+    const temp = fixture.writes[0]!
+    expect(path.dirname(temp)).toBe(path.dirname(target))
+    expect(temp.startsWith(`${target}.${process.pid}.`)).toBe(true)
+    expect(temp.endsWith(".tmp")).toBe(true)
+    expect(fixture.moves).toEqual([{ from: temp, to: target }])
+    expect(yield* Effect.promise(() => fs.stat(temp).then(() => true, () => false))).toBe(false)
+  })
+}
+
 const it = testEffect(Layer.empty)
 
 describe("WriteTool", () => {
+  it.live("always allow proposal is limited to the exact file and cannot widen to a neighboring file", () => withTempDir(tmp => {
+    const fixture=makeWriteFixture()
+    return withTool(tmp.path,fixture,registry=>Effect.gen(function* () {
+      yield* executeTool(registry,call({path:"first.txt",content:"one"}))
+      yield* executeTool(registry,call({path:"second.txt",content:"two"},"second"))
+      const edits=fixture.assertions.filter(input=>input.action==="edit")
+      expect(edits.map(input=>input.save)).toEqual([["first.txt"],["second.txt"]])
+      expect(edits.every(input=>!input.save?.includes("*"))).toBe(true)
+      expect(yield* Effect.promise(()=>fs.readFile(path.join(tmp.path,"second.txt"),"utf8"))).toBe("two")
+    }))
+  }))
+
   it.live("registers and creates a relative file through FileMutation once", () =>
     withTempDir((tmp) => {
       const fixture = makeWriteFixture()
@@ -125,7 +153,7 @@ describe("WriteTool", () => {
             "created",
           )
           expect(fixture.assertions).toMatchObject([
-            { sessionID, action: "edit", resources: ["src/new.txt"], save: ["*"] },
+            { sessionID, action: "edit", resources: ["src/new.txt"], save: ["src/new.txt"] },
           ])
           expect(fixture.assertions[0]?.metadata).toMatchObject({
             files: [
@@ -138,9 +166,7 @@ describe("WriteTool", () => {
               },
             ],
           })
-          expect(fixture.writes).toEqual([
-            path.join(yield* Effect.promise(() => fs.realpath(tmp.path)), "src", "new.txt"),
-          ])
+          yield* assertAtomicWrite(fixture, path.join(yield* Effect.promise(() => fs.realpath(tmp.path)), "src", "new.txt"))
         }),
       )
     }),
@@ -252,7 +278,7 @@ describe("WriteTool", () => {
     }),
   )
 
-  it.live("writes an external symlink target with only its in-location permission", () =>
+  it.live("requires external-directory approval before writing an external symlink target", () =>
     Effect.acquireUseRelease(
       Effect.promise(() => Promise.all([tmpdir(), tmpdir()])),
       ([active, outside]) => {
@@ -272,8 +298,9 @@ describe("WriteTool", () => {
           Effect.andThen((result) =>
             Effect.sync(() => {
               expect(result.status).toBe("completed")
-              expect(fixture.assertions.map((input) => input.action)).toEqual(["edit"])
-              expect(fixture.assertions[0]?.resources).toEqual(["link.txt"])
+              expect(fixture.assertions.map((input) => input.action)).toEqual(["external_directory", "edit"])
+              expect(fixture.assertions[0]?.resources).toEqual([path.join(outside.path, "*").replaceAll("\\", "/")])
+              expect(fixture.assertions[1]?.resources).toEqual([target.replaceAll("\\", "/")])
             }),
           ),
           Effect.andThen(Effect.promise(() => fs.readFile(target, "utf8"))),
@@ -284,6 +311,38 @@ describe("WriteTool", () => {
         Effect.promise(() =>
           Promise.all([active[Symbol.asyncDispose](), outside[Symbol.asyncDispose]()]).then(() => undefined),
         ),
+    ),
+  )
+
+  it.live("denying external-directory access preserves the symlink and outside bytes", () =>
+    Effect.acquireUseRelease(
+      Effect.promise(() => Promise.all([tmpdir(), tmpdir()])),
+      ([active, outside]) => {
+        const fixture = makeWriteFixture()
+        fixture.denyAction = "external_directory"
+        const target = path.join(outside.path, "external.txt")
+        const link = path.join(active.path, "link.txt")
+        return Effect.promise(async () => {
+          await fs.writeFile(target, "before")
+          // File symlinks need elevated rights on Windows; directory junctions do not.
+          if (process.platform === "win32") await fs.symlink(outside.path, path.join(active.path, "outside"), "junction")
+          else await fs.symlink(target, link)
+        }).pipe(
+          Effect.andThen(withTool(active.path, fixture, (registry) =>
+            executeTool(registry, call(process.platform === "win32" ? { ...{ path: "link.txt", content: "after" }, path: "outside/external.txt" } : { path: "link.txt", content: "after" })),
+          )),
+          Effect.andThen((result) => Effect.gen(function* () {
+            expect(result.status).toBe("error")
+            expect(fixture.assertions.map((item) => item.action)).toEqual(["external_directory"])
+            expect(fixture.writes).toEqual([])
+            expect(fixture.moves).toEqual([])
+            expect(yield* Effect.promise(() => fs.readFile(target, "utf8"))).toBe("before")
+            const pointer = process.platform === "win32" ? path.join(active.path, "outside") : link
+            expect(yield* Effect.promise(() => fs.lstat(pointer).then((info) => info.isSymbolicLink()))).toBe(true)
+          })),
+        )
+      },
+      ([active, outside]) => Effect.promise(() => Promise.all([active[Symbol.asyncDispose](), outside[Symbol.asyncDispose]()])),
     ),
   )
 
@@ -305,7 +364,7 @@ describe("WriteTool", () => {
               })
               expect(fixture.assertions[1]).toMatchObject({
                 resources: [absoluteTarget.replaceAll("\\", "/")],
-                save: ["*"],
+                save: [absoluteTarget.replaceAll("\\", "/")],
               })
               expect(settled).toMatchObject({
                 status: "completed",
@@ -316,7 +375,7 @@ describe("WriteTool", () => {
                 },
               })
               expect(yield* Effect.promise(() => fs.readFile(target, "utf8"))).toBe("external")
-              expect(fixture.writes).toEqual([absoluteTarget])
+              yield* assertAtomicWrite(fixture, absoluteTarget)
             }),
           ),
         )

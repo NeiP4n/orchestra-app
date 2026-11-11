@@ -57,6 +57,20 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Plot") {}
 
+/** Shell can hide writes in interpreters and scripts. Do not guess their file targets. */
+export const guardShell = (plots: Pick<Interface, "list" | "holds">, input: { sessionID: SessionID; directories: ReadonlyArray<string> }) =>
+  Effect.gen(function* () {
+    const seen = new Set<string>()
+    for (const directory of input.directories) {
+      for (const plot of yield* plots.list(directory)) {
+        if (seen.has(plot.id)) continue
+        seen.add(plot.id)
+        if (!(yield* plots.holds(plot, input.sessionID)))
+          return yield* new TakenError({ message: `Shell refused while another team holds plot "${plot.purpose}". Shell scripts can hide writes; use the guarded read/edit/write tools for exact files, or wait for the plot to be released. No command ran.` })
+      }
+    }
+  })
+
 export const FOLDER = ProjectDirs.primary("plots")
 export const LEGACY_FOLDER = ProjectDirs.legacy("plots")
 // Long enough to finish a task, short enough that an abandoned plot frees itself soon.

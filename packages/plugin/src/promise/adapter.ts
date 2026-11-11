@@ -401,6 +401,7 @@ export function fromPromise(plugin: Plugin) {
                       update: (input) => {
                         if (!("authorize" in input)) return editor.method.update(input)
                         const refresh = input.refresh
+                        const remove = input.remove
                         editor.method.update({
                           ...input,
                           authorize: (answer) =>
@@ -417,6 +418,7 @@ export function fromPromise(plugin: Plugin) {
                                     },
                               ),
                             ),
+                          remove: remove === undefined ? undefined : (credential, credentialID) => Effect.promise(() => remove(credential, credentialID)),
                           refresh:
                             refresh === undefined
                               ? undefined

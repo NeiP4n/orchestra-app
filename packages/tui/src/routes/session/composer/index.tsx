@@ -1,3 +1,4 @@
+import { HoverAction } from "../../../component/hover-action"
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { TextAttributes } from "@opentui/core"
@@ -120,9 +121,9 @@ export function Composer(props: ComposerProps) {
                   </For>
                 </box>
               </Show>
-              <text fg={theme.text.muted} onMouseUp={close}>
-                esc
-              </text>
+              <HoverAction paddingLeft={1} paddingRight={1} onClick={close}>
+                <text fg={theme.text.muted}>esc</text>
+              </HoverAction>
             </box>
             <SubagentsTab sessionID={props.sessionID} />
             <ShellTab sessionID={props.sessionID} />

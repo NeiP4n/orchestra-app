@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import type { VcsFileStatus } from "@orchestra/client"
@@ -31,6 +32,7 @@ export function DialogWorkspaceFileChanges(props: {
   message?: string
 }) {
   const dialog = useDialog()
+  const closeHover = createHoverFeedback("secondary")
   const theme = useTheme().surface("dialog")
   const overlayTheme = useTheme()
   const config = useConfig().data
@@ -75,7 +77,7 @@ export function DialogWorkspaceFileChanges(props: {
         <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {props.title ?? "File Changes Found"}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -114,20 +116,24 @@ export function DialogWorkspaceFileChanges(props: {
       </scrollbox>
       <box flexDirection="row" justifyContent="flex-end" paddingLeft={2} paddingRight={2} paddingBottom={1}>
         <For each={options}>
-          {(item) => (
+          {(item) => {
+            const hover = createHoverFeedback()
+            return (
             <box
               paddingLeft={2}
               paddingRight={2}
-              backgroundColor={item === store.active ? theme.background.action.primary.focused : undefined}
+              backgroundColor={hover.background() ?? (item === store.active ? theme.background.raised.base : undefined)}
+              onMouseOver={hover.onMouseOver}
+              onMouseOut={hover.onMouseOut}
               onMouseUp={() => {
                 setStore("active", item)
                 props.onSelect(item)
                 dialog.clear()
               }}
             >
-              <text fg={item === store.active ? theme.text.action.primary.focused : theme.text.muted}>{item}</text>
+              <text fg={item === store.active ? theme.text.base : theme.text.muted}>{item}</text>
             </box>
-          )}
+          )}}
         </For>
       </box>
     </box>

@@ -1,6 +1,7 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
+  "settings.providers.account.nativePoolKept": "Only the native credential is removed. The separate Antigravity plugin account pool is kept; manage it separately.",
   ...DESKTOP_NATIVE_ENGLISH,
   "session.location.unavailable": "Session location unavailable",
   "session.location.description": "Choose another directory to continue this session.",
@@ -558,6 +559,17 @@ export const dict = {
   "dod.board.freeCard": "Free this card",
   "dod.board.freeing": "Freeing…",
 
+  "session.tui.ready": "Ready",
+  "neural.status.ready": "network ready",
+  "neural.status.connecting": "connecting…",
+  "home.overview.title": "Project overview",
+  "home.overview.directory": "Current directory",
+  "home.overview.network": "Network",
+  "home.overview.sessions": "Sessions",
+  "home.overview.thinking": "Thinking now",
+  "home.overview.server": "Server",
+  "home.overview.connected": "Connected",
+  "home.overview.connecting": "Connecting",
   "home.title": "Home",
   "home.projects": "Projects",
   "home.projects.all": "All projects",
@@ -797,6 +809,7 @@ export const dict = {
   "settings.about.otherContributor.other": "{{count}} others",
   "settings.about.firstPublished": "First published in Missouri, USA",
   "settings.about.firstIllustrated": "First illustrated in London, England",
+  "settings.about.upstreamCredits": "OpenCode upstream credits",
   "settings.about.website": "www.opencode.ai",
   "settings.about.description": "Orchestra, the open source coding agent",
   "settings.about.trademark": "Orchestra is a registered trademark of Anomaly Innovations, Inc.",

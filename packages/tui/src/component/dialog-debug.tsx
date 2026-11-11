@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { createMemo, createSignal, For } from "solid-js"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -13,6 +14,7 @@ import { useT } from "../util/i18n"
 
 export function DialogDebug() {
   const theme = useTheme()
+  const copyHover = createHoverFeedback()
   const dialog = useDialog()
   const route = useRoute()
   const local = useLocal()
@@ -75,7 +77,7 @@ export function DialogDebug() {
       </box>
       <box flexDirection="row" justifyContent="space-between">
         <text fg={theme.text.muted}>{t("Share this when reporting an issue.")}</text>
-        <text onMouseUp={copy}>
+        <text bg={copyHover.background()} onMouseOver={copyHover.onMouseOver} onMouseOut={copyHover.onMouseOut} onMouseUp={copy}>
           <span style={{ fg: copied() ? theme.text.feedback.success.base : theme.text.base }}>
             <b>{copied() ? t("✓ copied") : t("copy")}</b>{" "}
           </span>

@@ -124,13 +124,15 @@ export function sessionMcpView(assignment: McpAssignment | undefined, global: re
 }
 
 /** The one-line summary for a session's MCP section header. */
-export function assignmentSummary(view: SessionMcpView): string {
-  if (view.kind === "unassigned") return "Not assigned yet"
-  if (view.kind === "none") return "No MCP assigned"
-  if (view.unrestricted) return `All permitted · ${view.usable} usable · ≤${view.maxCalls} calls`
+type SummaryTranslator = (key: string, values?: Record<string, string | number>) => string
+const summaryText: SummaryTranslator = (key, values) => key.replace(/\{(\w+)\}/g, (_, name) => String(values?.[name] ?? ""))
+export function assignmentSummary(view: SessionMcpView, t: SummaryTranslator = summaryText): string {
+  if (view.kind === "unassigned") return t("Not assigned yet")
+  if (view.kind === "none") return t("No MCP assigned")
+  if (view.unrestricted) return t("All permitted · {usable} usable · ≤{calls} calls", { usable: view.usable, calls: view.maxCalls })
   return view.unavailable > 0
-    ? `${view.assigned} assigned · ${view.unavailable} unavailable · ≤${view.maxCalls} calls`
-    : `${view.assigned} assigned · ${view.usable} usable · ≤${view.maxCalls} calls`
+    ? t("{assigned} assigned · {unavailable} unavailable · ≤{calls} calls", { assigned: view.assigned, unavailable: view.unavailable, calls: view.maxCalls })
+    : t("{assigned} assigned · {usable} usable · ≤{calls} calls", { assigned: view.assigned, usable: view.usable, calls: view.maxCalls })
 }
 
 export interface TeamSessionLike {

@@ -1,3 +1,4 @@
+import { freeModel, provider } from "./fixture/catalog"
 import { expect, setDefaultTimeout, test } from "bun:test"
 import { createAppFixture } from "./fixture/app"
 import { directory, json } from "./fixture/tui-client"
@@ -92,9 +93,9 @@ function render(
         return json({ data: [], cursor: {} })
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
     },
   })
 }
@@ -128,7 +129,7 @@ test("the team editor creates a role and a team made of it", async () => {
   const calls: Call[] = []
   await using setup = await render(state.path, calls)
 
-  const bar = await setup.waitForFrame((frame) => frame.includes("Teams") && frame.includes("Experiments"))
+  const bar = await setup.waitForFrame((frame) => frame.includes("Teams") && frame.includes("Registry"))
   const item = cell(bar, "Teams")
   await setup.mockMouse.click(item.x + 1, item.y)
   await setup.waitForFrame((frame) => frame.includes("Team editor") && frame.includes("Feature"))
@@ -317,6 +318,19 @@ const rowOf = (frame: string, label: string) => {
   return line
 }
 
+// At 100 columns the complete toggle wraps onto a continuation line, never into the next field.
+function toolNarrowingRow(frame: string) {
+  const lines = frame.split("\n")
+  const tools = lines.findIndex((line) => line.includes("Инструменты"))
+  const toggle = lines.findIndex((line) => line.includes("Оркестратор может сужать"))
+  const registry = lines.findIndex((line) => line.includes("Реестр") && line.includes("Все категории"))
+  expect(toggle).toBeGreaterThanOrEqual(tools)
+  const end = registry >= 0 ? registry : lines.findIndex((line) => line.includes("Сохранить"))
+  expect(toggle).toBeLessThan(end)
+  expect(lines[toggle]).not.toContain("Только чтение")
+  return lines[toggle]
+}
+
 // The form used to paint its own rows over one another: the switches of Model, Files and Tools
 // collapsed onto one line, the actions row ran under the footer, and the list printed the category
 // of a role on top of its name. Each row now keeps its own line and the name truncates in its column.
@@ -328,20 +342,21 @@ test("the role editor keeps every row on its own line", async () => {
     (frame) => frame.includes("+ Новая роль") && frame.includes("Сохранить") && frame.includes("● Все установленные"),
   )
 
-  expect(rowOf(frame, "Модель")).toContain("● Как у оркестратора  ○ Своя  ○ Авто")
-  expect(rowOf(frame, "Файлы")).toContain("● Может править  ○ Только чтение")
-  expect(rowOf(frame, "Инструменты")).toContain("● Все  ○ Выбранные  □ Оркестратор может сужать")
-  expect(rowOf(frame, "Реестр")).toContain("● Все категории  ○ Выбранные")
-  expect(rowOf(frame, "Программы")).toContain("● Все установленные  ○ Выбранные")
+  expect(rowOf(frame, "Модель")).toMatch(/● Как у оркестратора {2,}○ Своя {2,}○ Авто/)
+  expect(rowOf(frame, "Файлы")).toMatch(/● Может править {2,}○ Только чтение/)
+  expect(rowOf(frame, "Инструменты")).toMatch(/● Все {2,}○ Выбранные {2,}□ Оркестратор может сужать/)
+  expect(rowOf(frame, "Реестр")).toMatch(/● Все категории {2,}○ Выбранные/)
+  expect(rowOf(frame, "Программы")).toMatch(/● Все установленные {2,}○ Выбранные/)
   // A row painting over its neighbour leaves one of these labels on the wrong line.
   expect(rowOf(frame, "Инструменты")).not.toContain("Только чтение")
   expect(rowOf(frame, "Модель")).not.toContain("Оркестратор может сужать")
 
+  await saveFrame("verify-roles-140x44", frame)
   // The list: every category sits in one right-aligned column, preceded by a space, so a long
   // role name truncates inside its own column instead of running into the category.
   const left = rowOf(frame, "+ Новая роль").indexOf("+ Новая роль")
-  const columns = frame.split("\n").map((line) => line.slice(left, left + 28))
-  const placed = ["Планирование", "Качество", "Build"].flatMap((category) =>
+  const columns = frame.split("\n").map((line) => line.slice(left, formLeftOf(frame)))
+  const placed = ["Планирование", "Пров...ества", "Разработка"].flatMap((category) =>
     columns.flatMap((column) => {
       const start = column.indexOf(category)
       if (start < 0) return []
@@ -365,9 +380,10 @@ test("a short terminal keeps the save row and the footer visible", async () => {
     )
 
     // On a narrow terminal the switch rows are the first to run past the form's right edge.
-    expect(rowOf(frame, "Файлы")).toContain("● Может править  ○ Только чтение")
-    expect(rowOf(frame, "Инструменты")).toContain("● Все  ○ Выбранные  □ Оркестратор может сужать")
-    expect(rowOf(frame, "Программы")).toContain("● Все установленные  ○ Выбранные")
+    expect(rowOf(frame, "Файлы")).toMatch(/● Может править {2,}○ Только чтение/)
+    expect(rowOf(frame, "Инструменты")).toMatch(/● Все {2,}○ Выбранные/)
+    expect(toolNarrowingRow(frame)).toContain("□ Оркестратор может сужать")
+    expect(rowOf(frame, "Программы")).toMatch(/● Все установленные {2,}○ Выбранные/)
     const lines = frame.split("\n")
     const save = lines.findIndex((line) => line.includes("Сохранить"))
     const footer = lines.findIndex((line) =>
@@ -472,14 +488,14 @@ function expectOwnRows(frame: string) {
   const rows = lines.filter((line) => labels.some((label) => line.slice(formLeft).startsWith(label)))
   expect(rows.filter((line) => labels.filter((label) => line.includes(label)).length > 1)).toEqual([])
 
-  expect(formRow(frame, "Модель")).toContain("○ Своя  ○ Авто")
+  expect(formRow(frame, "Модель")).toMatch(/○ Своя {2,}○ Авто/)
   expect(formRow(frame, "Модель")).not.toContain("Оркестратор может сужать")
-  expect(formRow(frame, "Файлы")).toContain("● Может править  ○ Только чтение")
+  expect(formRow(frame, "Файлы")).toMatch(/● Может править {2,}○ Только чтение/)
   expect(formRow(frame, "Инструменты")).toContain("Оркестратор может сужать")
   expect(formRow(frame, "Инструменты")).not.toContain("Только чтение")
-  expect(formRow(frame, "Реестр")).toContain("● Все категории  ○ Выбранные")
+  expect(formRow(frame, "Реестр")).toMatch(/● Все категории {2,}○ Выбранные/)
   expect(formRow(frame, "Реестр")).not.toContain("Все установленные")
-  expect(formRow(frame, "Программы")).toContain("● Все установленные  ○ Выбранные")
+  expect(formRow(frame, "Программы")).toMatch(/● Все установленные {2,}○ Выбранные/)
   expect(formRow(frame, "Программы")).not.toContain("Все категории")
   // The file access row is the only place that offers the switch, and its label sits in the column.
   const access = lines.filter((line) => line.includes("Может править"))
@@ -503,7 +519,7 @@ test("a role with picked tools keeps the fields, the save row and the footer apa
   expect(frame).toContain("■ read")
   expect(frame).toContain("□ shell")
   // The last chip of the catalog still renders whole, so no row lost its tail to the terminal edge.
-  expect(frame).toContain("□ mcp-docs (AI)")
+  expect(frame).toContain("□ sentry (AI)")
   expect(frame.split("\n").filter((line) => Bun.stringWidth(line) > 140)).toHaveLength(0)
 
   const lines = frame.split("\n")
@@ -542,8 +558,8 @@ test("picked tools scroll under the pinned actions on a narrow terminal", async 
     const saveAt = beforeLines.findIndex((line) => line.includes("Сохранить"))
     const footerAt = beforeLines.findIndex((line) => line.includes(footerList))
     // The visible top of the form keeps its rows apart on the narrow width too.
-    expect(rowOf(before, "Файлы")).toContain("● Может править  ○ Только чтение")
-    expect(rowOf(before, "Инструменты")).toContain("Оркестратор может сужать")
+    expect(rowOf(before, "Файлы")).toMatch(/● Может править {2,}○ Только чтение/)
+    expect(toolNarrowingRow(before)).toContain("■ Оркестратор может сужать")
     expect(rowOf(before, "Инструменты")).not.toContain("Только чтение")
     expect(beforeLines.filter((line) => line.includes("Может править"))).toHaveLength(1)
     expect(beforeLines.filter((line) => Bun.stringWidth(line) > 100)).toHaveLength(0)
@@ -562,9 +578,9 @@ test("picked tools scroll under the pinned actions on a narrow terminal", async 
     const afterLines = after.split("\n")
     expect(after).not.toBe(before)
     // The rows the scroll brought in keep one field per line as well.
-    expect(rowOf(after, "Реестр")).toContain("● Все категории  ○ Выбранные")
+    expect(rowOf(after, "Реестр")).toMatch(/● Все категории {2,}○ Выбранные/)
     expect(rowOf(after, "Реестр")).not.toContain("Все установленные")
-    expect(rowOf(after, "Программы")).toContain("● Все установленные  ○ Выбранные")
+    expect(rowOf(after, "Программы")).toMatch(/● Все установленные {2,}○ Выбранные/)
     expect(rowOf(after, "Программы")).not.toContain("Все категории")
     // The rules row came into view, including the text the textarea holds.
     expect(rowOf(after, "Правила")).toContain("Role: product analyst.")

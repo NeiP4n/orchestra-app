@@ -1,3 +1,4 @@
+import { freeModel, provider } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { createAppFixture } from "./fixture/app"
 import { directory, json } from "./fixture/tui-client"
@@ -145,9 +146,9 @@ function render(
         return json({ data: [], cursor: {} })
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
-      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+      if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })
       if (url.pathname === "/api/model")
-        return json({ location, data: [{ id: "model", providerID: "provider", name: "Model", variants: [] }] })
+        return json({ location, data: [freeModel("model", "provider", "Model")] })
     },
   })
 }
@@ -164,6 +165,14 @@ function cell(frame: string, needle: string) {
 }
 
 async function click(setup: Awaited<ReturnType<typeof render>>, needle: string, offset = 0) {
+  const id = needle === "Notes" ? "tab:notes" : needle === "Projects" ? "tab:projects" : needle === "+ New" ? "project-tree.new" : undefined
+  if (id) {
+    await setup.renderOnce()
+    const box = setup.renderer.root.findDescendantById(id)
+    if (!box || box.width <= 0 || box.height <= 0) throw new Error(`no visible action ${id}`)
+    await setup.mockMouse.click(box.x + Math.floor(box.width / 2), box.y)
+    return
+  }
   const target = cell(setup.captureCharFrame(), needle)
   await setup.mockMouse.click(target.x + offset, target.y)
 }
@@ -172,14 +181,14 @@ test("switching from Notes back to Projects releases the hidden canvas column", 
   await using state = await tmpdir()
   const calls: Call[] = []
   await using setup = await render(state.path, { notes: [plan(), ideas()], calls, width: 150 })
-  await setup.waitForFrame((frame) => frame.includes("Projects │ Notes") && frame.includes("Note: Release plan"))
+  await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("›_") && frame.includes("Note: Release plan"))
 
   await click(setup, "Notes", 1)
   await setup.waitForFrame((frame) => frame.includes("Ship the notes canvas."))
   await click(setup, "Projects", 1)
 
   const frame = await setup.waitForFrame(
-    (frame) => frame.includes("Projects │ Notes") && frame.includes("Note: Release plan") && !frame.includes("Length"),
+    (frame) => frame.includes("Projects") && frame.includes("›_") && frame.includes("Note: Release plan") && !frame.includes("Length"),
   )
   expect(frame).not.toContain("Ship the notes canvas.")
 })
@@ -190,7 +199,7 @@ test("the Notes tab lists the project's notes, filters them and shows an empty p
   await using setup = await render(state.path, { notes: [plan(), ideas()], calls })
 
   // A chat bound to a note offers the way to it even in the Projects tab.
-  await setup.waitForFrame((frame) => frame.includes("Projects │ Notes") && frame.includes("Note: Release plan"))
+  await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("›_") && frame.includes("Note: Release plan"))
 
   await click(setup, "Notes", 1)
   const frame = await setup.waitForFrame(
@@ -200,6 +209,11 @@ test("the Notes tab lists the project's notes, filters them and shows an empty p
   expect(frame).toContain("○ Onboarding ideas")
   expect(frame).toContain("2m")
   expect(frame).toContain("2d")
+  const rows = frame.split("\n")
+  const instructionEnd = rows.findIndex((line) => line.includes("selected note only."))
+  const firstNote = rows.findIndex((line) => line.includes("● Release plan"))
+  expect(instructionEnd).toBeGreaterThanOrEqual(0)
+  expect(firstNote).toBeGreaterThan(instructionEnd)
   // Notes mode of a bound chat shows the note as its document.
   expect(frame).toContain("Length")
   expect(frame).toContain("Ship the notes canvas.")
@@ -321,7 +335,7 @@ test("a new note starts with its own bound chat, and deleting one takes two clic
   await using state = await tmpdir()
   const calls: Call[] = []
   await using setup = await render(state.path, { notes: [plan(), ideas()], calls })
-  await setup.waitForFrame((frame) => frame.includes("Projects │ Notes"))
+  await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("›_"))
   await click(setup, "Notes", 1)
   await setup.waitForFrame((frame) => frame.includes("Onboarding ideas"))
 
@@ -368,14 +382,15 @@ test("a long note title gives way in a compact panel and the delete control stay
   const calls: Call[] = []
   const long = { ...ideas(), frontmatter: { ...ideas().frontmatter, title: "Orchestra доработки по итогам совета ИИ" } }
   await using setup = await render(state.path, { notes: [plan(), long], calls, width: 140, layout: "compact" })
-  await setup.waitForFrame((frame) => frame.includes("Projects │ Notes"))
+  await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("›_"))
   await click(setup, "Notes", 1)
-  await setup.waitForFrame((frame) => frame.includes("Release plan") && frame.includes("○ Openco"))
-  const row = () => setup.captureCharFrame().split("\n")[cell(setup.captureCharFrame(), "○ Openco").y]
+  await setup.waitForFrame((frame) => frame.includes("Release plan") && frame.includes("○ Orchestr"))
+  const rowIndex = () => setup.captureCharFrame().split("\n").findIndex((line) => line.slice(0, 34).includes("○ "))
+  const row = () => setup.captureCharFrame().split("\n")[rowIndex()]
   expect(row()).toMatch(/ 2d +× /)
 
   const line = row()
-  await setup.mockMouse.click(line.indexOf("×"), cell(setup.captureCharFrame(), "○ Openco").y)
+  await setup.mockMouse.click(line.indexOf("×"), rowIndex())
   await setup.waitForFrame((frame) => frame.includes("delete?"))
   expect(row()).toMatch(/ 2d +delete\? /)
   expect(calls.some((call) => call.method === "DELETE")).toBe(false)

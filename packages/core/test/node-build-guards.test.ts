@@ -54,8 +54,8 @@ const runCase = (name: string, desktopEnv: Record<string, string> = {}) => {
   // child's own summary is asserted too: exactly the one case ran and passed.
   // bun test writes the run summary to stderr, so both streams are checked.
   const combined = `${out}\n${err}`
-  expect(combined, `guard case ${name} output:\n${combined}`).toContain(" 1 pass")
-  expect(combined, `guard case ${name} output:\n${combined}`).toContain(" 0 fail")
+  expect(combined, `guard case ${name} output:\n${combined}`).toMatch(/(^|\s)1 pass\b/)
+  expect(combined, `guard case ${name} output:\n${combined}`).toMatch(/(^|\s)0 fail\b/)
 }
 
 describe("node-build capability guards", () => {

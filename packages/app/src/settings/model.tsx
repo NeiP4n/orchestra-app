@@ -25,17 +25,17 @@ export type SoundSettings = Settings["sounds"]
 
 export const monoDefault = "IBM Plex Mono"
 
-export const sansDefault = "Inter"
+export const sansDefault = monoDefault
 
-export const terminalDefault = "JetBrainsMono Nerd Font Mono"
+export const terminalDefault = monoDefault
 
 const monoFallback =
   '"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
 
-const sansFallback = '"Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+const sansFallback = monoFallback
 
 const terminalFallback =
-  '"JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+  '"IBM Plex Mono", "JetBrainsMono Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
 
 const monoBase = monoFallback
 
@@ -66,7 +66,7 @@ export function monoInput(font: string | undefined) {
 }
 
 export function sansInput(font: string | undefined) {
-  return input(font)
+  return input(font?.trim() === "Inter" ? undefined : font)
 }
 
 export function monoFontFamily(font: string | undefined) {
@@ -74,15 +74,15 @@ export function monoFontFamily(font: string | undefined) {
 }
 
 export function sansFontFamily(font: string | undefined) {
-  return stack(font, sansBase)
+  return stack(font?.trim() === "Inter" ? undefined : font, sansBase)
 }
 
 export function terminalInput(font: string | undefined) {
-  return input(font)
+  return input(font?.trim() === "JetBrainsMono Nerd Font Mono" ? undefined : font)
 }
 
 export function terminalFontFamily(font: string | undefined) {
-  return stack(font, terminalBase)
+  return stack(font?.trim() === "JetBrainsMono Nerd Font Mono" ? undefined : font, terminalBase)
 }
 
 const placementSchema = Schema.Literals(["separate", "grouped", "hidden"])
@@ -311,7 +311,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       const root = document.documentElement
       const mono = monoFontFamily(store.appearance?.mono)
       root.style.setProperty("--font-family-mono", mono)
-      root.style.setProperty("--font-family-sans", sansFontFamily(store.appearance?.sans))
+      root.style.setProperty(
+        "--font-family-sans",
+        store.appearance?.sans?.trim() ? sansFontFamily(store.appearance.sans) : mono,
+      )
       // Inline code can first appear during history backfill. Load its selected
       // face with the shell so that font discovery does not resize that mount.
       void document.fonts?.load(`440 13px ${mono}`).catch(() => undefined)

@@ -5,18 +5,10 @@ describe("useful MCP registry entries", () => {
   test("contains the curated developer tool set", () => {
     const ids = new Set(all.map((entry) => entry.id))
 
-    for (const id of [
-      "context7",
-      "serena",
-      "rea-anything",
-      "playwright",
-      "agent-desktop",
-      "github",
-      "deepwiki",
-      "sentry",
-    ]) {
+    for (const id of ["context7", "serena", "rea-anything", "deepwiki", "sentry"]) {
       expect(ids.has(id)).toBe(true)
     }
+    for (const id of ["playwright", "chrome-devtools", "agent-desktop", "github"]) expect(ids.has(id)).toBe(false)
   })
 
   test("no platform-restricted entries ship: the catalog lists the same set on every platform", () => {

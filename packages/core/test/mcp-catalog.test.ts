@@ -51,45 +51,16 @@ describe("MCP registry catalog", () => {
     }
   })
 
-  test("includes the chrome-devtools launcher, with the stale-uid and no-timer rules in its usage", () => {
-    const devtools = all.find((entry) => entry.id === "chrome-devtools")
-
-    expect(devtools).toMatchObject({
-      id: "chrome-devtools",
-      name: "Chrome DevTools",
-      runtime: "npx",
-      config: {
-        type: "local",
-        command: ["npx", "-y", "chrome-devtools-mcp@latest"],
-      },
-    })
-    expect(devtools?.description).toContain("snapshot uid")
-    expect(devtools?.usage).toContain("LATEST snapshot")
-    expect(devtools?.usage).toContain("wait_for")
-    expect(devtools?.usage).toContain("no setTimeout/setInterval")
-    // The default launch spawns its own Chrome, so it is not a real-screen
-    // server: it must not need the real-screen opt-in to be acquired.
-    expect(devtools?.realScreen).toBeUndefined()
-    expect(forPlatform("linux").some((entry) => entry.id === "chrome-devtools")).toBe(true)
+  test("retired browser MCP launchers are absent on every platform; native tools replace them", () => {
+    for (const platform of ["win32", "linux", "darwin"] as const)
+      for (const id of ["playwright", "chrome-devtools"])
+        expect(forPlatform(platform).some((entry) => entry.id === id)).toBe(false)
   })
 
-  test("includes the agent-desktop launcher, real-screen, with the B13 privacy note and window-manager requirement", () => {
-    const agentDesktop = all.find((entry) => entry.id === "agent-desktop")
-
-    expect(agentDesktop).toMatchObject({
-      id: "agent-desktop",
-      name: "Agent Desktop",
-      runtime: "npx",
-      realScreen: true,
-      config: {
-        type: "local",
-        command: ["npx", "-y", "agent-desktop", "mcp"],
-      },
-    })
-    expect(agentDesktop?.description).toContain("accessibility tree")
-    expect(agentDesktop?.usage).toContain("real-screen opt-in")
-    expect(agentDesktop?.usage).toContain("private data")
-    expect(agentDesktop?.usage).toContain("window manager")
+  test("desktop and GitHub MCP duplicates are removed, not hidden by platform", () => {
+    for (const platform of ["win32", "linux", "darwin"] as const)
+      for (const id of ["agent-desktop", "github"])
+        expect(forPlatform(platform).some((entry) => entry.id === id)).toBe(false)
   })
 
   test("names the keys a catalog server cannot start without", () => {
@@ -157,4 +128,21 @@ describe("MCP registry catalog", () => {
     expect(success.status).toBe("healthy")
     expect(isServerAvailable("test-server")).toBe(true)
   })
+})
+
+test("OFF healthcheck does not execute the supplied probe or count a failure", async () => {
+  const breaker = new McpCircuitBreaker()
+  let probes = 0
+  const result = await Effect.runPromise(
+    breaker.check(
+      "off-server",
+      Effect.sync(() => {
+        probes++
+      }),
+      { disabled: true },
+    ),
+  )
+  expect(probes).toBe(0)
+  expect(result.lastCheckAt).toBe(0)
+  expect(result.consecutiveFailures).toBe(0)
 })

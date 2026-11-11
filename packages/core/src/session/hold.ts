@@ -8,9 +8,21 @@ import { Effect } from "effect"
 type Held = (sessionID: string) => Effect.Effect<boolean>
 
 let predicate: Held | undefined
+const guards = new Set<Held>()
+/** Independent lifecycle guards cannot replace or clear a Society hold. Dispose with the owning layer. */
+export const addGuard = (guard: Held) => {
+  guards.add(guard)
+  return () => {
+    guards.delete(guard)
+  }
+}
 
 export const install = (held: Held) => {
   predicate = held
 }
 
-export const held = (sessionID: string): Effect.Effect<boolean> => (predicate ? predicate(sessionID) : Effect.succeed(false))
+export const held = (sessionID: string): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    for (const guard of guards) if (yield* guard(sessionID)) return true
+    return predicate ? yield* predicate(sessionID) : false
+  })

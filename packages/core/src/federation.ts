@@ -277,7 +277,7 @@ export interface Interface {
   // A scope that cannot be read fails the call instead of reading as empty, so add and remove
   // carry the load failure (and the operator-guard failure) in their error channel.
   readonly rules: {
-    readonly list: (scope: string) => Effect.Effect<ReadonlyArray<Rules.Rule>>
+    readonly list: (scope: string) => Effect.Effect<ReadonlyArray<Rules.Rule>, Rules.LoadError>
     readonly add: (scope: string, text: string) => Effect.Effect<Rules.AddResult, Rules.LoadError>
     readonly remove: (scope: string, id: string) => Effect.Effect<boolean, Rules.LoadError | Rules.ProtectedError>
   }
@@ -793,9 +793,11 @@ const layer: Layer.Layer<
 
     const groups = Effect.fnUntraced(function* () {
       const entries = yield* scanAll(GROUP)
-      return entries
+      const all = entries
         .flatMap((entry) => Option.toArray(decodeGroup(entry.value)))
         .toSorted((x, y) => x.name.localeCompare(y.name))
+      for (const group of all) yield* Rules.snapshotSocietyDefaults(kv, group.name).pipe(Effect.orDie)
+      return all
     })
 
     const societyRoot = Effect.fnUntraced(function* (name: string) {
@@ -1561,10 +1563,27 @@ const layer: Layer.Layer<
         }
       }),
       rules: {
-        list: (scope) => Rules.list(kv, scope),
-        add: (scope, text) => Rules.add(kv, scope, { text, by: "operator" }),
+        list: (scope) => Effect.gen(function* () {
+          if (scope.startsWith("project-defaults:")) yield* Rules.snapshotDefaults(kv, scope.slice("project-defaults:".length))
+          if (scope.startsWith("society-defaults:")) yield* Rules.snapshotSocietyDefaults(kv, scope.slice("society-defaults:".length))
+          return yield* Rules.list(kv, scope)
+        }),
+        add: (scope, text) => Effect.gen(function* () {
+          // Freeze existing projects before changing the template for future projects.
+          if (scope === Rules.GLOBAL) {
+            yield* orchestra.projects()
+            for (const group of yield* groups()) yield* Rules.snapshotSocietyDefaults(kv, group.name).pipe(Effect.orDie)
+          }
+          return yield* Rules.add(kv, scope, { text, by: "operator" })
+        }),
         // The operator's own view of the rulebook: operator-authored rules may be removed here.
-        remove: (scope, id) => Rules.remove(kv, scope, id, { operator: true }),
+        remove: (scope, id) => Effect.gen(function* () {
+          if (scope === Rules.GLOBAL) {
+            yield* orchestra.projects()
+            for (const group of yield* groups()) yield* Rules.snapshotSocietyDefaults(kv, group.name).pipe(Effect.orDie)
+          }
+          return yield* Rules.remove(kv, scope, id, { operator: true })
+        }),
       },
       setHold: Effect.fn("Federation.setHold")(function* (name, held) {
         const normalized = name.trim()

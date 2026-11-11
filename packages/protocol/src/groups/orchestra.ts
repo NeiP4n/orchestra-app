@@ -5,9 +5,77 @@ import { Schema } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { InvalidRequestError, ProjectNotFoundError, SessionNotFoundError } from "../errors.js"
 
+const TemplateBrowserInput = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  chat: Schema.optional(Schema.String),
+  mode: Schema.optional(Schema.Literals(["headless", "window", "capture"])),
+})
+const TemplatePrepared = Schema.Struct({ token: Schema.String, name: Schema.String, details: Schema.String, unresolvedRoles: Schema.optional(Schema.Array(Schema.String)), browserBindings: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, reason: Schema.Literals(["missing", "child", "foreign", "unlisted"]) }))), triggerReview: Schema.optional(Schema.Array(Schema.Struct({ schedule: Schema.Number, browser: Schema.optional(Schema.Number), reason: Schema.Literals(["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]) }))), omittedLinks: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, link: Schema.Number, reason: Schema.Literals(["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]) }))) })
+const TemplateBrowsers = Schema.Struct({
+  importID: Schema.String,
+  projectID: Schema.String,
+  createdAt: Schema.Number,
+  browsers: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      chat: Schema.optional(Schema.String),
+      mode: Schema.Literals(["headless", "window", "capture"]),
+    }),
+  ),
+})
 const root = "/api/orchestra/project"
 
 export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
+  .add(
+    HttpApiEndpoint.get("orchestra.projectTemplate.list", "/api/orchestra/project-template", {
+      success: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+      error: InvalidRequestError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.projectTemplate.prepareSave", "/api/orchestra/project-template/prepare-save", {
+      payload: Schema.Struct({ projectID: Orchestra.ProjectID, browsers: Schema.Array(TemplateBrowserInput), templateID: Schema.optional(Schema.String) }),
+      success: TemplatePrepared,
+      error: InvalidRequestError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.projectTemplate.confirmSave", "/api/orchestra/project-template/confirm-save", {
+      payload: Schema.Struct({ token: Schema.String, browsers: Schema.Array(TemplateBrowserInput), omitUnsafeLinks: Schema.optional(Schema.Boolean), omitInvalidBrowserBindings: Schema.optional(Schema.Boolean), acceptUnresolvedRoles: Schema.optional(Schema.Boolean) }),
+      success: HttpApiSchema.NoContent,
+      error: InvalidRequestError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.projectTemplate.prepareCreate", "/api/orchestra/project-template/prepare-create", {
+      payload: Schema.Struct({ templateID: Schema.String, settingsDirectory: Schema.String }),
+      success: TemplatePrepared,
+      error: InvalidRequestError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.projectTemplate.confirmCreate", "/api/orchestra/project-template/confirm-create", {
+      payload: Schema.Struct({ token: Schema.String }),
+      success: Schema.Struct({ projectID: Schema.String, mainSessionID: Schema.String, browsers: TemplateBrowsers }),
+      error: InvalidRequestError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.projectTemplate.finishCreate", "/api/orchestra/project-template/finish-create", {
+      payload: Schema.Struct({ token: Schema.String }),
+      success: HttpApiSchema.NoContent,
+      error: InvalidRequestError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("orchestra.projectTemplate.browsers", "/api/orchestra/project-template/:projectID/browsers", {
+      params: { projectID: Orchestra.ProjectID },
+      success: Schema.NullOr(TemplateBrowsers),
+      error: InvalidRequestError,
+    }),
+  )
   .add(
     HttpApiEndpoint.get("orchestra.project.list", root, {
       success: Schema.Array(Orchestra.Project),
@@ -26,7 +94,8 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
       OpenApi.annotations({
         identifier: "orchestra.template.list",
         summary: "List team templates",
-        description: "Ready-made AI teams a project can be created with. A built-in template describes a type of work and recommends roles its Orchestrator may create lazily; an operator-saved template opens the roster it saved.",
+        description:
+          "Ready-made AI teams a project can be created with. A built-in template describes a type of work and recommends roles its Orchestrator may create lazily; an operator-saved template opens the roster it saved.",
       }),
     ),
   )
@@ -397,7 +466,8 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
       OpenApi.annotations({
         identifier: "orchestra.group.holds",
         summary: "List held groups",
-        description: "Names of the Societies whose AIs are held: none of their sessions runs until the hold is released.",
+        description:
+          "Names of the Societies whose AIs are held: none of their sessions runs until the hold is released.",
       }),
     ),
   )
@@ -462,4 +532,5 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
         description: "The projects linked to this one.",
       }),
     ),
-  )  .annotateMerge(OpenApi.annotations({ title: "orchestra", description: "Operator projects and their main sessions." }))
+  )
+  .annotateMerge(OpenApi.annotations({ title: "orchestra", description: "Operator projects and their main sessions." }))

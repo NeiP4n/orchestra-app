@@ -6,11 +6,11 @@ description: "Connect provider accounts and manage credentials from the CLI and 
 Connect a provider in the TUI, then choose one of its models:
 
 ```text
-/connect
+/auth
 /models
 ```
 
-`/connect` lists the integrations available from the current server and project. Select a provider, choose an
+`/auth` lists the integrations available from the current server and project. Select a provider, choose an
 authentication method when it offers more than one, and follow the prompts.
 
 ## TUI
@@ -19,11 +19,11 @@ The TUI supports API keys, OAuth, and provider authentication commands. OAuth op
 code to enter; press `o` to open the URL and `c` to copy the authorization details.
 
 ```text
-/connect
+/auth
 # Select OpenAI, then Codex device code (legacy).
 ```
 
-Run `/connect` again to add another account. Selecting an already connected provider opens its account list, where you
+Run `/auth` again to add another account. Selecting an already connected provider opens its account list, where you
 can activate, rename, or delete a saved account.
 
 ## CLI
@@ -98,7 +98,7 @@ Some cloud providers also use their native ambient credential chain instead of a
 - Google Vertex uses Application Default Credentials and a resolvable project. For example, authenticate with
   `gcloud auth application-default login` and set `GOOGLE_CLOUD_PROJECT`.
 - Azure exposes **Microsoft Entra ID (Azure CLI)** as a connect method when `az` is installed. Run `az login` first, then
-  select that method in `/connect` or `auth login azure`.
+  select that method in `/auth` or `auth login azure`.
 
 ```bash
 gcloud auth application-default login
@@ -123,7 +123,7 @@ Remove a saved account with `auth logout`. Both commands open pickers when their
 orchestra auth logout anthropic work
 ```
 
-In the TUI, `/connect` provides the same add, activate, rename, and delete operations for saved accounts.
+In the TUI, `/auth` provides the same add, activate, rename, and delete operations for saved accounts.
 
 ## Storage
 
@@ -134,7 +134,7 @@ orchestra debug paths db
 ```
 
 The usual release path is `~/.local/share/orchestra/orchestra.db`; `XDG_DATA_HOME`, the release channel, and `ORCHESTRA_DB`
-can change it. Do not edit the database to manage credentials; use `/connect` or the `auth` commands.
+can change it. Do not edit the database to manage credentials; use `/auth` or the `auth` commands.
 
 V2 imports supported credentials from the legacy `auth.json` in the Orchestra data directory during its database
 migration. New and updated credentials are stored in SQLite rather than written back to that file.

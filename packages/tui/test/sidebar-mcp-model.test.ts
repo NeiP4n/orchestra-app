@@ -122,3 +122,9 @@ describe("team assignments", () => {
     expect(view.rows.map((row) => row.name)).toEqual(["playwright"])
   })
 })
+
+test("assignment summary takes a translator without upgrading unassigned to connected or assigned", () => {
+  const view = sessionMcpView(undefined, [{ name: "connected", status: "connected" }])
+  expect(assignmentSummary(view, (key) => key === "Not assigned yet" ? "не назначено" : key)).toBe("не назначено")
+  expect(view.kind).toBe("unassigned")
+})

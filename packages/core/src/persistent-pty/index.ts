@@ -1,3 +1,4 @@
+import { ConsoleAccess } from "../console-access.js"
 export * as PersistentPty from "./index.js"
 
 import path from "node:path"
@@ -272,8 +273,20 @@ const makeLayer = (options: Options = {}) =>
           if (current.get(sessionID) === id) current.delete(sessionID)
           return null
         }
-        // Let the daemon choose the live height in the same snapshot when lines is omitted.
-        const response = yield* request(daemon, { op: "read_rows", id: fromID(id), rows: lines })
+        const response = yield* Effect.acquireUseRelease(
+          Effect.try({
+            try: () => {
+              const scope = ConsoleAccess.selected(sessionID)
+              if (!scope?.projectID || scope.kind !== "persistent" || scope.ptyID !== id || path.resolve(scope.directory) !== path.resolve(terminal.cwd))
+                throw Error("No exact owned Console is selected for this chat")
+              return ConsoleAccess.acquire(scope, "read")
+            },
+            catch: (error) => new UnavailableError({ message: error instanceof Error ? error.message : "Console access denied" }),
+          }),
+          // Let the daemon choose the live height in the same snapshot when lines is omitted.
+          () => request(daemon, { op: "read_rows", id: fromID(id), rows: lines }),
+          release => Effect.sync(release),
+        )
         if (response.type !== "rows") return yield* unexpected(response)
         const info = toInfo(response.terminal)
         return {

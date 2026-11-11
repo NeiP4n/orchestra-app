@@ -1,8 +1,14 @@
-export function pluginDirective<T>(plugins: readonly T[] | undefined, target: string, enabled: boolean): (T | string)[] {
+export function pluginDirective<T>(
+  plugins: readonly T[] | undefined,
+  target: string,
+  enabled: boolean,
+): (T | string)[] {
   const disabled = `-${target}`
   const current = [...(plugins ?? [])]
   if (!enabled) {
-    const preserved = current.filter((entry) => entry !== target && entry !== disabled)
+    // Keep the source declaration so a disabled external plugin remains installed
+    // and visible in the manager. The final exclusion controls activation only.
+    const preserved = current.filter((entry) => entry !== disabled)
     return [...preserved, disabled]
   }
 

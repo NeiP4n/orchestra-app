@@ -1,3 +1,4 @@
+import { hoverBackground } from "../ui/hover"
 /** @jsxImportSource @opentui/solid */
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
@@ -67,6 +68,8 @@ export function RunFooterSubagentBody(props: {
   const compact = () => width() < 56 || size().height < 12
   const theme = createMemo(() => props.theme())
   const footer = createMemo(() => theme().footer)
+  const [hovered, setHovered] = createSignal<string>()
+  const hoverSurface = () => hoverBackground({ background: { base: footer().surface, raised: { base: footer().shade, high: footer().pane } }, text: { base: footer().text, muted: footer().muted } })
   const tab = createMemo(() => props.tab())
   const commits = createMemo(() => props.detail()?.commits ?? [])
   const scrollbar = createMemo(() => ({
@@ -236,7 +239,7 @@ export function RunFooterSubagentBody(props: {
       </scrollbox>
       <Show when={!headerControls()}>
         <box width="100%" flexDirection="row" flexWrap="wrap" columnGap={1} flexShrink={0}>
-          <text height={1} fg={footer().actionSecondaryText} wrapMode="none" flexShrink={0} onMouseUp={props.onClose}>
+          <text height={1} fg={footer().actionSecondaryText} wrapMode="none" flexShrink={0} bg={hovered() === "close" ? hoverSurface() : undefined} onMouseOver={() => setHovered("close")} onMouseOut={() => setHovered(undefined)} onMouseUp={props.onClose}>
             esc back
           </text>
           <Show when={interruptHint()}>
@@ -256,6 +259,9 @@ export function RunFooterSubagentBody(props: {
                 fg={footer().actionSecondaryText}
                 wrapMode="none"
                 flexShrink={0}
+                bg={hovered() === "next" ? hoverSurface() : undefined}
+                onMouseOver={() => setHovered("next")}
+                onMouseOut={() => setHovered(undefined)}
                 onMouseUp={() => props.onCycle(1)}
               >
                 tab next {props.index()}/{props.total()}

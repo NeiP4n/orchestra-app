@@ -7,9 +7,16 @@ import {
   type ScrollBoxRenderable,
 } from "@opentui/core"
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
-import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show } from "solid-js"
+import { batch, createEffect, createMemo, createResource, createSignal, on, onCleanup, Show, untrack } from "solid-js"
 import { useConfig } from "../config"
+import { useT } from "../util/i18n"
+import { consoleSiblings, consoleTerminalID } from "../util/console-terminal"
 import { useData } from "../context/data"
+import { useProjects } from "../context/projects"
+import { owningProject } from "../util/project-owner"
+import { Orchestra } from "@orchestra/schema/orchestra"
+import { activeBrowserSession, isBrowserChat, openedFromProjects } from "../util/browser-sessions"
+import { publishSelection, publishSessions, trace } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -19,6 +26,7 @@ import { useStorage } from "../context/storage"
 import { useNotes } from "../context/notes"
 import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
+import { useRoute } from "../context/route"
 import { Session } from "../routes/session"
 import { Sidebar } from "../routes/session/sidebar"
 import {
@@ -39,12 +47,16 @@ import { createPaneResize } from "../ui/pane-resize"
 import { PaneResizeHandle } from "../ui/pane-resize-handle"
 import { useToast } from "../ui/toast"
 import { TerminalPane } from "./terminal-pane"
+import { ConsoleAccessBar } from "./console-access-bar"
+import { PlainTerminalPane } from "./plain-terminal-pane"
+import { BrowserPane } from "./browser-pane"
 import { PanelHost } from "./panel-host"
 import { HoverAction } from "./hover-action"
 import { NoteCanvas } from "./note-canvas"
 
 export function SessionFrame(props: { sessionID: string; verticalTabsWidth: number }) {
   const sessions = useSessionTerminals()
+  const t = useT()
   const prompt = usePromptRef()
   const config = useConfig()
   const data = useData()
@@ -73,6 +85,62 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const fullscreen = () => activePanel() !== undefined && panels.presentation() === "fullscreen"
   // A session bound to a note in Notes mode shows the note as its document, with the chat beside it.
   const canvas = createMemo(() => (fullscreen() ? undefined : notes.canvas(props.sessionID)))
+  // The Console and Browser tabs of the left panel replace the center chat; Projects brings it back.
+  // The browser session picked for the open session's project (the page view comes with the Chrome backend).
+  const projectList = useProjects()
+  const browserSession = () => {
+    const info = data.session.get(props.sessionID)
+    const bound = notes.browserChatRecord(props.sessionID)
+    const claimed = projectList.owner(props.sessionID) ?? Orchestra.sessionOwner(info?.metadata) ?? bound?.projectID
+    const project = projectList.list().find((item) => item.id === claimed) ??
+      (info ? owningProject(projectList.list(), info.location.directory) : undefined)
+    return activeBrowserSession(project ? notes.browserSelected(project.id) : undefined, bound && !bound.closed ? bound.item : undefined)
+  }
+  // The chat agent's browser tool reads which browser session each project has selected from a small file.
+  createEffect(() => {
+    for (const project of projectList.list()) {
+      const selected = notes.browserSelected(project.id)
+      try {
+        publishSelection(project.directory, selected?.id)
+      } catch {
+        // The file is a convenience for the agent; the tab works without it.
+      }
+    }
+  })
+  // The same for the list itself, so the agent can name every session, see which run and hand one to another agent.
+  createEffect(() => {
+    try {
+      publishSessions(
+        projectList.list().flatMap((project) =>
+          notes.browserSessions(project.id).map((item) => ({
+            id: item.id,
+            name: item.name,
+            project: project.directory,
+            projectID: project.id,
+            ...(item.group ? { group: item.group } : {}),
+            ...(item.chat ? { chat: item.chat } : {}),
+          })),
+        ),
+      )
+    } catch (error) {
+      // The tab works without the file, but the agent then sees no sessions, so the failure is logged.
+      trace(`sessions publish FAILED: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  })
+  // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the
+  // whole center, and a narrow window shows the browser alone.
+  const CHAT_BESIDE_WIDTH = 46
+  const browserChatHidden = () => layout.browserChatHidden === true
+  const setBrowserChatHidden = (hidden: boolean) => {
+    if (browserChatHidden() === hidden) return
+    void updateLayout((draft) => void (draft.browserChatHidden = hidden)).catch(() => undefined)
+  }
+  // The chat sits beside the page only when both fit: 46 columns of chat and at least 50 of page in the frame
+  // itself (the room left of the project tree), not in the whole terminal.
+  const chatBeside = () => centerView() === "browser" && dimensions().width >= 110 && availableWidth() >= CHAT_BESIDE_WIDTH + 50 && !browserChatHidden()
+  const hidesChat = () => centerView() === "console" || (centerView() === "browser" && !chatBeside())
+  const centerView = () =>
+    fullscreen() ? undefined : notes.tab() === "console" || notes.tab() === "browser" ? notes.tab() : undefined
   // Keep a bound note in the center with its chat on the right on narrow terminals;
   // only stack them when there is not enough room for two usable columns.
   const stacked = () => sessionPanesStacked(availableWidth(), canvas() !== undefined)
@@ -83,6 +151,10 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     compactPaneShare?: number
     sidebarShare?: number
     noteChatShare?: number
+    // The operator hid the right pane; it stays hidden across sessions and projects until shown again.
+    rightPaneHidden?: boolean
+    // The operator hid the chat column beside the Browser view; the page then takes the full width.
+    browserChatHidden?: boolean
   }>("layout", {
     initial: {},
   })
@@ -124,8 +196,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       }).catch((error) => console.error("Failed to persist sidebar width", error))
     },
   })
-  const defaultNoteChatWidth = () =>
-    defaultSessionPaneWidth(canvasHostWidth(), compactLayout.compact())
+  const defaultNoteChatWidth = () => defaultSessionPaneWidth(canvasHostWidth(), compactLayout.compact())
   const noteChatResize = createPaneResize({
     value: () => panelWidthFromShare(layout.noteChatShare, canvasHostWidth()) ?? defaultNoteChatWidth(),
     defaultValue: defaultNoteChatWidth,
@@ -144,6 +215,59 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   })
   const rightPaneResize = () => (rightPane() === "sidebar" ? sidebarResize : paneResize)
 
+  // In the Browser view the chat beside the page is the BrowserAgent of the selected browser session, whichever chat
+  // was open before (the Orchestrator included): one browser session, one BrowserAgent.
+  const route = useRoute()
+  // It runs when the Browser view opens or the selected browser session changes, and only then: the open chat
+  // (props.sessionID) is read untracked. Tracking it pulled the user back to the BrowserAgent every time they opened
+  // the Orchestrator chat while the Browser tab was up, so what they typed there landed in the BrowserAgent's chat.
+  createEffect(
+    on(
+      () => [centerView(), browserSession()?.chat] as const,
+      ([view, chat]) => {
+        if (view !== "browser") return
+        if (chat && chat !== untrack(() => props.sessionID)) route.navigate({ type: "session", sessionID: chat })
+        // The selected browser session is gone or has no chat: a BrowserAgent chat still open beside the page is
+        // a removed session's, so it is closed rather than left showing foreign text.
+        else if (!chat) {
+          const open = untrack(() => props.sessionID)
+          // A chat no browser session owns (the Orchestrator made it) stays open: it is listed under Browsers.
+          const owned = projectList
+            .list()
+            .some((project) =>
+              [...notes.browserSessions(project.id), ...notes.closedBrowserSessions(project.id)].some((item) => item.chat === open),
+            )
+          if (owned) route.navigate({ type: "home" })
+        }
+      },
+    ),
+  )
+  // And the other way round: the view follows the chat that opens. A BrowserAgent chat belongs to the Browser view
+  // and every other chat (the Orchestrator included) to Projects, wherever the user opened it from. It runs when the
+  // open chat changes, not when the tab does, so choosing a tab still wins until another chat is opened.
+  createEffect(
+    on(
+      () => props.sessionID,
+      (id) => {
+        const info = data.session.get(id)
+        if (!info) return // not loaded yet: leave the view alone rather than guess
+        const bound = notes.browserChatRecord(id)
+        // A direct chat navigation also picks that chat's own profile. This runs on
+        // chat changes only, so it cannot undo a newer explicit sidebar selection.
+        if (bound && !bound.closed && untrack(() => notes.browserSelected(bound.projectID)?.id) !== bound.item.id) {
+          void notes.selectBrowserSession(bound.projectID, bound.item.id)
+        }
+        const browserChat = isBrowserChat(info.agent, notes.browserChatRecord(id) !== undefined)
+        const tab = untrack(() => notes.tab())
+        if (browserChat && tab !== "browser") {
+          // Opened by a click in the Projects tab: the explicit pick wins, the view stays.
+          if (!openedFromProjects.delete(id)) notes.setTab("browser")
+        }
+        else if (!browserChat && tab === "browser") notes.setTab("projects")
+      },
+      { defer: true },
+    ),
+  )
   let resizeRelease = false
   const finishPaneResize = (event: MouseEvent) => {
     if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing()) {
@@ -159,7 +283,11 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   }
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
   const [activePane, setActivePane] = createSignal<"session" | "right">("session")
-  const [rightPaneHidden, setRightPaneHidden] = createSignal(false)
+  const rightPaneHidden = () => layout.rightPaneHidden === true
+  const setRightPaneHidden = (hidden: boolean) => {
+    if (rightPaneHidden() === hidden) return
+    void updateLayout((draft) => void (draft.rightPaneHidden = hidden)).catch(() => undefined)
+  }
   const [restoreTerminalFocus, setRestoreTerminalFocus] = createSignal(false)
   let focusTerminal: (() => void) | undefined
   let showTerminals: (() => void) | undefined
@@ -172,6 +300,45 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     (sessionID) => sessions.refresh(sessionID).catch(() => undefined),
   )
   const session = () => sessions.get(props.sessionID)
+  const consoleSessions = createMemo(() =>
+    data.session.list().map((item) => ({ id: item.id, directory: item.location.directory })),
+  )
+  const consoleTerminal = () => {
+    if (!sessions.available()) return
+    const id = consoleTerminalID({
+      sessionID: props.sessionID,
+      sessions: consoleSessions(),
+      terminals: (sessionID) => sessions.get(sessionID).terminals,
+      selected: (sessionID) => sessions.get(sessionID).selectedTerminalID,
+    })
+    if (id) return { id }
+  }
+  let consoleRequested: string | undefined
+  const [plainConsoleID, setPlainConsoleID] = createSignal<string>()
+  const [consoleError, setConsoleError] = createSignal<string>()
+  // The shell of a project may live under a sibling session, so list the terminals of all of them.
+  createEffect(() => {
+    if (centerView() !== "console" || !sessions.available()) return
+    for (const id of consoleSiblings(props.sessionID, consoleSessions())) {
+      // refresh reads and writes the terminal store, so it must not become a dependency of this effect.
+      if (id !== props.sessionID) untrack(() => void sessions.refresh(id).catch(() => undefined))
+    }
+  })
+  createEffect(() => {
+    // Opening the Console tab on a project without a shell starts one, once.
+    if (centerView() !== "console" || !sessions.available()) return
+    if (consoleTerminal() || consoleRequested === props.sessionID) return
+    if (!untrack(() => sessions.terminalsLoaded(props.sessionID))) return
+    consoleRequested = props.sessionID
+    void untrack(() => sessions.newTerminal(props.sessionID)).catch((error: unknown) => {
+      setConsoleError(error instanceof Error ? error.message : String(error))
+      terminalError()
+    })
+  })
+  // Opening the Console takes the keyboard from the chat prompt, whose box is hidden behind it.
+  createEffect(() => {
+    if (centerView() === "console") renderer.currentFocusedRenderable?.blur()
+  })
   const selectedTerminal = () => {
     if (!sessions.available()) return
     const value = session()
@@ -180,13 +347,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   createEffect(
     on([activePanel, () => selectedTerminal()?.id], ([panel, terminal], previous) => {
       if (panel && panel !== previous?.[0]) {
-        setRightPaneHidden(false)
+        // Only a panel that opens now reveals the pane; one already open when the session mounts must not.
+        if (previous) setRightPaneHidden(false)
         setSidebarOpen(false)
         if (terminal) void sessions.selectTerminal(props.sessionID, null).catch(toast.error)
         return
       }
       if (terminal && terminal !== previous?.[1]) {
-        setRightPaneHidden(false)
+        if (previous) setRightPaneHidden(false)
         setSidebarOpen(false)
         if (panel) panels.close()
       }
@@ -203,7 +371,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const rightPane = createMemo(() => {
     if (activePanel()) return "panel"
     if (sidebarOpen() && sidebarVisible()) return "sidebar"
-    if (selectedTerminal()) return "terminal"
+    // The Console tab shows its terminal in the center, so the side pane does not repeat it.
+    if (selectedTerminal() && centerView() !== "console") return "terminal"
     if (sidebarVisible()) return "sidebar"
   })
 
@@ -487,24 +656,104 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             </Show>
           </box>
         </Show>
+        <Show when={centerView()}>
+          <box id="center-view" flexGrow={1} flexBasis={0} minWidth={centerView() === "browser" ? 40 : 0} minHeight={centerView() === "browser" ? 10 : 0} flexDirection="column">
+            <Show
+              when={centerView() === "console"}
+              fallback={
+                <Show
+                  keyed
+                  when={browserSession()}
+                  fallback={
+                    <box flexGrow={1} alignItems="center" justifyContent="center" flexDirection="column">
+                      <text fg={theme.text.base}>{t("Browser")}</text>
+                      <text fg={theme.text.muted}>{t("Add a browser session to this project in the left panel.")}</text>
+                    </box>
+                  }
+                >
+                  {(item) => (
+                      <BrowserPane
+                        sessionID={item.id}
+                        name={item.name}
+                        chatHidden={browserChatHidden() || dimensions().width < 110}
+                        canShowChat={dimensions().width >= 110}
+                        onToggleChat={() => setBrowserChatHidden(!browserChatHidden())}
+                        busy={() => (item.chat ? data.session.status(item.chat) === "running" : false)}
+                      />
+                    )}
+                </Show>
+              }
+            >
+              <Show
+                keyed
+                when={sessions.available()}
+                fallback={
+                  // No persistent PTY on this server (Windows): the plain PTY of the project directory.
+                  <Show
+                    keyed
+                    when={sessions.checked() ? data.session.get(props.sessionID)?.location.directory : undefined}
+                  >
+                    {(directory) => <box flexDirection="column" flexGrow={1} minHeight={0}>
+                      <ConsoleAccessBar sessionID={props.sessionID} projectID={projectList.owner(props.sessionID) ?? Orchestra.sessionOwner(data.session.get(props.sessionID)?.metadata)} directory={directory} kind="plain" ptyID={plainConsoleID()}/>
+                      <PlainTerminalPane directory={directory} autoFocus onPty={setPlainConsoleID}/>
+                    </box>}
+                  </Show>
+                }
+              >
+                <Show
+                  keyed
+                  when={consoleTerminal()?.id}
+                  fallback={
+                    // Say why the pane is empty instead of leaving a blank panel.
+                    <box flexGrow={1} alignItems="center" justifyContent="center">
+                      <text fg={theme.text.muted}>
+                        {consoleError()
+                          ? `${t("Unable to load terminal")}: ${consoleError()}`
+                          : t("Starting the project shell...")}
+                      </text>
+                    </box>
+                  }
+                >
+                  {(ptyID) => (
+                    <box flexDirection="column" flexGrow={1} minHeight={0}>
+                      <ConsoleAccessBar sessionID={props.sessionID} projectID={projectList.owner(props.sessionID) ?? Orchestra.sessionOwner(data.session.get(props.sessionID)?.metadata)} directory={data.session.get(props.sessionID)?.location.directory??""} kind="persistent" ptyID={ptyID}/>
+                      <TerminalPane ptyID={ptyID} autoFocus onFocusRequest={(value) => (focusTerminal = value)} />
+                    </box>
+                  )}
+                </Show>
+              </Show>
+            </Show>
+          </box>
+        </Show>
         <box
           id="session-pane"
           ref={(value: BoxRenderable) => (sessionNode = value)}
-          flexGrow={canvas() && !stacked() ? 0 : 1}
-          flexBasis={canvas() && !stacked() ? undefined : canvas() ? STACKED_CHAT_BASIS : 0}
+          flexGrow={centerView() || (canvas() && !stacked()) ? 0 : 1}
+          flexBasis={
+            chatBeside() ? undefined : centerView() ? 0 : canvas() && !stacked() ? undefined : canvas() ? STACKED_CHAT_BASIS : 0
+          }
           minWidth={0}
           minHeight={0}
           position={fullscreen() ? "absolute" : "relative"}
-          visible={!fullscreen()}
-          width={sessionPaneBoxWidth({
-            fullscreen: fullscreen(),
-            fullscreenWidth: panels.width() - paneResize.size(),
-            hasCanvas: canvas() !== undefined,
-            stacked: stacked(),
-            noteChatWidth: noteChatResize.size(),
-          })}
+          visible={!fullscreen() && !hidesChat()}
+          width={
+            chatBeside()
+              ? CHAT_BESIDE_WIDTH
+              : centerView()
+              ? 0
+              : sessionPaneBoxWidth({
+                  fullscreen: fullscreen(),
+                  fullscreenWidth: panels.width() - paneResize.size(),
+                  hasCanvas: canvas() !== undefined,
+                  stacked: stacked(),
+                  noteChatWidth: noteChatResize.size(),
+                })
+          }
           height="100%"
         >
+          {/* The chat is unmounted while Console or Browser takes the center, so its prompt cannot keep the
+              keyboard or draw over the terminal. */}
+          <Show when={!hidesChat()}>
           <InteractivityProvider enabled={activePane() === "session" && !fullscreen()}>
             <Session
               scrollRef={(value) => (sessionScroll = value)}
@@ -518,6 +767,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               width={transcriptWidth()}
             />
           </InteractivityProvider>
+          </Show>
           <Show when={activePane() === "right"}>
             <box
               position="absolute"
@@ -537,14 +787,20 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               }}
               // Consume the release before revealing permission buttons underneath.
               onMouseUp={() => {
-                if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing() || resizeRelease) return
+                if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing() || resizeRelease)
+                  return
                 focusSession()
               }}
             />
           </Show>
         </box>
       </box>
-      <Show when={!rightPaneHidden() && (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide()))}>
+      <Show
+        when={
+          !rightPaneHidden() &&
+          (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide()))
+        }
+      >
         <box
           ref={(value: BoxRenderable) => (rightNode = value)}
           flexShrink={0}
@@ -569,7 +825,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
                 paddingLeft={1}
                 paddingRight={1}
               >
-                <text fg={hideRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>›</text>
+                <text fg={hideRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
+                  ›
+                </text>
               </HoverAction>
             </box>
           </Show>
@@ -649,7 +907,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
             paddingLeft={1}
             paddingRight={1}
           >
-            <text fg={showRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>‹</text>
+            <text fg={showRightPaneHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
+              ‹
+            </text>
           </HoverAction>
         </box>
       </Show>
@@ -664,9 +924,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
         when={
           !fullscreen() &&
           !rightPaneHidden() &&
-          (rightPane() === "terminal" ||
-            rightPane() === "panel" ||
-            (rightPane() === "sidebar" && wide())) &&
+          (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide())) &&
           availableWidth() >= 3
         }
       >

@@ -1870,7 +1870,9 @@ function parseCronField(text: string, min: number, max: number, names: Record<st
     }
     const single = read(range!)
     if (single === null) return null
-    for (let value = single; value <= max; value += step) values.add(value)
+    // A bare value is that value alone; `N/step` runs from N to the end of the range.
+    if (stepText === undefined) values.add(single)
+    else for (let value = single; value <= max; value += step) values.add(value)
   }
   return values
 }

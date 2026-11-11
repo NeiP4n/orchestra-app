@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { createStore } from "solid-js/store"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Portal, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
@@ -151,6 +152,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
   })
 
   const theme = useTheme()
+  const explainHover = createHoverFeedback()
   const syntax = useThemes().currentSyntax
 
   const current = createMemo(() =>
@@ -294,7 +296,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                   : { once: t(permissionOptionLabel("once")), reject: t(permissionOptionLabel("reject")) }
               }
               actions={
-                <box flexDirection="row" flexShrink={0} onMouseUp={explain}>
+                <box flexDirection="row" flexShrink={0} backgroundColor={explainHover.background()} onMouseOver={explainHover.onMouseOver} onMouseOut={explainHover.onMouseOut} onMouseUp={explain}>
                   <text fg={theme.text.base}>
                     ? <span style={{ fg: theme.text.action.primary.base }}>{t("explain")}</span>
                   </text>
@@ -381,6 +383,8 @@ function RejectPrompt(props: {
   let input: TextareaRenderable
   const enabled = useInteractivity()
   const theme = useTheme()
+  const confirmHover = createHoverFeedback()
+  const cancelHover = createHoverFeedback("secondary")
   const config = useConfig().data
   const dimensions = useTerminalDimensions()
   const narrow = createMemo(() => dimensions().width < 80)
@@ -481,6 +485,9 @@ function RejectPrompt(props: {
               label: "Confirm rejection",
               disabled: false,
             }))}
+            backgroundColor={confirmHover.background()}
+            onMouseOver={confirmHover.onMouseOver}
+            onMouseOut={confirmHover.onMouseOut}
             onMouseUp={() => props.onConfirm(input.plainText)}
           >
             <text fg={theme.text.base}>
@@ -495,6 +502,9 @@ function RejectPrompt(props: {
               label: "Cancel rejection",
               disabled: false,
             }))}
+            backgroundColor={cancelHover.background()}
+            onMouseOver={cancelHover.onMouseOver}
+            onMouseOut={cancelHover.onMouseOut}
             onMouseUp={props.onCancel}
           >
             <text fg={theme.text.base}>

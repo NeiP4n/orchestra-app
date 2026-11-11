@@ -16,6 +16,7 @@ import { AbsolutePath } from "@orchestra/core/schema"
 import { Database } from "../../src/database/database"
 import { Bus } from "../../src/bus"
 import { tempGlobalLayer } from "../fixture/global"
+import { liveOrchestra } from "../fixture/live-orchestra"
 import { offlineModels } from "../fixture/models"
 import { tmpdirScoped } from "../fixture/tmpdir"
 import { advance } from "../lib/clock"
@@ -56,6 +57,7 @@ const instances = Layer.effect(
     const bindings: LayerNode.Replacements = [
       Global.node.replace(tempGlobalLayer),
       offlineModels,
+      liveOrchestra,
       ConfigPluginSource.node.replace(sourceLayer),
       LocationServiceMap.node.replace(Layer.succeed(LocationServiceMap.Service, map)),
       Instance.node.replace(
@@ -72,6 +74,7 @@ const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, SdkPlugins.node, LocationServiceMap.node]), [
     Global.node.replace(tempGlobalLayer),
     offlineModels,
+    liveOrchestra,
     LocationServiceMap.node.replace(instances),
   ]),
 )
@@ -149,6 +152,7 @@ describe("PluginSupervisor", () => {
         yield* TestClock.adjust("1 hour")
         yield* advance(() => source.activations === 2)
         yield* plugins.awaitActivation
+        expect(source.activations).toBe(2)
 
         yield* TestClock.adjust("24 hours")
         yield* advance(() => source.activations === 3)
@@ -203,7 +207,7 @@ describe("PluginSupervisor", () => {
     }),
   )
 
-  for (const targets of [["opencode.config.policy", "opencode.provider.opencode", "opencode.config.agent"], ["*"]]) {
+  for (const targets of [["orchestra.config.policy", "orchestra.provider.opencode", "orchestra.config.agent"], ["*"]]) {
     it.effect(`keeps policy enforcement and the Console connection through plugin removals: ${targets}`, () =>
       Effect.gen(function* () {
         source.operations = targets.map((target) => ({ type: "remove", target }))
@@ -218,10 +222,10 @@ describe("PluginSupervisor", () => {
           Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(directory.path) }))),
         )
         const status = (id: string) => inventory.find((plugin) => plugin.id === id)?.state.status
-        expect(status("opencode.config.policy")).toBe("active")
+        expect(status("orchestra.config.policy")).toBe("active")
         expect(status("orchestra.provider.opencode")).toBe("active")
         // Removals still apply to everything else, including instance and builtin plugins.
-        expect(status("opencode.config.agent")).toBeUndefined()
+        expect(status("orchestra.config.agent")).toBeUndefined()
         expect(inventory.some((plugin) => plugin.id === id)).toBe(targets[0] !== "*")
       }).pipe(
         Effect.ensuring(

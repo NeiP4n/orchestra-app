@@ -20,6 +20,7 @@ type GlobalStore = {
   // The last project-list failure, if any: bootstrap swallows per-query failures
   // (allSettled), so without this the home would silently show zero projects.
   projectError?: string
+  projectsReady?: boolean
 }
 
 function waitForPaint() {
@@ -34,7 +35,7 @@ function waitForPaint() {
 
     const timer = setTimeout(finish, 50)
 
-    if (typeof requestAnimationFrame !== "function") return
+    if (!globalThis.requestAnimationFrame) return
     requestAnimationFrame(() => {
       setTimeout(() => {
         clearTimeout(timer)
@@ -45,10 +46,10 @@ function waitForPaint() {
 }
 
 function errors(list: PromiseSettledResult<unknown>[]) {
-  return list.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason)
+  return list.flatMap((item) => (item.status === "rejected" ? [item.reason] : []))
 }
 
-function runAll(list: Array<() => Promise<unknown>>) {
+function runAll<T>(list: Array<() => Promise<T>>) {
   return Promise.allSettled(list.map((item) => item()))
 }
 
@@ -84,6 +85,30 @@ export const loadProjectsQuery = (scope: ServerScope, projects: ProjectApi) =>
       ),
   })
 
+/** Each UI store must hydrate even when another context populated the shared query cache. */
+export function applyLoadedProjects(
+  input: {
+    scope: ServerScope
+    setGlobalStore: SetStoreFunction<GlobalStore>
+    queryClient: QueryClient
+  },
+  data: Project[],
+) {
+  input.setGlobalStore("projectError", undefined)
+  input.setGlobalStore("project", (previous) =>
+    // A not-yet-ready server (or a wrong database file) answers with an empty
+    // list: keep the projects already on screen instead of flashing an empty
+    // project list. Projects are never deleted through the UI, so an empty
+    // fetch never legitimately clears a non-empty store.
+    data.length === 0 && previous.length > 0
+      ? previous
+      : data.map((project) =>
+          withWorktreeInventory(project, input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id))),
+        ),
+  )
+  input.setGlobalStore("projectsReady", true)
+}
+
 export async function bootstrapGlobal(input: {
   serverAPI: {
     readonly location: LocationApi
@@ -94,36 +119,21 @@ export async function bootstrapGlobal(input: {
   queryClient: QueryClient
 }) {
   const slow = [
-    () => input.queryClient.fetchQuery(loadGlobalConfigQuery(input.scope)),
-    () => input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverAPI.location)),
+    () => input.queryClient.fetchQuery(loadGlobalConfigQuery(input.scope)).then(() => undefined),
+    () =>
+      input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverAPI.location)).then(() => undefined),
     () =>
       input.queryClient
         .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
         .then((data) => {
-          input.setGlobalStore("projectError", undefined)
-          input.setGlobalStore("project", (previous) =>
-            // A not-yet-ready server (or a wrong database file) answers with an empty
-            // list: keep the projects already on screen instead of flashing an empty
-            // project list. Projects are never deleted through the UI, so an empty
-            // fetch never legitimately clears a non-empty store.
-            data.length === 0 && previous.length > 0
-              ? previous
-              : data.map((project) =>
-                  withWorktreeInventory(
-                    project,
-                    input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id)),
-                  ),
-                ),
-          )
+          applyLoadedProjects(input, data)
         })
-        .catch((error: unknown) => {
+        .catch((error) => {
           // runAll swallows this failure (allSettled): record it so the home can
           // say the list failed instead of showing zero projects.
-          input.setGlobalStore(
-            "projectError",
-            error instanceof Error ? error.message : String(error),
-          )
-        }),
+          input.setGlobalStore("projectError", error instanceof Error ? error.message : String(error))
+        })
+        .finally(() => input.setGlobalStore("projectsReady", true)),
   ]
 
   await runAll(slow)

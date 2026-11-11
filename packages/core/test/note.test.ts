@@ -505,7 +505,7 @@ describe("NoteStore", () => {
           ),
         )
 
-        expect(failure._tag).toBe("NoteStore.StorageError")
+        expect("_tag" in failure ? failure._tag : undefined).toBe("NoteStore.StorageError")
         // The human's text survived a write that failed at the swap, byte for byte.
         expect(yield* Effect.promise(() => fs.readFile(target))).toEqual(before)
         const entries = yield* Effect.promise(() => fs.readdir(path.dirname(target)))

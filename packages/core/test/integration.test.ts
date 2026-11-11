@@ -144,6 +144,63 @@ describe("Integration", () => {
     }),
   )
 
+  it.effect("routes every native removal through the current scoped OAuth owner and fails closed after unload", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const credentials = yield* Credential.Service
+      const integrationID = Integration.ID.make("google")
+      const methodID = Integration.MethodID.make("antigravity")
+      const registration = yield* Scope.fork(yield* Scope.Scope)
+      const removed: string[] = []
+      yield* integrations.transform(editor => editor.method.update({
+        integrationID, method: { id: methodID, type: "oauth", label: "Managed OAuth" },
+        authorize: () => Effect.succeed({ mode: "code" as const, url: "https://example.invalid/authorize", instructions: "Paste code", callback: () => Effect.succeed(Credential.OAuth.make({ type: "oauth", methodID, access: "test-access", refresh: "test-refresh", expires: 1 })) }),
+        remove: (_value, id) => Effect.sync(() => { removed.push(id) }),
+      })).pipe(Scope.provide(registration))
+      const attempt = yield* integrations.oauth.connect({ integrationID, methodID })
+      yield* integrations.oauth.complete({ integrationID, attemptID: attempt.attemptID, code: "test-code" })
+      const first = (yield* credentials.list(integrationID))[0]!
+      expect(first.value.type === "oauth" && first.value.metadata?.removalOwner).toBe(methodID)
+      yield* credentials.remove(first.id)
+      expect(removed).toEqual([first.id])
+      const next = yield* credentials.create({ integrationID, value: first.value })
+      yield* integrations.connection.remove(next.id)
+      expect(removed).toEqual([first.id, next.id])
+      const offline = yield* credentials.create({ integrationID, value: first.value })
+      yield* Scope.close(registration, Exit.void)
+      expect(Exit.isFailure(yield* Effect.exit(credentials.remove(offline.id)))).toBe(true)
+      expect(yield* credentials.get(offline.id)).toEqual(offline)
+      expect(removed).toEqual([first.id, next.id])
+    }),
+  )
+
+  it.effect("turns plugin authorization defects into safe nonempty failures", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const integrationID = Integration.ID.make("google")
+      const methodID = Integration.MethodID.make("antigravity")
+      const absent = yield* Effect.exit(integrations.oauth.connect({ integrationID, methodID }))
+      expect(Exit.isFailure(absent)).toBe(true)
+      if (Exit.isFailure(absent)) expect(Cause.squash(absent.cause)).toBeInstanceOf(Integration.AuthorizationError)
+      const secret = "private-token-canary"
+      const config = Object.assign(new Error(secret), { name: "AntigravityOAuthConfigurationError", code: "missing_client_secret" })
+      for (const failure of [config, new Error(secret), undefined]) {
+        yield* integrations.transform(editor => editor.method.update({
+          integrationID, method: { id: methodID, type: "oauth", label: "OAuth" },
+          authorize: () => Effect.die(failure),
+        }))
+        const exit = yield* Effect.exit(integrations.oauth.connect({ integrationID, methodID }))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) throw new Error("Expected authorization failure")
+        const error = Cause.squash(exit.cause)
+        expect(error).toBeInstanceOf(Integration.AuthorizationError)
+        expect((error as Integration.AuthorizationError).message.trim().length).toBeGreaterThan(0)
+        expect((error as Integration.AuthorizationError).message).not.toContain(secret)
+        if (failure === config) expect((error as Integration.AuthorizationError).message).toContain("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+      }
+    }),
+  )
+
   it.effect("connects with a key and stores the credential", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service

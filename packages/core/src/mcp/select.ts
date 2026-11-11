@@ -10,7 +10,7 @@ import { McpRatings } from "./ratings.js"
 // was decided by sort order. This module:
 //
 // - translates Russian capability words to English before matching, so
-//   "автоматизация браузера" finds Playwright and "документация библиотеки"
+//   "автоматизация браузера" uses native browser tools and "документация библиотеки"
 //   finds Context7;
 // - ranks every candidate with a confidence score, and says so in the
 //   explanation (rank + fallback), instead of silently picking one;
@@ -18,7 +18,7 @@ import { McpRatings } from "./ratings.js"
 //   it returns an ask-card (candidates + recommendation) for the
 //   Orchestrator to answer with an explicit server id;
 // - walks a fallback chain when the winner is down (context7 → deepwiki,
-//   serena → native symbols/grep, playwright → agent-desktop) instead of
+//   serena → native symbols/grep, retired browsers → native browser) instead of
 //   hammering the dead server;
 // - answers needs a native tool already covers (web search, memory, git,
 //   time, ...) with the native analogue, not with a catalog server;
@@ -142,8 +142,14 @@ const SYNONYMS: Readonly<Record<string, readonly string[]>> = {
   files: ["files", "file"],
 }
 
-const tokens = (text: string) =>
-  [...new Set(text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((token) => token.length > 2))]
+const tokens = (text: string) => [
+  ...new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((token) => token.length > 2),
+  ),
+]
 
 /** Light plural variants so "library" meets "libraries" and "errors" meets "error". */
 const variants = (token: string): ReadonlySet<string> => {
@@ -202,14 +208,14 @@ export function rank(
   need: string,
   platform: NodeJS.Platform = process.platform,
   ratings?: ReadonlyMap<string, McpRatings.Rating>,
+  disabled: ReadonlySet<string> = new Set(),
 ): readonly Match[] {
   const wanted = translateNeed(need)
   if (wanted.length === 0) return []
-  // B7 note: rank is a pure matcher and still offers real-screen servers
-  // (playwright, agent-desktop). The gate lives where it can be enforced:
-  // acquire() refuses to install/connect them and MCP.callTool refuses to
-  // call them while the real-screen opt-in is invalid.
-  const entries = McpCatalog.forPlatform(platform)
+  // Browser work must not rediscover another MCP browser through a generic desktop fallback.
+  const documentation = wanted.some((token) => ["documentation", "docs", "library", "libraries"].includes(token))
+  if (!documentation && matchNative(need).some((match) => match.analogue.id === "browser")) return []
+  const entries = McpCatalog.forPlatform(platform).filter((entry) => !disabled.has(entry.id))
   const frequency = new Map<string, number>()
   for (const entry of entries)
     for (const token of tokens(`${entry.id} ${entry.name} ${entry.description} ${entry.usage}`))
@@ -269,8 +275,7 @@ export function matchNative(need: string): readonly NativeMatch[] {
       // catalog English text ("code" also means symbols), but a native class
       // must be named by its own words — "symbols" must not drag in web
       // search through the "search" synonym.
-      const matched = (token: string, keyword: string) =>
-        variants(token).has(keyword) || variants(keyword).has(token)
+      const matched = (token: string, keyword: string) => variants(token).has(keyword) || variants(keyword).has(token)
       const hits = wanted.filter((token) => analogue.keywords.some((keyword) => matched(token, keyword)))
       const unique = hits.filter((token) =>
         analogue.keywords.some((keyword) => matched(token, keyword) && (frequency.get(keyword) ?? 0) <= 1),
@@ -299,11 +304,17 @@ export type Fallback =
 export const FALLBACKS: Readonly<Record<string, readonly Fallback[]>> = {
   context7: [{ kind: "mcp", server: "deepwiki" }],
   deepwiki: [{ kind: "mcp", server: "context7" }],
-  serena: [{ kind: "mcp", server: "xerj" }, { kind: "native", tools: ["symbols", "grep", "read"] }],
-  xerj: [{ kind: "mcp", server: "serena" }, { kind: "native", tools: ["symbols", "grep", "read"] }],
-  playwright: [{ kind: "mcp", server: "agent-desktop" }, { kind: "native", tools: ["browser", "playtest"] }],
-  "chrome-devtools": [{ kind: "mcp", server: "playwright" }, { kind: "native", tools: ["browser", "playtest"] }],
-  "agent-desktop": [{ kind: "mcp", server: "playwright" }, { kind: "native", tools: ["desktop", "playtest"] }],
+  serena: [
+    { kind: "mcp", server: "xerj" },
+    { kind: "native", tools: ["symbols", "grep", "read"] },
+  ],
+  xerj: [
+    { kind: "mcp", server: "serena" },
+    { kind: "native", tools: ["symbols", "grep", "read"] },
+  ],
+  playwright: [{ kind: "native", tools: ["browser", "playtest"] }],
+  "chrome-devtools": [{ kind: "native", tools: ["browser", "playtest"] }],
+  "agent-desktop": [{ kind: "native", tools: ["desktop", "playtest"] }],
   github: [{ kind: "native", tools: ["shell"] }],
   sentry: [],
   "rea-anything": [],
@@ -367,10 +378,14 @@ export function buildChoiceCard(
     text: [
       `No server fits "${need}" confidently enough to pick alone.`,
       ...(candidates.length > 0
-        ? [`Closest servers: ${candidates.map((match) => `${match.entry.id} (score ${match.score}, ${match.reasons.join(", ")})`).join("; ")}.`]
+        ? [
+            `Closest servers: ${candidates.map((match) => `${match.entry.id} (score ${match.score}, ${match.reasons.join(", ")})`).join("; ")}.`,
+          ]
         : ["No catalog server matches the need."]),
       ...(nativeCandidates.length > 0
-        ? [`Native tools already cover it: ${nativeCandidates.map((match) => `${match.analogue.id} (${match.analogue.nativeTools.join(", ")})`).join("; ")}.`]
+        ? [
+            `Native tools already cover it: ${nativeCandidates.map((match) => `${match.analogue.id} (${match.analogue.nativeTools.join(", ")})`).join("; ")}.`,
+          ]
         : []),
       "Answer with an explicit server id (mcp_manager acquire with server), or a native tool — do not guess.",
     ].join(" "),
@@ -381,6 +396,7 @@ export function buildChoiceCard(
 }
 
 export interface SelectOptions {
+  readonly disabled?: ReadonlySet<string>
   readonly platform?: NodeJS.Platform
   /** Persistent ratings to nudge the ranking; absent means no history yet. */
   readonly ratings?: ReadonlyMap<string, McpRatings.Rating>
@@ -395,7 +411,7 @@ export interface SelectOptions {
  * or a winner below the confidence threshold, is an ask — never a guess.
  */
 export function selectForTask(need: string, options: SelectOptions = {}): Decision {
-  const ranked = rank(need, options.platform, options.ratings)
+  const ranked = rank(need, options.platform, options.ratings, options.disabled)
   const native = matchNative(need)
   const best = ranked[0]
   const bestNative = native[0]
@@ -431,17 +447,20 @@ export function selectForTask(need: string, options: SelectOptions = {}): Decisi
       card: buildChoiceCard(need, ranked, native),
     }
   }
+  const chain = fallbackChain(best.entry.id).filter(
+    (link) => link.kind !== "mcp" || !options.disabled?.has(link.server),
+  )
   return {
     kind: "mcp",
     server: best.entry.id,
-    chain: fallbackChain(best.entry.id),
+    chain,
     confidence: best.confidence,
     reasons: best.reasons,
     explanation: [
       `${best.entry.id} fits "${need}" (score ${best.score}, confidence ${best.confidence.toFixed(2)}, matched: ${best.reasons.join(", ")}).`,
-      ...(fallbackChain(best.entry.id).length > 0
+      ...(chain.length > 0
         ? [
-            `If it is down, fall back to ${fallbackChain(best.entry.id)
+            `If it is down, fall back to ${chain
               .map((link) => (link.kind === "mcp" ? link.server : `native ${link.tools.join("/")}`))
               .join(" → ")}.`,
           ]

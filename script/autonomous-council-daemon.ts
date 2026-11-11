@@ -3,7 +3,10 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 
 const PORT = 4096;
-const PASSWORD = process.env.ORCHESTRA_PASSWORD || "xQcwJ2sVSJCG94knkKWq42FoJBY1i8bVbFOyHON4KyA";
+const PASSWORD = process.env.ORCHESTRA_PASSWORD;
+if (!PASSWORD?.trim()) {
+  throw new Error("Не задана ORCHESTRA_PASSWORD: укажите пароль запущенного сервера Orchestra перед стартом daemon.");
+}
 const AUTH = "Basic " + Buffer.from("orchestra:" + PASSWORD).toString("base64");
 const LOG_FILE = "C:/Users/Isako/.local/share/orchestra/autonomous-2h-run.log";
 const ARTIFACT_PATH = "C:/Users/Isako/.gemini/antigravity-cli/brain/1dc0b8a2-738c-4e68-8ac0-22a77d7b6777/autonomous-council-execution.md";

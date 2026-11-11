@@ -1,3 +1,12 @@
+import { z } from "zod";
+declare function tool<T extends {
+    description: string;
+    args: any;
+    execute: (args: any, ctx: any) => Promise<any>;
+}>(input: T): T;
+declare namespace tool {
+    var schema: typeof z;
+}
 import { type HeaderStyle } from "./constants.js";
 import type { AntigravityTokenExchangeResult } from "./antigravity/oauth.js";
 import { type ModelFamily } from "./plugin/accounts.js";

@@ -243,3 +243,78 @@ describe("SessionCompletionGate", () => {
     expect(SessionCompletionGate.check(afterReport, board(1))).toContain('L-1 "Ship the feature"')
   })
 })
+
+describe("SessionCompletionGate: BrowserAgent", () => {
+  const BA = "team-browser-agent"
+  const run = (messages: SessionMessage.Info[]) => SessionCompletionGate.check(messages, empty, undefined, undefined, undefined, BA)
+  const search = { name: "websearch", input: { query: "x" } }
+  const browser = { name: "browser", input: { action: "snapshot" } }
+
+  test("sends it back to the page when it stops after a search without using the browser", () => {
+    const text = run([user("open muse.ai"), assistant("", [search]), assistant("")])
+    expect(text).toContain("You have not used the browser tool yet")
+  })
+  test("sends it back when it used the browser but ended without a state line", () => {
+    const text = run([user("open muse.ai"), assistant("", [browser]), assistant("I looked at it.")])
+    expect(text).toContain("Continue in the browser")
+  })
+  test("lets a report that starts with a state line stand, after real page work", () => {
+    expect(run([user("open muse.ai"), assistant("", [browser]), assistant("DONE\nOpened muse.ai.")])).toBeUndefined()
+  })
+  test("a DONE without any browser call is not believed, a NOT DONE is", () => {
+    expect(run([user("open muse.ai"), assistant("DONE\nTrust me.")])).toContain("You have not used the browser tool yet")
+    expect(run([user("open muse.ai"), assistant("NOT DONE\nChrome would not start.")])).toBeUndefined()
+  })
+  test("a greeting is answered and the turn ends: no page task, no completion check", () => {
+    expect(run([user("Прив"), assistant("Привет! Готов к работе.")])).toBeUndefined()
+    expect(SessionCompletionGate.conversational("hello, how are you?")).toBe(true)
+    expect(SessionCompletionGate.conversational("Зарегистрируйся на сайте")).toBe(false)
+    expect(SessionCompletionGate.conversational("check the price of the laptop on the page and report it back to me")).toBe(false)
+  })
+  test("when the reminders are spent it asks for an explicit NOT DONE once, then lets it stop", () => {
+    const spent = [user("open muse.ai"), assistant("", [search]), nudge(), assistant(""), nudge(), assistant(""), nudge(), assistant("")]
+    expect(run(spent)).toContain("Completion check (final)")
+    expect(run([...spent, nudge(), assistant("")])).toBeUndefined()
+  })
+})
+
+describe("SessionCompletionGate: giving up", () => {
+  const worker = (messages: SessionMessage.Info[]) => SessionCompletionGate.check(messages, empty, undefined, undefined, undefined, "team-developer")
+  test("a worker that says it cannot, without looking anything up, is sent back", () => {
+    expect(worker([user("fix it"), assistant("Я не знаю, как это сделать.")])).toContain("giving up without trying")
+  })
+  test("a give-up after a search or a question stands", () => {
+    expect(worker([user("fix it"), assistant("", [{ name: "websearch", input: { query: "x" } }]), assistant("I cannot find it.")])).toBeUndefined()
+    expect(worker([user("fix it"), assistant("", [{ name: "question", input: {} }]), assistant("не смог")])).toBeUndefined()
+  })
+  test("an ordinary answer is left alone", () => {
+    expect(worker([user("fix it"), assistant("Done: the bug was in parse().")])).toBeUndefined()
+  })
+  test("the nudges are limited", () => {
+    const spent = [user("fix it"), assistant("не знаю"), nudge(), assistant("не знаю"), nudge(), assistant("не знаю"), nudge(), assistant("не знаю")]
+    expect(worker(spent)).toBeUndefined()
+  })
+})
+
+describe("SessionCompletionGate: open worker reports", () => {
+  const report = (outcome: string): SessionMessage.Info => ({
+    type: "synthetic",
+    id: id(),
+    time,
+    text: `<team-report session="s1" outcome="${outcome}">could not finish</team-report>`,
+  })
+  const orchestrator = (messages: SessionMessage.Info[]) => SessionCompletionGate.check(messages, empty, undefined, undefined, undefined, "orchestrator")
+  test("a partial report with no follow-up sends the Orchestrator back", () => {
+    expect(orchestrator([user("build it"), report("partial"), assistant("The worker could not finish; telling you.")])).toContain("Do not hand this to the operator yet")
+  })
+  test("a follow-up sent to a worker satisfies it", () => {
+    expect(orchestrator([user("build it"), report("failed"), assistant("", [{ name: "sessions", input: { action: "send" } }]), assistant("Sent it on.")])).toBeUndefined()
+  })
+  test("a complete report is left alone", () => {
+    expect(orchestrator([user("build it"), report("complete"), assistant("All done.")])).toBeUndefined()
+  })
+  test("the reminders are limited", () => {
+    const spent = [user("build it"), report("partial"), assistant("x"), nudge(), assistant("x"), nudge(), assistant("x"), nudge(), assistant("x")]
+    expect(orchestrator(spent)).toBeUndefined()
+  })
+})

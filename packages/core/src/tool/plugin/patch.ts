@@ -1,3 +1,4 @@
+import { RuleEnforce } from "../../rule-enforce.js"
 export * as PatchTool from "./patch.js"
 
 import type { Context } from "@orchestra/plugin/effect/plugin"
@@ -118,6 +119,14 @@ export const Plugin = {
               const updates = new Map<string, string>()
               const resolveTarget = Effect.fnUntraced(function* (value: string) {
                 const target = yield* access.resolve({ path: value, kind: "file" })
+                // A patch must inspect its old contents to prepare the diff. Enforce
+                // hard rules before that read, not only before the eventual write.
+                const blocked = RuleEnforce.resourceRefusal(String(context.sessionID), {
+                  action: "edit", agent: String(context.agent), resources: [target.resource, target.absolute],
+                })
+                if (blocked) return yield* new Permission.BlockedError({
+                  rules: [], permission: "edit", resources: [target.resource, target.absolute], reason: blocked,
+                })
                 if (!target.externalDirectory) return target
                 yield* access.authorizeExternal([target], context, {
                   filepath: target.absolute,
@@ -202,7 +211,7 @@ export const Plugin = {
               yield* permission.assert({
                 action: "edit",
                 resources: [...new Set(targets.map((target) => target.resource))],
-                save: ["*"],
+                save: [...new Set(targets.map((target) => target.resource))],
                 metadata: {
                   filepath: targets.map((target) => target.resource).join(", "),
                   diff: patchFiles.map((file) => `${file.patch}\n`).join(""),

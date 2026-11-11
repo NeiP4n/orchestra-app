@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { EventEmitter, on } from "node:events"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
-import { Credential, Integration, Model, Provider, type Plugin } from "@opencode/plugin"
-import type { ConnectionInfo, V2Event } from "@opencode/client"
-import type { AISDKHooks } from "@opencode/plugin/promise/aisdk"
-import type { IntegrationMethodRegistration } from "@opencode/plugin/promise/integration"
-import type { ModelEditor } from "@opencode/plugin/promise/model"
-import type { ProviderEditor } from "@opencode/plugin/promise/provider"
-import type { Info as ToolInfo, ToolContext } from "@opencode/plugin/promise/tool"
-import type { DeepMutable } from "@opencode/plugin/promise/types"
-import type { RpcHandlers } from "@opencode/plugin/promise/rpc"
+import { Credential, Integration, Model, Provider, type Plugin } from "@orchestra/plugin"
+import type { ConnectionInfo, V2Event } from "@orchestra/client"
+import type { AISDKHooks } from "@orchestra/plugin/promise/aisdk"
+import type { IntegrationMethodRegistration } from "@orchestra/plugin/promise/integration"
+import type { ModelEditor } from "@orchestra/plugin/promise/model"
+import type { ProviderEditor } from "@orchestra/plugin/promise/provider"
+import type { Info as ToolInfo, ToolContext } from "@orchestra/plugin/promise/tool"
+import type { DeepMutable } from "@orchestra/plugin/promise/types"
+import type { RpcHandlers } from "@orchestra/plugin/promise/rpc"
 import type { LanguageModelV3StreamPart } from "@ai-sdk/provider"
 
 import { AntigravityV2Plugin } from "./v2.ts"
@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
   recovery: vi.fn(),
   updater: vi.fn(),
   closeListener: vi.fn(async () => undefined),
+  finishListener: vi.fn(),
   callback: undefined as URL | undefined,
   exchange: vi.fn(),
   connectionStatus: vi.fn(async (_input: Parameters<Plugin.Context["integration"]["connection"]["status"]>[0]) => undefined),
@@ -91,6 +92,7 @@ vi.mock("./antigravity/oauth.ts", () => ({
 vi.mock("./plugin/server.ts", () => ({
   startOAuthListener: async () => ({
     close: state.closeListener,
+    finish: state.finishListener,
     waitForCallback: async () => state.callback ?? new URL(`${ANTIGRAVITY_REDIRECT_URI}?state=expected-state&code=callback-code`),
   }),
 }))
@@ -266,6 +268,7 @@ async function stream(sdk: ReturnType<typeof import("@ai-sdk/google")["createGoo
 }
 
 beforeEach(() => {
+  vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder")
   vi.clearAllMocks()
   state.storage = pool()
   state.callback = undefined
@@ -275,6 +278,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
 describe("OpenCode V2 adapter", () => {
@@ -745,6 +749,81 @@ describe("discovery and account eligibility regressions", () => {
 })
 
 describe("account lifecycle regressions", () => {
+  it("removes only the stable bound pool identity, never another same-email account", async () => {
+    const adapter = await host()
+    const removed = state.storage!.accounts[0]!
+    const id = accountID(removed)
+    state.storage!.accounts.push({ ...removed, id: "unrelated-same-label", refreshToken: "unrelated" })
+    const native = { ...credential(), metadata: { antigravityAccountId: id, email: removed.email } }
+    await adapter.method.remove!(native, "native-delete")
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["unrelated-same-label"])
+    expect(state.storage!.deletedAccountKeys!.length).toBeGreaterThan(0)
+    await adapter.method.remove!(native, "native-alias")
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["unrelated-same-label"])
+    await adapter.method.remove!({ ...credential("unrelated-generic|project"), methodID: Integration.MethodID.make("oauth"), metadata: { email: removed.email } }, "native-unrelated")
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["unrelated-same-label"])
+  })
+
+  it("does not resurrect a deleted identity when a native refresh finishes later", async () => {
+    let announce!: () => void, release!: () => void
+    const started = new Promise<void>(resolve => { announce = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      announce(); await gate
+      return Response.json({ access_token: "late-access", refresh_token: "late-rotated", expires_in: 3600 })
+    })
+    const adapter = await host()
+    const id = accountID(state.storage!.accounts[0]!)
+    const native = { ...credential(), metadata: { antigravityAccountId: id } }
+    const refreshing = adapter.method.refresh!(native)
+    await started
+    await adapter.method.remove!(native, "native-delete")
+    expect(state.storage!.accounts).toEqual([])
+    release()
+    await refreshing
+    expect(state.storage!.accounts).toEqual([])
+    expect(state.storage!.deletedAccountKeys!.length).toBeGreaterThan(0)
+  })
+
+  it("invalidates an already prepared loader when native removal leaves another pool account", async () => {
+    mockNetwork()
+    const adapter = await host()
+    const removed = state.storage!.accounts[0]!
+    const id = accountID(removed)
+    state.storage!.accounts.push({ ...removed, id: "surviving-identity", refreshToken: "surviving-token", email: "survivor@example.test" })
+    const { sdk } = await adapter.sdk()
+    await stream(sdk)
+    await adapter.method.remove!({ ...credential(), metadata: { antigravityAccountId: id } }, "native-delete")
+    await stream(sdk)
+    expect(state.storage!.accounts.map(account => account.id)).toEqual(["surviving-identity"])
+    expect(state.storage!.accounts[state.storage!.activeIndex]!.refreshToken).toBe("surviving-token")
+  })
+
+  it("allows explicit sign-in with the same token while old native aliases stay revoked", async () => {
+    const adapter = await host()
+    const old = { ...credential(), metadata: { antigravityAccountId: accountID(state.storage!.accounts[0]!) } }
+    await adapter.method.remove!(old, "native-old")
+    state.exchange.mockResolvedValueOnce({ type: "success", refresh: "refresh|project", access: "new-access", expires: Date.now() + 3600_000, projectId: "project" })
+    const auth = await adapter.method.authorize({ manual: true })
+    if (auth.mode !== "code") throw new Error("Expected code authorization")
+    const fresh = await auth.callback("test-code")
+    expect(fresh.metadata?.antigravityAccountId).not.toBe(old.metadata.antigravityAccountId)
+    expect(state.storage!.accounts).toHaveLength(1)
+    await adapter.method.remove!(old, "native-old-alias")
+    await adapter.method.remove!({ ...credential(), methodID: Integration.MethodID.make("oauth") }, "native-legacy-alias")
+    expect(state.storage!.accounts).toHaveLength(1)
+    expect(state.storage!.accounts[0]!.id).toBe(fresh.metadata?.antigravityAccountId)
+  })
+
+  it("propagates account-store refusal instead of silently accepting native deletion", async () => {
+    const adapter = await host()
+    const original = structuredClone(state.storage)
+    const storage = await import("./plugin/storage.ts")
+    vi.mocked(storage.updateAccounts).mockRejectedValueOnce(new Error("synthetic store refusal"))
+    await expect(adapter.method.remove!(credential(), "native-delete")).rejects.toThrow("store refusal")
+    expect(state.storage).toEqual(original)
+  })
+
   it("does not resurrect disabled accounts from a loader still being constructed", async () => {
     mockNetwork()
     state.storage!.accounts.push({ ...pool().accounts[0]!, email: "second@example.test", refreshToken: "second" })
@@ -1615,5 +1694,79 @@ describe("OAuth completing during an earlier save", () => {
     gate.release()
     await Promise.all([request, disabling])
     expect(state.storage!.accounts[0]).toMatchObject({ enabled: false, refreshToken: "latest-foreground-token" })
+  })
+})
+
+describe("OAuth app misconfiguration is never rotated as quota exhaustion", () => {
+  it("does not block a valid access token because another eligible account needs refresh", async () => {
+    const network = mockNetwork()
+    state.storage!.accounts.push({ ...pool().accounts[0]!, email: "expired@example.test", refreshToken: "expired-other" })
+    const adapter = await host()
+    const { sdk } = await adapter.sdk()
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    network.mockClear()
+    await stream(sdk)
+    expect(network.mock.calls.some(([input]) => (input instanceof Request ? input.url : String(input)).includes("oauth2.googleapis.com/token"))).toBe(false)
+    expect(network.mock.calls.some(([input]) => (input instanceof Request ? input.url : String(input)).includes(":streamGenerateContent"))).toBe(true)
+  })
+  it("fails transport before pool selection and never penalizes an account", async () => {
+    mockNetwork()
+    const adapter = await host({ connection: false })
+    const { sdk } = await adapter.sdk()
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    const limited = vi.spyOn(AccountManager.prototype, "markRateLimited")
+    const cooling = vi.spyOn(AccountManager.prototype, "markAccountCoolingDown")
+    await expect(stream(sdk)).rejects.toThrow("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+    expect(limited).not.toHaveBeenCalled()
+    expect(cooling).not.toHaveBeenCalled()
+    expect(state.storage!.accounts[0]!.enabled).toBe(true)
+  })
+  it.each([400, 401])("rejected OAuth application credentials do not cool down accounts (%s)", async status => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+      if (String(input).includes("oauth2.googleapis.com/token")) return Response.json({ error: "invalid_client", error_description: "PRIVATE_CANARY" }, { status })
+      return Response.json({})
+    })
+    const adapter = await host({ connection: false })
+    const { sdk } = await adapter.sdk()
+    const limited = vi.spyOn(AccountManager.prototype, "markRateLimited")
+    const cooling = vi.spyOn(AccountManager.prototype, "markAccountCoolingDown")
+    await expect(stream(sdk)).rejects.toThrow("OAuth application credentials were rejected")
+    expect(limited).not.toHaveBeenCalled()
+    expect(cooling).not.toHaveBeenCalled()
+    expect(state.storage!.accounts[0]!.enabled).toBe(true)
+  })
+  it("native refresh propagates app configuration errors rather than returning an empty credential", async () => {
+    mockNetwork()
+    const adapter = await host()
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    await expect(adapter.method.refresh!(credential())).rejects.toMatchObject({ code: "missing_client_secret", isRetryable: false })
+    expect(state.storage!.accounts[0]!.enabled).toBe(true)
+  })
+})
+
+
+describe("truthful native OAuth completion", () => {
+  it("does not report browser success or create a pool entry when local configuration fails after redirect", async () => {
+    const { AntigravityOAuthConfigurationError } = await import("./constants.ts")
+    state.storage = null
+    const adapter = await host({ connection: false })
+    state.exchange.mockRejectedValueOnce(new AntigravityOAuthConfigurationError("missing_client_secret"))
+    const authorization = await adapter.method.authorize({ manual: false })
+    if (authorization.mode !== "auto") throw new Error("Expected automatic auth")
+    await expect(authorization.callback).rejects.toMatchObject({ code: "missing_client_secret" })
+    expect(state.finishListener).toHaveBeenCalledWith(false)
+    expect(state.finishListener).not.toHaveBeenCalledWith(true)
+    expect(state.storage?.accounts ?? []).toHaveLength(0)
+  })
+  it("reports browser success only after exchange and owning pool persistence", async () => {
+    state.storage = null
+    const adapter = await host({ connection: false })
+    const authorization = await adapter.method.authorize({ manual: false })
+    if (authorization.mode !== "auto") throw new Error("Expected automatic auth")
+    const value = await authorization.callback
+    expect(value.type).toBe("oauth")
+    expect(state.storage?.accounts).toHaveLength(1)
+    expect(state.finishListener).toHaveBeenCalledWith(true)
+    expect(value.metadata?.antigravityAccountId).toBe(state.storage?.accounts[0].id)
   })
 })

@@ -6,10 +6,10 @@ description: "Connect your own model provider accounts to an Orchestra Console w
 Connect provider accounts you already pay for, such as Anthropic, OpenAI, or AWS Bedrock, and share their models
 with everyone in the workspace. Console stores the credential and serves each provider through its gateway, so members
 use the models without ever seeing the provider key. The same gateway is available to your own tools through the
-[Providers API](/console/api/providers).
+Providers API.
 
 Owners and admins manage providers from the **Providers** tab. Members get the enabled models in Orchestra after
-running `/connect`.
+running `/auth`.
 
 ## Connect a provider
 
@@ -64,7 +64,7 @@ Click a model to edit it. Changes are saved when you close the panel.
 ### Custom pricing
 
 Catalog models start with the provider's list price. If you have negotiated pricing, for example a discount on your
-OpenAI contract, override the prices under **Cost Tiers** so usage reports and [budgets](/console/budgets) match what
+OpenAI contract, override the prices under **Cost Tiers** so usage reports and budgets match what
 you actually pay.
 
 | Field            | List price | Your price |
@@ -96,7 +96,7 @@ Disable the whole provider from **⋯ › Disable** to use only your own provide
 
 ## Use in Orchestra
 
-Members run `/connect` and choose the workspace. Each enabled provider appears as the workspace name followed by the
+Members run `/auth` and choose the workspace. Each enabled provider appears as the workspace name followed by the
 provider name, and `/models` lists its enabled models.
 
 ```text
@@ -119,6 +119,6 @@ To rotate a key, click the credential on the provider page and enter the new one
 ## Billing
 
 The provider bills you for tokens; Console does not charge credits for them. Console still records each request and
-its cost using the model's pricing, so usage reports and [budgets](/console/budgets) include it.
+its cost using the model's pricing, so usage reports and budgets include it.
 
-To call a provider from your own tools instead of Orchestra, use the [Providers API](/console/api/providers).
+To call a provider from your own tools instead of Orchestra, use the Providers API.

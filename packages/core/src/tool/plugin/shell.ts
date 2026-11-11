@@ -1,5 +1,6 @@
 export * as ShellTool from "./shell.js"
 
+import { BrowserGuard } from "../../browser/guard.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
@@ -17,6 +18,7 @@ import { DesktopIsolation } from "../../desktop-isolation.js"
 import { Environment } from "../../environment/index.js"
 import { Job } from "../../job.js"
 import { FileAccess } from "../../file-access.js"
+import { Plot } from "../../plot.js"
 import { Permission } from "../../permission.js"
 import { NonNegativeInt } from "../../schema.js"
 import { Session } from "../../session.js"
@@ -138,6 +140,7 @@ export const Plugin = {
     const shellSelect = yield* ShellSelect.Service
     const compatibleShell = shellSelect.resolve({ priority: "compat" })
     const permission = yield* Permission.Service
+    const plots = yield* Plot.Service
     const config = yield* Config.Service
     const processes = yield* AppProcess.Service
 
@@ -172,6 +175,8 @@ export const Plugin = {
           kind: "directory",
         }),
       )
+      const caller = yield* sessions.get(context.sessionID)
+      yield* Plot.guardShell(plots, { sessionID: context.sessionID, directories: [caller.location.directory, target.absolute, ...directories.map(item => item.absolute)] })
       yield* access.authorizeExternal([target, ...directories], context)
       if (parsed.commands.length > 0)
         yield* permission.assert({
@@ -360,6 +365,7 @@ export function forbiddenCommand(command: string): string | undefined {
     return `Refusing to run a command that touches protected file "${file}": secret and credential files are off limits to the AI.`
   if (RoomRules.commandLeaksCredentials(command))
     return "Refusing to run a command that prints the host's environment or credentials."
+  if (BrowserGuard.launchesBrowser(command)) return BrowserGuard.REFUSAL
   // B7: a shell escape to the operator's real screen, mouse, or clipboard
   // (xdotool, screencapture, xclip, PowerShell SendKeys, ...) is refused
   // unless the real-screen opt-in is valid. The desktop_* tools are the

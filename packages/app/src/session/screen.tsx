@@ -302,6 +302,9 @@ function SessionScreenContent(props: {
         identity={session.layout.tabKey}
       />
       <Show when={!isDesktop() && !!session.identity.params.id && !bottomMobileTabs()}>{mobileTabs()}</Show>
+      <Show when={!isDesktop() && session.data.info()}>
+        <SessionIdentityHeader sessionID={session.identity.params.id ?? ""} session={session.data.info()} />
+      </Show>
       {/* Surface query errors without suspending session metadata while messages load. */}
       <Show when={timeline.resource.error}>
         {(error) => {

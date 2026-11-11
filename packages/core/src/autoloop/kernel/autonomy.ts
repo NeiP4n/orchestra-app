@@ -44,8 +44,8 @@ export * as AutoloopAutonomy from "./autonomy.js"
 export const AUTONOMY_MODES = ["off", "observe", "auto"] as const
 export type AutonomyMode = (typeof AUTONOMY_MODES)[number]
 
-/** The operator-facing default: watch first, execute only when told to. */
-export const DEFAULT_AUTONOMY: AutonomyMode = "observe"
+/** The operator-facing default: the Orchestrator's dispatch executes. The operator can set `observe` or `off` in the config. */
+export const DEFAULT_AUTONOMY: AutonomyMode = "auto"
 
 /**
  * The mode a `decide` call runs in. No mode given means the legacy

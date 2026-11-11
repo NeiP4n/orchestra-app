@@ -8,6 +8,7 @@ import oc2ThemeJson from "./themes/oc-2.json"
 import { resolveThemeVariant, themeToCss } from "./resolve"
 import { resolveThemeVariantV2, themeV2ToCss } from "./v2/resolve"
 import type { DesktopTheme } from "./types"
+import { DEFAULT_THEME_ID } from "./default-theme"
 
 export type ColorScheme = "light" | "dark" | "system"
 
@@ -49,79 +50,86 @@ function knownThemes() {
   return known
 }
 
-const names: Record<string, string> = {
-  "oc-2": "OC-2 (legacy)",
-  orchestra: "Orchestra",
-  amoled: "AMOLED",
-  aura: "Aura",
-  ayu: "Ayu",
-  carbonfox: "Carbonfox",
-  catppuccin: "Catppuccin",
-  "catppuccin-frappe": "Catppuccin Frappe",
-  "catppuccin-macchiato": "Catppuccin Macchiato",
-  cobalt2: "Cobalt2",
-  cursor: "Cursor",
-  dracula: "Dracula",
-  everforest: "Everforest",
-  flexoki: "Flexoki",
-  github: "GitHub",
-  gruvbox: "Gruvbox",
-  kanagawa: "Kanagawa",
-  "lucent-orng": "Lucent Orng",
-  material: "Material",
-  matrix: "Matrix",
-  mercury: "Mercury",
-  monokai: "Monokai",
-  sculk: "Sculk",
-  nightowl: "Night Owl",
-  nord: "Nord",
-  "one-dark": "One Dark",
-  onedarkpro: "One Dark Pro",
-  orng: "Orng",
-  "osaka-jade": "Osaka Jade",
-  palenight: "Palenight",
-  rosepine: "Rose Pine",
-  shadesofpurple: "Shades of Purple",
-  solarized: "Solarized",
-  synthwave84: "Synthwave '84",
-  tokyonight: "Tokyonight",
-  vercel: "Vercel",
-  vesper: "Vesper",
-  zenburn: "Zenburn",
-}
+type ThemeRegistry = Record<string, DesktopTheme>
 
+const names = new Map(
+  Object.entries({
+    "oc-2": "OC-2 (legacy)",
+    orchestra: "Orchestra",
+    amoled: "AMOLED",
+    aura: "Aura",
+    ayu: "Ayu",
+    carbonfox: "Carbonfox",
+    catppuccin: "Catppuccin",
+    "catppuccin-frappe": "Catppuccin Frappe",
+    "catppuccin-macchiato": "Catppuccin Macchiato",
+    cobalt2: "Cobalt2",
+    cursor: "Cursor",
+    dracula: "Dracula",
+    everforest: "Everforest",
+    flexoki: "Flexoki",
+    github: "GitHub",
+    gruvbox: "Gruvbox",
+    kanagawa: "Kanagawa",
+    "lucent-orng": "Lucent Orng",
+    material: "Material",
+    matrix: "Matrix",
+    mercury: "Mercury",
+    monokai: "Monokai",
+    sculk: "Sculk",
+    nightowl: "Night Owl",
+    nord: "Nord",
+    "one-dark": "One Dark",
+    onedarkpro: "One Dark Pro",
+    orng: "Orng",
+    "osaka-jade": "Osaka Jade",
+    palenight: "Palenight",
+    rosepine: "Rose Pine",
+    shadesofpurple: "Shades of Purple",
+    solarized: "Solarized",
+    synthwave84: "Synthwave '84",
+    tokyonight: "Tokyonight",
+    vercel: "Vercel",
+    vesper: "Vesper",
+    zenburn: "Zenburn",
+  }),
+)
+
+// SAFETY: this checked-in built-in JSON uses the DesktopTheme palette/token shape.
 const oc2Theme = oc2ThemeJson as DesktopTheme
 
 function resolveStoredTheme(id: string | null | undefined, registered?: Record<string, DesktopTheme>) {
   if (id === "oc-2" || (id && (knownThemes().has(id) || registered?.[id]))) return id
 
-  return "oc-2"
+  return DEFAULT_THEME_ID
 }
 
 function read(key: string) {
-  if (typeof localStorage !== "object") return null
-
   try {
-    return localStorage.getItem(key)
+    return globalThis.localStorage?.getItem(key) ?? null
   } catch {
     return null
   }
 }
 
 function write(key: string, value: string) {
-  if (typeof localStorage !== "object") return
-
   try {
-    localStorage.setItem(key, value)
+    globalThis.localStorage?.setItem(key, value)
   } catch {}
 }
 
 function drop(key: string) {
-  if (typeof localStorage !== "object") return
-
   try {
-    localStorage.removeItem(key)
+    globalThis.localStorage?.removeItem(key)
   } catch {}
+}
+
+function savedColorScheme(fallback: ColorScheme): ColorScheme {
+  const value = read(STORAGE_KEYS.COLOR_SCHEME)
+
+  if (value === "light" || value === "dark" || value === "system") return value
+
+  return fallback
 }
 
 function clear() {
@@ -129,8 +137,8 @@ function clear() {
   drop(STORAGE_KEYS.THEME_CSS_DARK)
 }
 
-function ensureThemeStyleElement(): HTMLStyleElement {
-  const existing = document.getElementById(THEME_STYLE_ID) as HTMLStyleElement | null
+function ensureThemeStyleElement(): HTMLElement {
+  const existing = document.getElementById(THEME_STYLE_ID)
 
   if (existing) return existing
   const element = document.createElement("style")
@@ -141,9 +149,7 @@ function ensureThemeStyleElement(): HTMLStyleElement {
 }
 
 function getSystemMode(): "light" | "dark" {
-  if (typeof window !== "object") return "light"
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  return globalThis.window?.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
 function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "dark") {
@@ -193,8 +199,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
   init: (props: {
     defaultTheme?: string
+    defaultColorScheme?: ColorScheme
     onThemeApplied?: (theme: DesktopTheme, mode: "light" | "dark", scheme: ColorScheme) => void
   }) => {
+    const fallbackScheme = props.defaultColorScheme ?? "system"
     const rawTheme = read(STORAGE_KEYS.THEME_ID) ?? props.defaultTheme
     const themeId = resolveStoredTheme(rawTheme)
 
@@ -203,18 +211,25 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       clear()
     }
 
-    const colorScheme = (read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null) ?? "system"
+    const colorScheme = savedColorScheme(fallbackScheme)
     const mode = colorScheme === "system" ? getSystemMode() : colorScheme
 
-    const [store, setStore] = createStore({
+    const [store, setStore] = createStore<{
+      themes: ThemeRegistry
+      themeId: string
+      colorScheme: ColorScheme
+      mode: "light" | "dark"
+      previewThemeId: string | null
+      previewScheme: ColorScheme | null
+    }>({
       themes: {
         "oc-2": oc2Theme,
-      } as Record<string, DesktopTheme>,
+      },
       themeId,
       colorScheme,
       mode,
-      previewThemeId: null as string | null,
-      previewScheme: null as ColorScheme | null,
+      previewThemeId: null,
+      previewScheme: null,
     })
 
     const loads = new Map<string, Promise<DesktopTheme | undefined>>()
@@ -288,23 +303,27 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         if (next === "oc-2") {
           committedThemeId = next
           clear()
+
           return
         }
 
         void load(next)
           .then((theme) => {
             if (revision !== themeSelectionRevision || store.themeId !== next) return
+
             if (!theme) throw new Error(`Theme "${next}" could not be loaded`)
             cacheThemeVariants(theme, next)
             committedThemeId = next
           })
-          .catch((error: unknown) => {
+          .catch(() => {
             if (revision !== themeSelectionRevision || store.themeId !== next) return
+
             const fallback = store.themes[committedThemeId] ? committedThemeId : "oc-2"
-            console.error(`Failed to load theme "${next}", restoring "${fallback}"`, error)
+            console.error(`Failed to load theme "${next}", restoring "${fallback}"`)
             setStore("themeId", fallback)
             committedThemeId = fallback
             write(STORAGE_KEYS.THEME_ID, fallback)
+
             if (fallback === "oc-2") clear()
           })
       }
@@ -312,6 +331,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       if (e.key === STORAGE_KEYS.COLOR_SCHEME && e.newValue) {
         const scheme =
           e.newValue === "light" || e.newValue === "dark" || e.newValue === "system" ? e.newValue : "system"
+
         setStore("colorScheme", scheme)
         setStore("mode", scheme === "system" ? getSystemMode() : scheme)
       }
@@ -331,7 +351,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
       const rawTheme = read(STORAGE_KEYS.THEME_ID) ?? props.defaultTheme
       const savedTheme = resolveStoredTheme(rawTheme, store.themes)
-      const savedScheme = (read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null) ?? "system"
+      const savedScheme = savedColorScheme(fallbackScheme)
 
       if (rawTheme && rawTheme !== savedTheme) {
         write(STORAGE_KEYS.THEME_ID, savedTheme)
@@ -342,21 +362,25 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
       if (savedScheme !== store.colorScheme) setStore("colorScheme", savedScheme)
       setStore("mode", savedScheme === "system" ? getSystemMode() : savedScheme)
+
       const revision = themeSelectionRevision
       void load(savedTheme)
         .then((theme) => {
           if (revision !== themeSelectionRevision || store.themeId !== savedTheme) return
+
           if (!theme) throw new Error(`Theme "${savedTheme}" could not be loaded`)
           cacheThemeVariants(theme, savedTheme)
           committedThemeId = savedTheme
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           if (revision !== themeSelectionRevision || store.themeId !== savedTheme) return
+
           const fallback = store.themes[committedThemeId] ? committedThemeId : "oc-2"
-          console.error(`Failed to restore theme "${savedTheme}", using "${fallback}"`, error)
+          console.error(`Failed to restore theme "${savedTheme}", using "${fallback}"`)
           setStore("themeId", fallback)
           committedThemeId = fallback
           write(STORAGE_KEYS.THEME_ID, fallback)
+
           if (fallback === "oc-2") clear()
         })
     })
@@ -373,11 +397,13 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
       if (!next) {
         console.warn(`Theme "${id}" not found`)
+
         return
       }
 
       if (next !== "oc-2" && !knownThemes().has(next) && !store.themes[next]) {
         console.warn(`Theme "${id}" not found`)
+
         return
       }
 
@@ -388,25 +414,30 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         committedThemeId = next
         write(STORAGE_KEYS.THEME_ID, next)
         clear()
+
         return
       }
 
       void load(next)
         .then((theme) => {
           if (revision !== themeSelectionRevision || store.themeId !== next) return
+
           if (!theme) throw new Error(`Theme "${next}" could not be loaded`)
           cacheThemeVariants(theme, next)
           write(STORAGE_KEYS.THEME_ID, next)
           committedThemeId = next
         })
-        .catch((error: unknown) => {
+        .catch(() => {
           // Do not let an older failed request overwrite a newer user choice.
+
           if (revision !== themeSelectionRevision || store.themeId !== next) return
+
           const fallback = store.themes[committedThemeId] ? committedThemeId : "oc-2"
-          console.error(`Failed to load theme "${next}", restoring "${fallback}"`, error)
+          console.error(`Failed to load theme "${next}", restoring "${fallback}"`)
           setStore("themeId", fallback)
           committedThemeId = fallback
           write(STORAGE_KEYS.THEME_ID, fallback)
+
           if (fallback === "oc-2") clear()
         })
     }
@@ -422,14 +453,14 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       colorScheme: () => store.colorScheme,
       mode: () => store.mode,
       ids,
-      name: (id: string) => store.themes[id]?.name ?? names[id] ?? id,
+      name: (id: string) => store.themes[id]?.name ?? names.get(id) ?? id,
       loadThemes,
       themes: () => store.themes,
       setTheme,
       // A stored theme wins over the platform default forever, so without
       // this there was no way back once a non-default theme was picked
       // (the Maestro default survived the sculk revert that way).
-      resetTheme: () => setTheme(props.defaultTheme ?? "oc-2"),
+      resetTheme: () => setTheme(props.defaultTheme ?? DEFAULT_THEME_ID),
       setColorScheme,
       registerTheme: (theme: DesktopTheme) => setStore("themes", theme.id, theme),
       previewTheme: (id: string) => {
@@ -447,11 +478,12 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
             const mode = scheme === "system" ? getSystemMode() : scheme
             applyTheme(theme, next, mode, scheme)
           })
-          .catch((error: unknown) => {
+          .catch(() => {
             if (store.previewThemeId !== next) return
-            console.error(`Failed to preview theme "${next}"`, error)
+            console.error(`Failed to preview theme "${next}"`)
             setStore("previewThemeId", null)
             const current = store.themes[store.themeId]
+
             if (current) applyTheme(current, store.themeId, store.mode, store.colorScheme)
           })
       },
@@ -462,13 +494,15 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         void load(id)
           .then((theme) => {
             if (!theme) return
+
             if ((store.previewThemeId ?? store.themeId) !== id) return
+
             if (store.previewScheme !== scheme) return
             applyTheme(theme, id, mode, scheme)
           })
-          .catch((error: unknown) => {
+          .catch(() => {
             if ((store.previewThemeId ?? store.themeId) !== id || store.previewScheme !== scheme) return
-            console.error(`Failed to preview color scheme "${scheme}"`, error)
+            console.error(`Failed to preview color scheme "${scheme}"`)
           })
       },
       commitPreview: () => {
@@ -488,10 +522,12 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         setStore("previewScheme", null)
         const themeId = store.themeId
         const mode = store.mode
+
         const scheme = store.colorScheme
         void load(themeId)
           .then((theme) => {
             // A cancelled preview must not paint stale colors after another choice wins.
+
             if (
               !theme ||
               store.themeId !== themeId ||
@@ -499,11 +535,12 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
               store.colorScheme !== scheme ||
               store.previewThemeId !== null ||
               store.previewScheme !== null
-            ) return
+            )
+              return
             applyTheme(theme, themeId, mode, scheme)
           })
-          .catch((error: unknown) => {
-            console.error(`Failed to restore theme "${themeId}" after preview`, error)
+          .catch(() => {
+            console.error(`Failed to restore theme "${themeId}" after preview`)
           })
       },
     }

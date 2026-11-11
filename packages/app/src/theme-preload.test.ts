@@ -6,6 +6,7 @@ const run = () => Function(src)()
 
 const setSystemDark = (matches: boolean) =>
   Object.defineProperty(window, "matchMedia", {
+    // SAFETY: the preload only reads matches; event methods are never used by this fixture.
     value: () => ({ matches }) as MediaQueryList,
     configurable: true,
   })
@@ -22,10 +23,10 @@ beforeEach(() => {
 
 describe("theme preload", () => {
   test.each([
-    { stored: undefined, systemDark: false, scheme: "light", background: "#fafafa", color: "#171717" },
-    { stored: "dark", systemDark: false, scheme: "dark", background: "#080808", color: "#eeeeee" },
-    { stored: "light", systemDark: true, scheme: "light", background: "#fafafa", color: "#171717" },
-    { stored: "system", systemDark: true, scheme: "dark", background: "#080808", color: "#eeeeee" },
+    { stored: undefined, systemDark: false, scheme: "dark", background: "#050f15", color: "#bff7f2" },
+    { stored: "dark", systemDark: false, scheme: "dark", background: "#050f15", color: "#bff7f2" },
+    { stored: "light", systemDark: true, scheme: "light", background: "#f0fafa", color: "#0c2a30" },
+    { stored: "system", systemDark: true, scheme: "dark", background: "#050f15", color: "#bff7f2" },
   ])(
     "paints the default theme in $scheme for stored scheme $stored (system dark: $systemDark)",
     ({ stored, systemDark, scheme, background, color }) => {
@@ -34,7 +35,7 @@ describe("theme preload", () => {
       if (stored) localStorage.setItem("opencode-color-scheme", stored)
       run()
 
-      expect(document.documentElement.dataset.theme).toBe("oc-2")
+      expect(document.documentElement.dataset.theme).toBe("sculk")
       expect(document.documentElement.dataset.colorScheme).toBe(scheme)
       expect(document.documentElement.style.backgroundColor).toBe(background)
       // Inherited text must stay readable on the dark v2 background before
@@ -57,7 +58,7 @@ describe("theme preload", () => {
   })
 
   test.each([
-    { scheme: undefined, key: "opencode-theme-css-light", css: "--background-base:#fff;", expected: "light" },
+    { scheme: undefined, key: "opencode-theme-css-dark", css: "--background-base:#010203;", expected: "dark" },
     { scheme: "dark", key: "opencode-theme-css-dark", css: "--background-base:#010203;", expected: "dark" },
   ])("restores the cached $expected css of a custom theme", ({ scheme, key, css, expected }) => {
     localStorage.setItem("opencode-theme-id", "nightowl")
@@ -70,4 +71,30 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.colorScheme).toBe(expected)
     expect(document.getElementById("orchestra-theme-preload")?.textContent).toContain(css)
   })
+})
+
+test("keeps an explicit saved legacy theme instead of resetting it to the default", () => {
+  localStorage.setItem("opencode-theme-id", "oc-2")
+  run()
+  expect(document.documentElement.dataset.theme).toBe("oc-2")
+})
+
+// Explicit saved schemes win over the new application default.
+test.each(["light", "dark", "system"] as const)("preserves an explicit saved %s scheme and legacy theme", (scheme) => {
+  localStorage.setItem("opencode-theme-id", "oc-2")
+  localStorage.setItem("opencode-color-scheme", scheme)
+  setSystemDark(false)
+  run()
+
+  expect(document.documentElement.dataset.theme).toBe("oc-2")
+  expect(document.documentElement.dataset.colorScheme).toBe(scheme === "dark" ? "dark" : "light")
+  expect(localStorage.getItem("opencode-color-scheme")).toBe(scheme)
+})
+
+test("does not invent a stored preference on a fresh install", () => {
+  run()
+
+  expect(localStorage.getItem("opencode-theme-id")).toBeNull()
+  expect(localStorage.getItem("opencode-color-scheme")).toBeNull()
+  expect(document.documentElement.dataset.colorScheme).toBe("dark")
 })

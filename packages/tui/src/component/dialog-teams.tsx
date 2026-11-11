@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import {
   ScrollBoxRenderable,
   TextAttributes,
@@ -40,6 +41,8 @@ const BODY_MARGIN = 10
 
 export function DialogTeams(props: { onClose: () => void; tab?: Tab }) {
   const client = useClient()
+  const closeHover = createHoverFeedback("secondary")
+  const listHover = createHoverFeedback()
   const theme = useTheme().surface("dialog")
   const t = useT()
   const [roles, rolesResource] = createResource(() => client.api.orchestra.role.list())
@@ -114,12 +117,12 @@ export function DialogTeams(props: { onClose: () => void; tab?: Tab }) {
           {t("Roles")}
         </TabLabel>
         <box flexGrow={1} />
-        <text fg={theme.text.muted} onMouseUp={props.onClose}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={props.onClose}>
           esc
         </text>
       </box>
       <box flexDirection="row" gap={2} height={height()} flexShrink={0}>
-        <box width={LIST_WIDTH} flexShrink={0} onMouseDown={() => focus.set("list")}>
+        <box width={LIST_WIDTH} flexShrink={0} backgroundColor={listHover.background()} onMouseOver={listHover.onMouseOver} onMouseOut={listHover.onMouseOut} onMouseDown={() => focus.set("list")}>
           <scrollbox flexGrow={1} minHeight={0}>
             <For each={rows()}>
               {(id, index) => {
@@ -182,6 +185,8 @@ function RoleForm(props: {
 }) {
   const client = useClient()
   const theme = useTheme().surface("dialog")
+  const autoToolsHover = createHoverFeedback()
+  const rulesHover = createHoverFeedback()
   const t = useT()
   const initialTools = props.role?.tools
   const known = new Set(roleTools().map((tool) => tool.id))
@@ -479,7 +484,10 @@ function RoleForm(props: {
               {t("Selected")}
             </Choice>
             <box
-              onMouseDown={() => props.focus.set("autoTools")}
+              backgroundColor={autoToolsHover.background()}
+      onMouseOver={autoToolsHover.onMouseOver}
+      onMouseOut={autoToolsHover.onMouseOut}
+      onMouseDown={() => props.focus.set("autoTools")}
               ref={(element: Renderable) => props.focus.mark("autoTools", element)}
             >
               <Toggle
@@ -582,7 +590,10 @@ function RoleForm(props: {
           height={RULES_HEIGHT}
           flexShrink={0}
           marginTop={1}
-          onMouseDown={() => props.focus.set("rules")}
+          backgroundColor={rulesHover.background()}
+      onMouseOver={rulesHover.onMouseOver}
+      onMouseOut={rulesHover.onMouseOut}
+      onMouseDown={() => props.focus.set("rules")}
         >
           <box width={LABEL_WIDTH} flexShrink={0}>
             <text fg={props.focus.is("rules") ? theme.text.formfield.focused : theme.text.muted}>{t("Rules")}</text>
@@ -744,6 +755,8 @@ function TeamForm(props: {
 }) {
   const client = useClient()
   const theme = useTheme().surface("dialog")
+  const addMemberHover = createHoverFeedback()
+  const playbookHover = createHoverFeedback()
   const t = useT()
   const config = useConfig().data
   // Members carry a local key so their fields keep focus while rows are added, moved or removed.
@@ -994,6 +1007,12 @@ function TeamForm(props: {
                 </box>
                 <For each={draft.members}>
                   {(member, index) => {
+                    const titleHover = createHoverFeedback()
+                    const categoryHover = createHoverFeedback()
+                    const previousHover = createHoverFeedback()
+                    const nextHover = createHoverFeedback()
+                    const pickHover = createHoverFeedback()
+                    const removeHover = createHoverFeedback("destructive")
                     const role = () => roleOf(member.agent)
                     return (
                       <box flexDirection="row" gap={1}>
@@ -1002,7 +1021,7 @@ function TeamForm(props: {
                             {`${index() + 1}.`}
                           </text>
                         </box>
-                        <box width={MEMBER_TITLE} onMouseDown={() => props.focus.set(`${member.key}.title`)}>
+                        <box width={MEMBER_TITLE} backgroundColor={titleHover.background()} onMouseOver={titleHover.onMouseOver} onMouseOut={titleHover.onMouseOut} onMouseDown={() => props.focus.set(`${member.key}.title`)}>
                           <TextInput
                             focus={props.focus}
                             target={`${member.key}.title`}
@@ -1022,6 +1041,9 @@ function TeamForm(props: {
                         >
                           <text
                             fg={theme.text.formfield.base}
+                            bg={previousHover.background()}
+                            onMouseOver={previousHover.onMouseOver}
+                            onMouseOut={previousHover.onMouseOut}
                             onMouseUp={() => {
                               props.focus.set(`${member.key}.role`)
                               cycleRole(index(), -1)
@@ -1029,7 +1051,7 @@ function TeamForm(props: {
                           >
                             {"‹ "}
                           </text>
-                          <box flexGrow={1} minWidth={0} onMouseUp={() => openPicker(index())}>
+                          <box flexGrow={1} minWidth={0} backgroundColor={pickHover.background()} onMouseOver={pickHover.onMouseOver} onMouseOut={pickHover.onMouseOut} onMouseUp={() => openPicker(index())}>
                             <text
                               fg={
                                 props.focus.is(`${member.key}.role`)
@@ -1044,6 +1066,9 @@ function TeamForm(props: {
                           </box>
                           <text
                             fg={theme.text.formfield.base}
+                            bg={nextHover.background()}
+                            onMouseOver={nextHover.onMouseOver}
+                            onMouseOut={nextHover.onMouseOut}
                             onMouseUp={() => {
                               props.focus.set(`${member.key}.role`)
                               cycleRole(index(), 1)
@@ -1052,7 +1077,7 @@ function TeamForm(props: {
                             {" ›"}
                           </text>
                         </box>
-                        <box flexGrow={1} minWidth={0} onMouseDown={() => props.focus.set(`${member.key}.category`)}>
+                        <box flexGrow={1} minWidth={0} backgroundColor={categoryHover.background()} onMouseOver={categoryHover.onMouseOver} onMouseOut={categoryHover.onMouseOut} onMouseDown={() => props.focus.set(`${member.key}.category`)}>
                           <TextInput
                             focus={props.focus}
                             target={`${member.key}.category`}
@@ -1062,7 +1087,7 @@ function TeamForm(props: {
                             onSubmit={save}
                           />
                         </box>
-                        <text fg={theme.text.muted} onMouseUp={() => drop(index())}>
+                        <text fg={theme.text.muted} bg={removeHover.background()} onMouseOver={removeHover.onMouseOver} onMouseOut={removeHover.onMouseOut} onMouseUp={() => drop(index())}>
                           ✕
                         </text>
                       </box>
@@ -1073,7 +1098,9 @@ function TeamForm(props: {
                   flexDirection="row"
                   paddingLeft={4}
                   ref={(element: Renderable) => props.focus.mark("add", element)}
-                  backgroundColor={props.focus.is("add") ? theme.background.formfield.focused : undefined}
+                  backgroundColor={addMemberHover.background() ?? (props.focus.is("add") ? theme.background.formfield.focused : undefined)}
+                  onMouseOver={addMemberHover.onMouseOver}
+                  onMouseOut={addMemberHover.onMouseOut}
                   onMouseUp={add}
                 >
                   <text fg={theme.text.action.primary.base}>{t("+ Add member")}</text>
@@ -1101,14 +1128,18 @@ function TeamForm(props: {
                 ref={(element: ScrollBoxRenderable) => (pickerScroll.element = element)}
               >
                 <For each={matches()}>
-                  {(role) => (
+                  {(role) => {
+                    const hover = createHoverFeedback()
+                    return (
                     <box
                       flexDirection="row"
                       gap={1}
                       paddingLeft={1}
                       backgroundColor={
-                        role === highlighted() ? theme.background.formfield.focused : undefined
+                        hover.background() ?? (role === highlighted() ? theme.background.formfield.focused : undefined)
                       }
+                      onMouseOver={hover.onMouseOver}
+                      onMouseOut={hover.onMouseOut}
                       onMouseUp={() => choose(role)}
                     >
                       <box flexGrow={1} minWidth={0}>
@@ -1124,7 +1155,7 @@ function TeamForm(props: {
                         {`${roleCategory(t, role) ?? ""}${role.readOnly ? ` · ${t("read only")}` : ""}`}
                       </text>
                     </box>
-                  )}
+                  )}}
                 </For>
                 <Show when={matches().length === 0}>
                   <text fg={theme.text.muted}>{t("No role matches")}</text>
@@ -1164,7 +1195,10 @@ function TeamForm(props: {
             height={PLAYBOOK_HEIGHT}
             flexShrink={0}
             marginTop={1}
-            onMouseDown={() => props.focus.set("playbook")}
+            backgroundColor={playbookHover.background()}
+      onMouseOver={playbookHover.onMouseOver}
+      onMouseOut={playbookHover.onMouseOut}
+      onMouseDown={() => props.focus.set("playbook")}
           >
             <box width={LABEL_WIDTH} flexShrink={0}>
               <text fg={props.focus.is("playbook") ? theme.text.formfield.focused : theme.text.muted}>
@@ -1371,11 +1405,15 @@ function createFocus() {
 
 function Field(props: { label: string; focus: Focus; target: string; children: JSX.Element }) {
   const theme = useTheme().surface("dialog")
+  const fieldHover = createHoverFeedback()
   return (
     <box
       flexDirection="row"
       gap={1}
       flexShrink={0}
+      backgroundColor={fieldHover.background()}
+      onMouseOver={fieldHover.onMouseOver}
+      onMouseOut={fieldHover.onMouseOut}
       onMouseDown={() => props.focus.set(props.target)}
       // A switch row has no input to focus, so the row itself is what focus has to bring into view.
       ref={(element: Renderable) => props.focus.mark(props.target, element)}

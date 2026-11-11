@@ -1,5 +1,18 @@
 // Russian text for the sidebar's Context block, kept apart like the other additions to the locale table.
 export const ruContext: Record<string, string> = {
+  Network: "Сеть",
+  "Tools/MCP": "MCP/инстр.",
+  Control: "Управление",
+  "Take control": "Управление",
+  "Release ^G": "Отпустить ^G",
+  "Release (Ctrl+G)": "Отпустить (Ctrl+G)",
+  "MCP · this session": "MCP · эта сессия",
+  "Not assigned yet": "не назначено",
+  "No MCP assigned": "MCP не назначен",
+  "All permitted · {usable} usable · ≤{calls} calls": "все разрешены · доступно {usable} · ≤{calls} выз.",
+  "{assigned} assigned · {unavailable} unavailable · ≤{calls} calls": "назначено {assigned} · недоступно {unavailable} · ≤{calls} выз.",
+  "{assigned} assigned · {usable} usable · ≤{calls} calls": "назначено {assigned} · доступно {usable} · ≤{calls} выз.",
+  "Role default — not explicitly assigned": "По роли, без отдельного назначения",
   Project: "Проект",
   Group: "Группа",
   "Cache read": "Чтение кэша",

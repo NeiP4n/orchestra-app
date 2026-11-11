@@ -27,6 +27,8 @@ export function ClearSessionsAction(props: {
   confirm: (options: ConfirmOptions) => Promise<boolean | undefined>
   notify: (options: NotifyOptions) => void
   currentSessionID?: string
+  beforeRemove?: (session: { id: string }) => Promise<void>
+  afterRemove?: (session: { id: string }) => Promise<void>
   leaveCurrentSession: () => void
 }) {
   const t = useT()
@@ -55,7 +57,7 @@ export function ClearSessionsAction(props: {
       if (props.currentSessionID && sessions.some((session) => session.id === props.currentSessionID)) {
         props.leaveCurrentSession()
       }
-      const { removed, failures } = await removeEverySession(props.api, sessions)
+      const { removed, failures } = await removeEverySession(props.api, sessions, { before: props.beforeRemove, after: props.afterRemove })
       props.notify({
         message: failures.length
           ? t("Deleted {removed} of {total} sessions; {failed} could not be deleted.", {

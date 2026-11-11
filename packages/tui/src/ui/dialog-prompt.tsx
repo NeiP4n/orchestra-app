@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "./hover-feedback"
 import { TextareaRenderable, TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -23,6 +24,7 @@ export function DialogPrompt(props: DialogPromptProps) {
   const dialog = useDialog()
   const renderer = useRenderer()
   const theme = useTheme().surface("dialog")
+  const closeHover = createHoverFeedback("secondary", () => !props.busy)
   const shortcuts = Keymap.useShortcuts()
   const config = useConfig().data
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
@@ -103,6 +105,9 @@ export function DialogPrompt(props: DialogPromptProps) {
         </text>
         <text
           fg={theme.text.muted}
+          bg={closeHover.background()}
+          onMouseOver={closeHover.onMouseOver}
+          onMouseOut={closeHover.onMouseOut}
           onMouseUp={() => {
             if (!props.busy) (props.onCancel ?? dialog.clear)()
           }}

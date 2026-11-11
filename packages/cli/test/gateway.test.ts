@@ -173,3 +173,14 @@ describe("gateway HTTP guards", () => {
     })).toThrow("must use HTTPS")
   })
 })
+
+
+test("gateway defaults use the public Kilo route and preserve explicit local overrides", () => {
+  const env = { ORCHESTRA_GATEWAY_TOKEN: "t".repeat(32), ORCHESTRA_GATEWAY_UPSTREAM_KEY: "test-only-placeholder" }
+  const defaults = readConfig(env)
+  expect(defaults.upstreamURL).toBe("https://ai-gateway.kilo.ai/api/v1/chat/completions")
+  expect(defaults.model).toBe("kilo-auto/free")
+  const local = readConfig({ ...env, ORCHESTRA_GATEWAY_UPSTREAM_URL: "http://127.0.0.1:11434/v1/chat/completions", ORCHESTRA_GATEWAY_MODEL: "local-model" })
+  expect(local.upstreamURL).toBe("http://127.0.0.1:11434/v1/chat/completions")
+  expect(local.model).toBe("local-model")
+})

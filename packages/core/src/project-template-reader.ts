@@ -1,0 +1,188 @@
+import { TemplateStageError, type TemplateStage } from "./project-template-errors.js"
+export * as ProjectTemplateReader from "./project-template-reader.js"
+
+import { Cause, Effect } from "effect"
+import { Trigger } from "./trigger.js"
+import { ProjectTemplateSource } from "./project-template-source.js"
+import { Orchestra } from "@orchestra/schema/orchestra"
+import { Schema } from "effect"
+import { Federation } from "@orchestra/schema/federation"
+
+/** Passive capture from live metadata stores, never the repairing Orchestra.sessions/main methods.
+ * Browser/Vault/integration metadata must come from their owning live surface and be passed explicitly.
+ * This function cannot read messages, memory, page data, plaintext, HTTP, shell or model execution. */
+export interface SessionMetadata {
+  id: string
+  title?: string
+  agent?: string
+  parentID?: string
+  location: { directory: string }
+  metadata?: Record<string, Schema.Json>
+  model?: { providerID: string; id: string; variant?: string }
+}
+export interface Stores {
+  kv: {
+    get: (key: string) => Effect.Effect<unknown>
+    scan: (input: {
+      prefix: string
+      after?: string
+      limit?: number
+    }) => Effect.Effect<{ entries: readonly { key: string; value: unknown }[]; next?: string }>
+  }
+  getSession: (id: string) => Effect.Effect<SessionMetadata | undefined>
+  listSessionsInTree: (directory: string) => Effect.Effect<readonly SessionMetadata[]>
+}
+export interface BrowserBindingIssue { browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }
+export function readSource(
+  stores: Stores,
+  projectID: string,
+  linked: Pick<ProjectTemplateSource.Source, "browsers" | "vault" | "selectedGlobalSlotIDs" | "providers" | "mcp">,
+  bindingReview?: BrowserBindingIssue[],
+) {
+  let stage: TemplateStage = "base-project"
+  return Effect.gen(function* () {
+    const raw = yield* stores.kv.get(`orchestra/project/${projectID}`)
+    const project = Schema.decodeUnknownSync(Orchestra.Project)(raw)
+    if (project.id !== projectID) throw Error("Project owner differs.")
+    if (!project.main) throw Error("Project main session is not initialized.")
+    const scan = (prefix: string) =>
+      Effect.gen(function* () {
+        const entries: { key: string; value: unknown }[] = []
+        let after: string | undefined
+        do {
+          const page = yield* stores.kv.scan({ prefix, after, limit: 1000 })
+          if (entries.length + page.entries.length > 10000 || (page.next === after && page.next !== undefined))
+            throw Error("Configuration scan is incomplete.")
+          entries.push(...page.entries)
+          after = page.next
+        } while (after)
+        return entries
+      })
+    stage = "base-sessions"
+    const owned = yield* scan("orchestra/owner/")
+    const projects = (yield* scan("orchestra/project/")).map((row) =>
+      Schema.decodeUnknownSync(Orchestra.Project)(row.value),
+    )
+    const claims = new Map(owned.map((row) => [row.key.slice("orchestra/owner/".length), row.value]))
+    const ids = new Set<string>([project.main])
+    // Match the owner's live roster semantics: child task sessions and stale ownership
+    // markers are not top-level process definitions. Do not repair or delete them here.
+    for (const row of owned.filter(row => row.value === projectID)) {
+      const id = row.key.slice("orchestra/owner/".length)
+      const info = yield* stores.getSession(id)
+      if (id === project.main || (info && !info.parentID)) ids.add(id)
+    }
+    const tree = yield* stores.listSessionsInTree(project.directory)
+    for (const info of tree) {
+      if (info.parentID) continue
+      const claimed = claims.get(info.id) ?? Orchestra.sessionOwner(info.metadata)
+      if (typeof claimed !== "string" && claimed !== undefined) throw Error("Invalid session owner.")
+      if (claimed === undefined && Federation.groupSupervisor(info.metadata) !== undefined) continue
+      if (Orchestra.ownerOf(projects, info.location.directory, claimed)?.id === project.id) ids.add(info.id)
+    }
+    const sessions: ProjectTemplateSource.Source["sessions"][number][] = []
+    for (const id of ids) {
+      const info = yield* stores.getSession(id)
+      if (!info) throw Error("Project main session is missing.")
+      if (info.parentID) throw Error("Project main session points to a child task.")
+      if (Orchestra.ownerOf(projects, info.location.directory, (claims.get(id) ?? Orchestra.sessionOwner(info.metadata)) as string | undefined)?.id !== project.id)
+        throw Error(id === project.main ? "Project main session belongs to another project." : "A top-level session has conflicting project ownership.")
+      sessions.push({
+        id,
+        title: info.title,
+        agent: info.agent,
+        model: info.model
+          ? { providerID: info.model.providerID, modelID: info.model.id, variant: info.model.variant }
+          : undefined,
+      })
+    }
+    stage = "base-rules"
+    // A persisted, powered-off browser is still a process definition. Diagnose the
+    // binding against the same passive ownership snapshot before exporting any data.
+    // Never repair owners, adopt a foreign chat, or silently drop a browser here.
+    const reviewedBrowsers = linked.browsers.map(row => ({ ...row }))
+    for (const [index, browser] of reviewedBrowsers.entries()) {
+      if (!browser.chat || ids.has(browser.chat)) continue
+      const info = yield* stores.getSession(browser.chat)
+      const fail = (message: string, reason: import("./project-template-errors.js").TemplateReason) => {
+        if (bindingReview) {
+          const category = reason === "browser-chat-missing" ? "missing" : reason === "browser-chat-child" ? "child" : reason === "browser-chat-foreign" ? "foreign" : "unlisted"
+          bindingReview.push({ browser: index + 1, reason: category })
+          delete browser.chat
+          return
+        }
+        throw new TemplateStageError("base-browsers", new Error(message), reason)
+      }
+      if (!info) fail("Browser chat no longer exists.", "browser-chat-missing")
+      else if (info.parentID) fail("Browser chat is a child task.", "browser-chat-child")
+      else {
+        const claimed = claims.get(info.id) ?? Orchestra.sessionOwner(info.metadata)
+        const owner = typeof claimed === "string" || claimed === undefined
+          ? Orchestra.ownerOf(projects, info.location.directory, claimed) : undefined
+        if (owner && owner.id !== project.id) fail("Browser chat belongs to another project.", "browser-chat-foreign")
+        else fail("Browser chat is not in the project roster.", "browser-chat-unlisted")
+      }
+    }
+    const roleRows = yield* scan(`rules/role:${projectID}:`)
+    const scopes: {
+      key: string
+      scope: ProjectTemplateSource.Source["rules"][number]["scope"]
+      sessionID?: string
+      role?: string
+    }[] = [
+      { key: `project:${projectID}`, scope: "project" },
+      { key: `project-defaults:${projectID}`, scope: "project-defaults" },
+      { key: `orchestrator:${projectID}`, scope: "orchestrator" },
+      ...[...ids].map((id) => ({ key: `session:${id}`, scope: "session" as const, sessionID: id })),
+      ...roleRows.map((row) => ({
+        key: row.key.slice("rules/".length),
+        scope: "role" as const,
+        role: row.key.slice(`rules/role:${projectID}:`.length),
+      })),
+    ]
+    const rules: ProjectTemplateSource.Source["rules"][number][] = []
+    for (const scope of scopes) {
+      const value = yield* stores.kv.get("rules/" + scope.key)
+      if (value === undefined) continue
+      if (!Array.isArray(value)) throw Error("Rule metadata is damaged.")
+      for (const row of value) {
+        if (!row || typeof row !== "object" || Array.isArray(row) || typeof row.text !== "string")
+          throw Error("Rule metadata is damaged.")
+        rules.push({
+          scope: scope.scope,
+          ...(scope.sessionID ? { sessionID: scope.sessionID } : {}),
+          ...(scope.role ? { role: scope.role } : {}),
+          text: row.text,
+        })
+      }
+    }
+    stage = "base-schedules"
+    const schedules: Trigger.Info[] = []
+    for (const row of yield* scan(Trigger.PREFIX + projectID + "/")) {
+      const trigger = Trigger.parse(row.value)
+      if (!trigger || trigger.projectID !== projectID) throw Error("Schedule metadata is damaged.")
+      schedules.push(trigger)
+    }
+    // Re-read the identity at closeout. Concurrent metadata edits still require the eventual
+    // confirm adapter to recapture and compare the exact canonical digest before committing.
+    stage = "source-stability"
+    const final = yield* stores.kv.get(`orchestra/project/${projectID}`)
+    if (JSON.stringify(final) !== JSON.stringify(raw)) throw Error("Project changed during capture.")
+    return { project, sessions, ownedSessionIDs: ids, rules, schedules, ...linked, browsers: reviewedBrowsers } satisfies ProjectTemplateSource.Source
+  }).pipe(Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(Cause.squash(cause) instanceof TemplateStageError ? Cause.squash(cause) as TemplateStageError : new TemplateStageError(stage, Cause.squash(cause)))))
+}
+
+/** Existing v1 capture remains a strict projection of the same passive owned source. */
+export function capture(
+  stores: Stores,
+  projectID: string,
+  metadata: { name: string; description: string; minOrchestraVersion: string },
+  linked: Pick<ProjectTemplateSource.Source, "browsers" | "vault" | "selectedGlobalSlotIDs" | "providers" | "mcp">,
+) {
+  return Effect.gen(function* () {
+    const source = yield* readSource(stores, projectID, linked)
+    const result = ProjectTemplateSource.capture(source, metadata)
+    if (!result.ok) throw new TemplateStageError(result.diagnostic?.stage ?? "base-schema", new Error(result.error), result.diagnostic?.reasonCode)
+    return result.value
+  })
+}

@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { tr } from "../../util/i18n"
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes, type RGBA } from "@opentui/core"
@@ -140,6 +141,8 @@ export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOpt
 // Above the prompt of a Society chat: every member with its call sign. A click puts @Name into the prompt.
 export function SocietyRoster(props: { sessionID: string }) {
   const theme = useTheme()
+  const rulesHover = createHoverFeedback()
+  const allHover = createHoverFeedback()
   const data = useData()
   const client = useClient()
   const dialog = useDialog()
@@ -261,6 +264,9 @@ export function SocietyRoster(props: { sessionID: string }) {
         </For>
         {/* The Society's rulebook: its AIs follow it, and may add to it. */}
         <box
+          backgroundColor={rulesHover.background()}
+          onMouseOver={rulesHover.onMouseOver}
+          onMouseOut={rulesHover.onMouseOut}
           onMouseUp={() => {
             const name = marker()?.groupName
             if (name) dialog.replace(() => <DialogRules scope={`society:${name}`} title={name} />)
@@ -275,7 +281,7 @@ export function SocietyRoster(props: { sessionID: string }) {
             {`DoD ${done()}/${total()}`}
           </text>
         </Show>
-        <box onMouseUp={() => mention("all")}>
+        <box backgroundColor={allHover.background()} onMouseOver={allHover.onMouseOver} onMouseOut={allHover.onMouseOut} onMouseUp={() => mention("all")}>
           <text fg={theme.text.muted} wrapMode="none">
             @all
           </text>

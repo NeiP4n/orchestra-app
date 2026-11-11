@@ -1,8 +1,16 @@
 export * as Orchestra from "./orchestra.js"
 
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
+import { and, eq, inArray, notExists } from "drizzle-orm"
+import { SessionTable } from "./session/sql.js"
+import { ProjectTable } from "./project/sql.js"
+import { SessionHold } from "./session/hold.js"
+import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
+import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
+import { createHash } from "node:crypto"
+import { appendLog } from "@orchestra/util/append-log"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -17,6 +25,7 @@ import type { Session as SessionSchema } from "@orchestra/schema/session"
 import { AbsolutePath } from "./schema.js"
 import { Bus } from "./bus.js"
 import { KV } from "./kv.js"
+import { Rules } from "./rules.js"
 import { Session } from "./session.js"
 import { SessionActivation } from "./session/activation.js"
 import { SessionStore } from "./session/store.js"
@@ -27,12 +36,29 @@ import { isRecord } from "@orchestra/ai/utils/record"
 import { SessionEvent } from "@orchestra/schema/session-event"
 import { SessionMessage } from "./session/message.js"
 import { SessionInbox } from "./session/inbox.js"
+import {Database} from "./database/database.js"
+import {ProjectFilesBootstrap} from "./project-files/bootstrap.js"
 import { Dod } from "./dod.js"
 import { OrchestraStage } from "./stage.js"
 import { AiStandard } from "./ai-standard.js"
 import { Society } from "./society.js"
 import { Config } from "./config.js"
 import { Autoloop } from "./autoloop/service.js"
+import { Trigger } from "./trigger.js"
+import { TriggerMissed } from "./trigger-missed.js"
+import { TriggerDelivery } from "./trigger-delivery.js"
+import { randomUUID } from "node:crypto"
+import { ScheduleView } from "./schedule-view.js"
+import { BrowserLocalTest } from "./browser/local-test.js"
+import { BrowserBridge } from "./browser/bridge.js"
+import { BrowserRuntime } from "./browser/runtime.js"
+import { TriggerReview } from "./trigger-review.js"
+import { ScheduleRequests } from "./schedule-requests.js"
+import { TriggerBundle } from "./trigger-bundle.js"
+import { TriggerBundleFiles } from "./trigger-bundle-files.js"
+import { BrowserWatcherLifetime } from "./browser/watcher-lifetime.js"
+import { BrowserSchedule } from "./browser/schedule.js"
+import { BrowserWatch } from "./browser/watch.js"
 import { AutoloopOrchestrator } from "./autoloop/orchestrator.js"
 import type { EventRow, Job, Receipt, RunRow } from "./autoloop/kernel/decide.js"
 import type { View } from "./autoloop/kernel/evolve.js"
@@ -52,6 +78,11 @@ export const Access = Orchestra.Access
 export type Access = Orchestra.Access
 export const allows = Orchestra.allows
 export const contains = Orchestra.contains
+// The forms a member session raises that its orchestrator decides in place of the human: the question
+// tool, the decision/approval blocks of the interact tool and the web search provider choice.
+const FORWARDED_FORMS = new Set(["question", "interactive", "websearch.provider"])
+export const isForwardedForm = (kind: unknown): boolean => typeof kind === "string" && FORWARDED_FORMS.has(kind)
+
 export const ownerOf = Orchestra.ownerOf
 export const sessionOwner = Orchestra.sessionOwner
 export const Project = Orchestra.Project
@@ -191,7 +222,11 @@ export interface Interface {
   readonly recoverPendingTasks: () => Effect.Effect<void>
   // Team roles and templates: the built-in ones, with the operator's edits
   // applied, followed by the operator's own in the order they were created.
-  readonly roles: () => Effect.Effect<ReadonlyArray<Role>>
+  readonly roles: (projectID?: ProjectID) => Effect.Effect<ReadonlyArray<Role>>
+  /** Internal registrations only, never the global reusable role inventory. */
+  readonly scopedRoles: () => Effect.Effect<ReadonlyArray<Role & { projectID?: ProjectID }>>
+  readonly saveProjectRole: (projectID: ProjectID, id: string, spec: RoleSpec) => Effect.Effect<Role, TeamError | ProjectNotFoundError>
+  readonly projectRoleAllowed: (sessionID: SessionID, agent: string) => Effect.Effect<boolean>
   // Without an id creates a custom role; with one replaces that role.
   readonly saveRole: (id: string | undefined, spec: RoleSpec) => Effect.Effect<Role, TeamError>
   // Deletes a custom role, or restores a built-in one to its default.
@@ -205,6 +240,7 @@ export interface Interface {
   // The list is the full history: collapsing it to the latest report loses earlier outcomes.
   readonly outcomes: (id: ProjectID) => Effect.Effect<Record<string, ReadonlyArray<{ outcome: TaskReportInfo["outcome"]; created: number }>>>
   // Emits after every saved or removed role or template, so agents can be rebuilt.
+  readonly reload: () => Effect.Effect<void>
   readonly changes: Stream.Stream<void>
 }
 
@@ -227,6 +263,8 @@ const STALE_CLAIM_MS = 10 * 60 * 1000
 // invariant the dispatcher keeps, and recovery must never wait behind a run that is already in flight.
 export const dispatchLocks = KeyedMutex.makeUnsafe<SessionID>()
 const REPORT = "orchestra/report/"
+const PROJECT_ROLE = "orchestra/project-role/"
+const processRolePrefix = (projectID: string) => `process-${createHash("sha256").update(projectID).digest("hex").slice(0, 16)}-`
 const ROLE = "orchestra/role/"
 const TEMPLATE = "orchestra/template/"
 // The template a project was opened from, so its Orchestrator follows that team's playbook.
@@ -238,6 +276,8 @@ const MOVE_PLAN = "orchestra/move-plan/"
 // The project that opened a session. Without it, every project in one directory would share one team.
 const OWNER = "orchestra/owner/"
 // Durable reservation for the main session being initialized. It bridges the KV/session-store write gap.
+const PROJECT_REMOVAL = "orchestra/project-removal/"
+const ProjectRemovalReceipt = Schema.Struct({ project: Orchestra.Project, sessions: Schema.Array(SessionID), sqlProjects: Schema.Array(CoreProject.ID) })
 const MAIN_INITIALIZING = "orchestra/main-initializing/"
 // Reports carry enough evidence to decide the next step without copying a whole worker session.
 const REPORT_LIMIT = 16_000
@@ -368,6 +408,7 @@ export interface WorkerModelChoice {
 const layer: Layer.Layer<
   Service,
   never,
+  | Database.Service
   | KV.Service
   | Session.Service
   | SessionStore.Service
@@ -380,6 +421,7 @@ const layer: Layer.Layer<
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const database = yield* Database.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const sessionStore = yield* SessionStore.Service
@@ -410,15 +452,40 @@ const layer: Layer.Layer<
       return read()
     }
 
+    const importReady = (projectID: string) => Effect.gen(function* () {
+      const id = yield* kv.get(ProjectTemplateLiveStores.PROJECT_IMPORT + projectID)
+      if (id === undefined) return true
+      if (typeof id !== "string") return false
+      const receipt = yield* kv.get(ProjectTemplateLiveStores.RECEIPT + id)
+      return isRecord(receipt) && receipt.phase === "published" && receipt.projectID === projectID
+    })
+    // This independent guard composes with Society holds and survives restart via KV.
+    const removeImportGuard = SessionHold.addGuard((sessionID) => Effect.gen(function* () {
+      const session = yield* sessionStore.get(SessionID.make(sessionID))
+      const id = session?.metadata?.[ProjectTemplateLiveStores.SESSION_IMPORT]
+      if (id === undefined) return false
+      if (typeof id !== "string") return true
+      const receipt = yield* kv.get(ProjectTemplateLiveStores.RECEIPT + id)
+      return !isRecord(receipt) || receipt.phase !== "published" || receipt.projectID !== session?.metadata?.[Orchestra.SessionOwnerMetadataKey]
+    }))
+    yield* Effect.addFinalizer(() => Effect.sync(removeImportGuard))
+
     const projects = Effect.fn("Orchestra.projects")(function* () {
-      return (yield* scanAll(PROJECT))
+      const all = (yield* scanAll(PROJECT))
         .flatMap((entry) => Option.toArray(decodeProject(entry.value)))
         .toSorted((a, b) => a.created - b.created)
+      const ready: Project[] = []
+      for (const project of all) {
+        if ((yield* kv.get(PROJECT_REMOVAL + project.id)) !== undefined || !(yield* importReady(project.id))) continue
+        yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
+        ready.push(project)
+      }
+      return ready
     })
 
     const get = Effect.fnUntraced(function* (id: ProjectID) {
       const project = decodeProject(yield* kv.get(PROJECT + id))
-      if (Option.isNone(project)) return yield* new ProjectNotFoundError({ projectID: id })
+      if (Option.isNone(project) || (yield* kv.get(PROJECT_REMOVAL + id)) !== undefined || !(yield* importReady(id))) return yield* new ProjectNotFoundError({ projectID: id })
       return project.value
     })
 
@@ -482,7 +549,7 @@ const layer: Layer.Layer<
       return found
     })
 
-    const projectSessions = Effect.fn("Orchestra.projectSessions")(function* (project: Project) {
+    const projectSessions = Effect.fn("Orchestra.projectSessions")(function* (project: Project, withSubagents = false) {
       const all = yield* projects()
       const claims = yield* owners()
       // One scoped read instead of the full top-level scan: with ~2000 sessions on
@@ -505,7 +572,7 @@ const layer: Layer.Layer<
         })
       ).flatMap((item) => Option.toArray(item))
       const seen = new Set<string>()
-      return [...inTree.data, ...claimed.filter((session) => session.parentID === undefined)]
+      const top = [...inTree.data, ...claimed.filter((session) => session.parentID === undefined)]
         .toSorted((a, b) => DateTime.toEpochMillis(b.time.updated) - DateTime.toEpochMillis(a.time.updated))
         .filter((session) => {
           if (seen.has(session.id)) return false
@@ -518,6 +585,24 @@ const layer: Layer.Layer<
             Orchestra.ownerOf(all, session.location.directory, claimed)?.id === project.id
           )
         })
+      // Subagents (sessions with a parent) belong to the project of their parent and are listed with it, down to
+      // three levels, so what the Orchestrator hands off is never hidden from the operator.
+      if (!withSubagents) return top
+      const found: SessionSchema.Info[] = [...top]
+      const known = new Set(found.map((session) => session.id))
+      let level: SessionID[] = [...(project.main ? [project.main] : []), ...top.map((session) => session.id)]
+      for (let depth = 0; depth < 3 && level.length > 0; depth++) {
+        const pages = yield* Effect.forEach(
+          level,
+          (id) => sessions.list({ parentID: id, order: "desc" }).pipe(Effect.map((page) => page.data)),
+          { concurrency: 8 },
+        )
+        const next = pages.flat().filter((session) => !known.has(session.id))
+        next.forEach((session) => known.add(session.id))
+        found.push(...next)
+        level = next.map((session) => session.id)
+      }
+      return found
     })
 
     // When a main Session is deleted, its replacement has a new ID. Keep any outstanding
@@ -579,8 +664,11 @@ const layer: Layer.Layer<
       )
     })
 
-    const save = (project: Project) =>
-      kv.set(PROJECT + project.id, Schema.encodeSync(Project)(project)).pipe(Effect.as(project))
+    const save = (project: Project) => Effect.gen(function* () {
+      yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
+      yield* kv.set(PROJECT + project.id, Schema.encodeSync(Project)(project))
+      return project
+    })
 
     // The operator types the path, so it is resolved here and must already be a directory.
     const directory = Effect.fnUntraced(function* (input: string) {
@@ -674,7 +762,7 @@ const layer: Layer.Layer<
           }
           // Also repair a crash between saving the renamed project and renaming its main session.
           const title = `${project.name} · Orchestrator`
-          if (main.title !== title) {
+          if (main.title !== title && main.metadata?.[ProjectTemplateLiveStores.SESSION_IMPORT] === undefined) {
             yield* sessions.rename({ sessionID: main.id, title }).pipe(Effect.orDie)
             main = { ...main, title }
           }
@@ -776,12 +864,19 @@ const layer: Layer.Layer<
       yield* kv.remove(TEAM_PLAN + project.id)
     })
 
+    const bootstrappedFiles=new Set<string>()
+    const bootstrapFiles=(project:Project)=>Effect.gen(function*(){
+      const key=project.id+":"+project.directory
+      if(bootstrappedFiles.has(key))return
+      yield* ProjectFilesBootstrap.initialize(project.directory,project.name,kv).pipe(Effect.provideService(Database.Service,database),Effect.tap(()=>Effect.sync(()=>bootstrappedFiles.add(key))),Effect.catchCause(cause=>Effect.logWarning("Project file bootstrap incomplete; database project remains intact",{projectID:project.id,cause:String(cause)})))
+    })
     const ensureMain = (id: ProjectID) =>
       mainLocks.withLock(id)(
         Effect.gen(function* () {
           const main = yield* ensureMainUnlocked(id)
           const project = yield* get(id)
           yield* reconcileTeamUnlocked(project)
+          yield* bootstrapFiles(project)
           return main
         }),
       )
@@ -1171,7 +1266,10 @@ const layer: Layer.Layer<
             !workerRemoved && task.value.messageID
               ? yield* sessions.message({ sessionID, messageID: task.value.messageID })
               : undefined
-          if (!workerRemoved && task.value.messageID && taskMessage?.type !== "user") return
+          if (!workerRemoved && task.value.messageID && taskMessage?.type !== "user") {
+            reportLog({ event: "report-skipped", session: sessionID, main: task.value.main, reason: "the task message is not a delivered user message yet (still queued)", terminal: state })
+            return
+          }
 
           const recent = workerRemoved
             ? []
@@ -1185,19 +1283,21 @@ const layer: Layer.Layer<
           // every assistant answer newer than it belongs to unrelated work, not this assigned task.
           const nextUser = recent.findLastIndex((message) => message.type === "user")
           const taskMessages = nextUser < 0 ? recent : recent.slice(nextUser + 1)
-          const answer = workerRemoved
-            ? "(worker session was deleted before it could report)"
-            : taskMessages.flatMap(finalText).at(0) ?? "(no text answer)"
+          const final = workerRemoved ? undefined : finalAnswer(taskMessages)
+          const noFinal = final?.noFinal === true
+          const answer = final ? final.answer : "(worker session was deleted before it could report)"
           // A worker's execution can finish while its assigned task is only partly complete.
           // Keep that semantic outcome separate from the execution event's terminal state.
           const stated = workerRemoved
             ? "failed"
             : state === "failed" || state === "stopped"
               ? state
-              : outcomeOf(answer)
+              : noFinal
+                ? "incomplete"
+                : outcomeOf(answer)
           // DONE from a role that changes files is evidence only with a check it actually ran and
           // none that failed; otherwise the task stays open as partial, whatever the worker says.
-          const editor = (yield* roles()).some((role) => role.agent === session?.agent && !role.readOnly)
+          const editor = (yield* roles(task.value.projectID)).some((role) => role.agent === session?.agent && !role.readOnly)
           const checks = checksOf(answer)
           const evidence = evidenceOf(taskMessages)
           const unproven =
@@ -1241,10 +1341,19 @@ const layer: Layer.Layer<
             state === "done" &&
             AutoloopOrchestrator.looksLikeNothing(answer, note)
           const stateForReport = workerRemoved ? "failed" : didNothing ? "nothing" : state
+          // A worker whose model failed: the Orchestrator reads the model and the provider's error here and decides
+          // whether to switch the model (sessions set_model) and send the task again. The worker never switches itself.
+          const failedTurn = workerRemoved
+            ? undefined
+            : taskMessages.find((message) => message.type === "assistant" && message.error)
+          const modelFailure =
+            failedTurn?.type === "assistant" && failedTurn.error
+              ? `Model error: ${failedTurn.model.providerID}/${failedTurn.model.id} failed: ${String(failedTurn.error.message ?? failedTurn.error.type ?? "unknown").slice(0, 400)}`
+              : undefined
           const detailForReport =
             workerRemoved
               ? `Worker session ${sessionID} was removed before it could report the assigned task.`
-              : [detail, unproven].filter(Boolean).join("\n") || undefined
+              : [detail, unproven, modelFailure].filter(Boolean).join("\n") || undefined
           // "recovered" is provisional until admitted. If a real terminal event arrives after
           // recovery prepared but failed to admit its report, the terminal event must replace it.
           const preservePreparedTerminalPayload = wasPrepared && task.value.reportState !== "recovered"
@@ -1270,6 +1379,21 @@ const layer: Layer.Layer<
               ? task.value.reportVerification ?? verification
               : verification,
           }
+          reportLog({
+            event: "report",
+            session: sessionID,
+            title,
+            role: session?.agent,
+            main: task.value.main,
+            terminal: state,
+            state: stateForReport,
+            outcome,
+            bodyLength: body.length,
+            noFinalAnswer: noFinal,
+            workerRemoved,
+            modelError: modelFailure !== undefined,
+            ageSeconds: Math.round((Date.now() - task.value.sent) / 1000),
+          })
           // Persist the complete intended payload before admission. A retry after a crash uses
           // the same ID and byte-for-byte equivalent content instead of inventing a "recovered" report.
           yield* kv.set(TASK + sessionID, Schema.encodeSync(Task)(preparedTask))
@@ -1320,6 +1444,7 @@ const layer: Layer.Layer<
               },
             })
             .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+          reportLog({ event: "delivered", session: sessionID, main: task.value.main, reportID, admitted })
           // Keep the task marker until admission succeeds; it is the durable retry record.
           if (admitted) {
             // The report is delivered; the run ends with what it says. A
@@ -1443,7 +1568,7 @@ const layer: Layer.Layer<
 
     // Bus subscriptions only observe live events. Reconcile task markers left behind when a
     // worker completed before its terminal event could be observed by this process.
-    const recoverPending = Effect.fn("Orchestra.recoverPending")(function* (mainID?: SessionID) {
+    const recoverPending = Effect.fn("Orchestra.recoverPending")(function* (mainID?: SessionID, olderThanMs = 0) {
       const read = (after?: string): Effect.Effect<KV.Entry[]> =>
         kv.scan({ prefix: TASK, after, limit: 1000 }).pipe(
           Effect.flatMap((result) =>
@@ -1466,6 +1591,8 @@ const layer: Layer.Layer<
             // Context hooks ask mainOf for ordinary sessions too. Never recover a different
             // project's worker just because an unrelated session was opened.
             if (mainID && task.value.main !== mainID) return
+            // The watchdog sweep leaves recent dispatches to their live run.
+            if (olderThanMs > 0 && Date.now() - task.value.sent < olderThanMs) return
             const sessionID = SessionID.make(entry.key.slice(TASK.length))
             if (active.has(sessionID)) return
             let staleClaim = false
@@ -1690,6 +1817,364 @@ const layer: Layer.Layer<
         Effect.forkScoped({ startImmediately: true }),
       )
 
+    // A dispatched task with no report for 5 minutes is not silent any more. Every minute: reports that were lost
+    // (a worker idle with its task still open) are recovered from the transcript, and for tasks still open the
+    // Orchestrator gets an explicit <team-status> (running, or idle and unreported) now and every 10 minutes after,
+    // so it can read the worker or ask it instead of waiting for a report that is not coming.
+    const NO_REPORT_AFTER_MS = 5 * 60_000
+    const NO_REPORT_REPEAT_MS = 10 * 60_000
+    const noticed = new Map<string, number>()
+    const watchReports = Effect.gen(function* () {
+      yield* recoverPending(undefined, NO_REPORT_AFTER_MS)
+      const active = yield* sessions.active
+      for (const entry of yield* scanAll(TASK)) {
+        const task = decodeTask(entry.value)
+        if (Option.isNone(task)) continue
+        const age = Date.now() - task.value.sent
+        if (age < NO_REPORT_AFTER_MS) continue
+        const key = entry.key
+        if (Date.now() - (noticed.get(key) ?? 0) < NO_REPORT_REPEAT_MS) continue
+        const workerID = SessionID.make(key.slice(TASK.length))
+        const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!worker) continue
+        const running = active.has(workerID)
+        const minutes = Math.round(age / 60_000)
+        noticed.set(key, Date.now())
+        if (noticed.size > 512) noticed.clear()
+        const text = [
+          `<team-status session="${workerID}" title="${worker.title ?? ""}" role="${worker.agent ?? ""}" state="${running ? "running" : "idle"}" minutes="${minutes}">`,
+          running
+            ? `No report yet from ${worker.title ?? workerID} after ${minutes} min: the worker is still running. Wait for its <team-report>, or read it with sessions action=read if you need to know what it is doing.`
+            : `No report yet from ${worker.title ?? workerID} after ${minutes} min, and the worker is NOT running. Its result did not reach you. Read it with sessions action=read, or ask it with sessions action=send.`,
+          "</team-status>",
+        ].join("\n")
+        const ok = yield* sessions
+          .synthetic({
+            id: SessionMessage.ID.create(),
+            sessionID: task.value.main,
+            description: `${worker.title ?? workerID}: no report yet`,
+            text,
+            metadata: { source: "team", sessionID: workerID, state: running ? "running" : "idle", taskID: task.value.messageID },
+          })
+          .pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+        reportLog({ event: "no-report-notice", session: workerID, main: task.value.main, state: running ? "running" : "idle", minutes, delivered: ok })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    // Local operator delete requests are validated against KV and the project's actual main, never trusted by ID alone.
+    const deleteRequestedTriggers = Effect.gen(function* () {
+      const entries = yield* scanAll(Trigger.PREFIX)
+      for (const entry of entries) {
+        const trigger = Trigger.parse(entry.value)
+        if (!trigger) continue
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        const command = ScheduleRequests.read(trigger.id, String(project.main))
+        if (command) {
+          if (command.reviewedDigest && !TriggerReview.matches(trigger, command.reviewedDigest)) {
+            ScheduleRequests.finish(command, false, "Триггер изменился после проверки. Проверьте заново.")
+            continue
+          }
+          if (command.action === "export") {
+            const bundle = TriggerBundle.fromTriggers([trigger])
+            if (!bundle.ok) ScheduleRequests.finish(command, false, "Этот тип триггера пока нельзя перенести. Браузер и его права не экспортируются.")
+            else {
+              const saved = yield* Effect.tryPromise(() => TriggerBundleFiles.save(project.directory, `trigger-${command.requestID}`, JSON.stringify(bundle.value))).pipe(Effect.result)
+              ScheduleRequests.finish(command, saved._tag === "Success", saved._tag === "Success" ? `Шаблон сохранён: ${saved.success}` : "Не удалось сохранить шаблон в проекте.")
+            }
+          } else {
+            const next = command.action === "pause" ? {...trigger, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(trigger, Date.now())
+            const browserID = trigger.kind === "browser" ? trigger.spec : trigger.browserSessionID
+            const refusal = command.action === "resume" && browserID ? BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), browserID, project.directory, String(project.id)) : undefined
+            if (!next || refusal) ScheduleRequests.finish(command, false, refusal ? "Браузер не принадлежит этому проекту. Проверьте привязку." : "Это расписание уже завершено; создайте новое.")
+            else {
+              const applied = Trigger.parse(yield* kv.atomicUpdate(entry.key, current => {
+                const latest = Trigger.parse(current)
+                if (!latest || latest.id !== trigger.id || latest.projectID !== String(project.id)) return current
+                if (command.reviewedDigest && !TriggerReview.matches(latest, command.reviewedDigest)) return current
+                return (command.action === "pause" ? {...latest, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(latest, Date.now()) ?? latest) as never
+              }))
+              if (!applied || applied.id !== trigger.id || applied.projectID !== String(project.id)) { ScheduleRequests.finish(command, false, "Триггер уже удалён или сменил владельца."); continue }
+              if (command.reviewedDigest && TriggerReview.snapshot(applied).digest !== command.reviewedDigest) { ScheduleRequests.finish(command, false, "Триггер изменился после проверки. Проверьте заново."); continue }
+              if (command.action === "resume" && !applied.enabled) { ScheduleRequests.finish(command, false, "Расписание уже завершено; создайте новое."); continue }
+              ScheduleView.sync(applied, String(project.main))
+              BrowserSchedule.sync(applied.kind === "browser" ? {...applied, browserSessionID:applied.spec} : applied)
+              if (trigger.kind === "browser") {
+                if (command.action === "resume") yield* Effect.promise(() => BrowserRuntime.watchActivate(trigger.spec))
+                else {
+                  const remaining = (yield* scanAll(Trigger.PREFIX)).flatMap(row => Trigger.parse(row.value) ?? [])
+                  yield* Effect.promise(() => BrowserWatcherLifetime.release({sessionID:trigger.spec, projectID:String(project.id), directory:project.directory, sessions:BrowserRuntime.sessions(), triggers:remaining, stop:BrowserRuntime.stopPageWatcher}))
+                }
+              }
+              ScheduleRequests.finish(command, true, command.action === "pause" ? "Триггер на паузе." : "Триггер включён.")
+            }
+          }
+          continue
+        }
+        const limit = ScheduleView.hourlyLimitRequested(trigger.id, String(project.main))
+        if (limit) {
+          const updated = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
+            const latest = Trigger.parse(current)
+            return latest ? Trigger.withHourlyLimit(latest, limit.maxPerHour, Date.now()) as never : current
+          }))
+          if (updated) ScheduleView.sync(updated, String(project.main))
+          ScheduleView.clearHourlyLimit(trigger.id)
+          reportLog({ event: "trigger-hourly-limit-by-operator", trigger: trigger.id, maxPerHour: limit.maxPerHour })
+        }
+        const daily = ScheduleView.dailyLimitRequested(trigger.id, String(project.main))
+        if (daily) {
+          const updated = Trigger.parse(yield* kv.atomicUpdate(entry.key, current => {
+            const latest = Trigger.parse(current)
+            return latest ? Trigger.withDailyLimit(latest, daily.maxPerDay, Date.now()) as never : current
+          }))
+          if (updated) ScheduleView.sync(updated, String(project.main))
+          ScheduleView.clearDailyLimit(trigger.id)
+          reportLog({ event: "trigger-daily-limit-by-operator", trigger: trigger.id, maxPerDay: daily.maxPerDay })
+        }
+        if (!ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        yield* kv.remove(entry.key)
+        ScheduleView.remove(trigger.id)
+        BrowserSchedule.remove(trigger.id)
+        // Retain the operator tombstone: another sweep may already hold the old record.
+        if (trigger.kind === "browser") {
+          const remaining = (yield* scanAll(Trigger.PREFIX)).flatMap(entry => Trigger.parse(entry.value) ?? [])
+          yield* Effect.promise(() => BrowserWatcherLifetime.release({ sessionID: trigger.spec, projectID: String(project.id),
+            directory: project.directory, sessions: BrowserRuntime.sessions(), triggers: remaining, stop: BrowserRuntime.stopPageWatcher }))
+        }
+        reportLog({ event: "trigger-deleted-by-operator", trigger: trigger.id, project: trigger.projectID })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(deleteRequestedTriggers))).pipe(Effect.forkScoped({ startImmediately: true }))
+    // Operator-authored local actions never wake an AI or launch a browser. Storage failures count as failures.
+    const localActions = (trigger: Trigger.Info, now: number) => Effect.promise(() => Trigger.executeLocal(trigger, now, (entry) => {
+      const file = reportLogFile()
+      appendLog(file, `${JSON.stringify({ time: new Date(now).toISOString(), ...entry })}\n`, 1_000_000)
+    }))
+    // Real internal bus events only, with a bounded queue. No replay after restart and no payload instructions.
+    const deliverPending = (key: string, trigger: Trigger.Info, main: SessionID) => mainLocks.withLock(trigger.projectID as ProjectID)(Effect.gen(function* () {
+      // Serialize delivery against project removal. A sweep may hold an old trigger
+      // snapshot, so both its project and durable reservation must still exist.
+      const owner = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+      const current = Trigger.parse(yield* kv.get(key))
+      if (!owner || owner.main !== main || !current || current.projectID !== trigger.projectID || current.pendingFire?.fireId !== trigger.pendingFire?.fireId) return false
+      const pending = trigger.pendingFire
+      if (!pending || pending.destination !== String(main) || (!trigger.enabled && trigger.pausedReason === "paused by the Orchestrator")) return false
+      const source = pending.source
+      if (source.kind === "browser") {
+        const project = yield* get(source.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project || BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), source.spec, project.directory, String(project.id))) return false
+      }
+      if (source.actions?.length) {
+        // Local allowlisted actions are at-least-once across a process crash, never arbitrary effects.
+        const result = yield* localActions(trigger, pending.firedAt)
+        yield* kv.atomicUpdate(key, (current) => {
+          const latest = Trigger.parse(current)
+          if (latest?.pendingFire?.fireId !== pending.fireId) return current
+          return TriggerDelivery.acknowledge({ ...latest, errors: result.errors, enabled: result.enabled, pausedReason: result.pausedReason }, pending.fireId) as never
+        })
+        return true
+      }
+      const ok = yield* sessions.synthetic({
+        id: SessionMessage.ID.make(pending.messageID), sessionID: main,
+        description: `Trigger ${source.id} fired`, text: Trigger.render(source.kind === "browser" ? {...source, publishApproved: false, browserSessionID: source.spec} : source, pending.firedAt, pending.rows ? Trigger.renderRows(source, pending.rows) : undefined),
+        metadata: { source: "trigger", triggerID: source.id, fireId: pending.fireId, publishApproved: source.publishApproved, ...((source.kind === "browser" ? source.spec : source.browserSessionID) ? { browserSessionID: source.kind === "browser" ? source.spec : source.browserSessionID } : {}) },
+      }).pipe(Effect.as(true), Effect.orElseSucceed(() => false))
+      if (ok) {
+        const acknowledged = Trigger.parse(yield* kv.atomicUpdate(key, (current) => TriggerDelivery.acknowledge(current, pending.fireId) as never))
+        if (acknowledged) ScheduleView.sync(acknowledged, String(main))
+      }
+      return ok
+    }))
+    const internalInbox: Array<{ sessionID: string; event: "execution.succeeded" | "execution.failed" }> = []
+    yield* bus.subscribe([SessionEvent.Execution.Succeeded, SessionEvent.Execution.Failed]).pipe(
+      Stream.runForEach((event) => Effect.sync(() => {
+        if (internalInbox.length < 200) internalInbox.push({ sessionID: String(event.data.sessionID), event: event.type === SessionEvent.Execution.Succeeded.type ? "execution.succeeded" : "execution.failed" })
+      })), Effect.forkScoped({ startImmediately: true }),
+    )
+    const sweepOwner = randomUUID()
+    const withTriggerLease = <A, E, R>(kind: string, work: Effect.Effect<A, E, R>) => Effect.gen(function* () {
+      if (!(yield* TriggerDelivery.acquire(kv, kind, sweepOwner, Date.now()))) return
+      return yield* work.pipe(Effect.ensuring(TriggerDelivery.release(kv, kind, sweepOwner)))
+    })
+    const fireInternalTriggers = Effect.gen(function* () {
+      if (!internalInbox.length) return
+      const events = internalInbox.splice(0)
+      const now = Date.now()
+      for (const entry of yield* scanAll(Trigger.PREFIX)) {
+        if (!(yield* TriggerDelivery.acquire(kv, "internal", sweepOwner, Date.now()))) return
+        let trigger = Trigger.parse(entry.value)
+        if (!trigger || trigger.kind !== "internal" || !trigger.actions?.length) continue
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        for (const event of events) {
+          const verdict = Trigger.internalDue(trigger, event, now)
+          if (verdict === "wait") continue
+          const source = yield* sessions.get(event.sessionID as SessionID).pipe(Effect.orElseSucceed(() => undefined))
+          if (!source || source.id === project.main || !(yield* owns(project, source))) continue
+          if (verdict === "pause") trigger = Trigger.paused(trigger, now)
+          else {
+            trigger = Trigger.afterFire(trigger, now)
+            yield* kv.set(entry.key, trigger as never) // reserve before effects, never duplicate on crash
+            trigger = yield* localActions(trigger, now)
+          }
+          yield* kv.set(entry.key, trigger as never)
+          ScheduleView.sync(trigger, String(project.main))
+        }
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(withTriggerLease("internal", fireInternalTriggers)))).pipe(Effect.forkScoped({ startImmediately: true }))
+    // Triggers (a cron time, an interval, a one-shot time): once a minute the due ones are handed to their project's
+    // Orchestrator as a <trigger-fired> message (steer + wake, like a <team-report>). The record is saved BEFORE the
+    // message goes out with a durable pending fire; replay uses the same inbox id. A full cap pauses the trigger.
+    const fireTriggers = Effect.gen(function* () {
+      const now = Date.now()
+      for (const entry of yield* scanAll(Trigger.PREFIX)) {
+        if (!(yield* TriggerDelivery.acquire(kv, "time", sweepOwner, Date.now()))) return
+        let trigger = Trigger.parse(entry.value)
+        if (!trigger || trigger.kind === "browser") continue
+        const planned = TriggerMissed.plan(trigger, now)
+        if (planned !== trigger) trigger = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
+          const latest = Trigger.parse(current)
+          return latest ? TriggerMissed.plan(latest, now) as never : current
+        }))
+        if (!trigger) continue
+        const viewProject = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (viewProject?.main) ScheduleView.sync(trigger, String(viewProject.main))
+        if (trigger.pendingFire) {
+          if (viewProject?.main && !ScheduleView.removalRequested(trigger.id, String(viewProject.main))) yield* deliverPending(entry.key, trigger, viewProject.main)
+          continue
+        }
+        const verdict = Trigger.due(trigger, now)
+        if (verdict === "wait") continue
+        if (verdict === "pause") {
+          const paused = Trigger.paused(trigger, now)
+          yield* kv.atomicUpdate(entry.key, current => Trigger.parse(current) ? paused as never : current)
+          if (viewProject?.main) ScheduleView.sync(paused, String(viewProject.main))
+          BrowserSchedule.sync(paused)
+          reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
+          continue
+        }
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        if(trigger.browserSessionID){
+          const refusal=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.browserSessionID,project.directory,String(project.id))
+          if(refusal){
+            const paused={...trigger,enabled:false,pausedReason:refusal}
+            yield* kv.atomicUpdate(entry.key,current=>Trigger.parse(current)?paused as never:current);ScheduleView.sync(paused,String(project.main));BrowserSchedule.sync(paused);continue
+          }
+        }
+        if (trigger.localTest && trigger.browserSessionID) {
+          const page = yield* Effect.promise(() => BrowserRuntime.peek(trigger.browserSessionID!))
+          if (!page.running || !BrowserLocalTest.allowed(page.url)) {
+            const paused = { ...trigger, enabled: false, pausedReason: "Local test left its allowed local page or the test flag is off." }
+            yield* kv.atomicUpdate(entry.key, current => Trigger.parse(current) ? paused as never : current)
+            if (viewProject?.main) ScheduleView.sync(paused, String(viewProject.main))
+            BrowserSchedule.sync(paused)
+            continue
+          }
+        }
+        const next = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => TriggerDelivery.reserve(current, trigger, now, Trigger.localZone(), String(project.main)) as never))
+        if (!next?.pendingFire) continue
+        ScheduleView.sync(next, String(project.main))
+        BrowserSchedule.sync(next)
+        if (trigger.browserSessionID) BrowserSchedule.dispatched(trigger.id, now)
+        const ok = yield* deliverPending(entry.key, next, project.main)
+        if (!ok && trigger.browserSessionID) BrowserSchedule.deliveryFailed(trigger.id)
+        reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: trigger.kind, delivered: ok, nextAt: next.nextAt })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(withTriggerLease("time", fireTriggers)))).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    )
+
+    // Browser triggers: rows accepted from the page watcher enter a durable private queue, then go to the Orchestrator of the project whose
+    // trigger watches that session, as a <trigger-fired> with the rows inside an <untrusted> block. Private KV retains the bounded queue across service restarts. The same caps and
+    // auto-pause as the schedules apply; rows that arrive inside the 60 s gap wait and go out together. Every minute the
+    // sweep re-arms every five seconds (tab switches, reloads and Chrome restarts replace the connection).
+    const browserInbox: BrowserWatch.Event[] = []
+    const stopBrowserWatch = BrowserWatch.onEvent((event) => {
+      if (browserInbox.length < 200) browserInbox.push(event)
+    })
+    yield* Effect.addFinalizer(() => Effect.sync(stopBrowserWatch))
+    const fireBrowserTriggers = Effect.gen(function* () {
+      const now = Date.now()
+      const mine = (yield* scanAll(Trigger.PREFIX)).flatMap((entry) => {
+        const trigger = Trigger.parse(entry.value)
+        return trigger && trigger.kind === "browser" ? [{ key: entry.key, trigger }] : []
+      })
+      for (const item of mine) {
+          if (!(yield* TriggerDelivery.acquire(kv, "browser", sweepOwner, Date.now()))) return
+          const project = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+          if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
+          BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
+          BrowserSchedule.queueStatus(item.trigger.id, (item.trigger.browserQueue?.rows.length ?? 0) + (item.trigger.pendingFire?.rows?.length ?? 0), now, true, item.trigger.browserQueue?.droppedRows ?? 0)
+          const wanted = item.trigger.enabled && project?.main && !ScheduleView.removalRequested(item.trigger.id, String(project.main))
+          const bound = project ? BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory, String(project.id)) : undefined
+          const ownBrowser = bound && !("error" in bound) && project && path.resolve(bound.session.project).toLowerCase() === path.resolve(project.directory).toLowerCase()
+          if (wanted && bound && !("error" in bound) && ownBrowser) yield* Effect.promise(() => BrowserRuntime.watchRestore(item.trigger.spec))
+          const armed = wanted && bound && !("error" in bound) && ownBrowser ? yield* Effect.promise(() => BrowserWatch.ensure(item.trigger.spec)) : false
+          BrowserSchedule.watchStatus(item.trigger.id, armed)
+          BrowserSchedule.watchReason(item.trigger.id, armed ? undefined : bound && "error" in bound ? bound.error : !ownBrowser ? "Ждёт запуска браузера: сессия не принадлежит этому проекту." : BrowserRuntime.watcherReason(item.trigger.spec) ?? "Ждёт запуска браузера: соединение или страница недоступны.")
+        }
+      // Do not consume an ingress event until every matching KV write succeeded. Replays are idempotent.
+      while (browserInbox.length) {
+        const event = browserInbox[0]!
+        for (const item of mine) {
+          const owner = yield* get(item.trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+          if (!owner || BrowserBridge.ownerRefusal(BrowserRuntime.sessions(), event.sessionID, owner.directory, String(owner.id))) continue
+          yield* kv.atomicUpdate(item.key, current => TriggerDelivery.enqueueBrowser(current, event) as never)
+        }
+        browserInbox.shift()
+      }
+      for (const { key } of mine) {
+        const trigger = Trigger.parse(yield* kv.get(key))
+        if (!trigger) continue
+        const rows = trigger.browserQueue?.rows ?? []
+        BrowserSchedule.queueStatus(trigger.id, rows.length + (trigger.pendingFire?.rows?.length ?? 0), now, true, trigger.browserQueue?.droppedRows ?? 0)
+        const verdict = Trigger.browserDue(trigger, now)
+        if (!trigger.pendingFire && (verdict === "wait" || verdict === "skip" || rows.length === 0)) continue
+        if (!trigger.pendingFire && verdict === "pause") {
+          yield* kv.atomicUpdate(key, current => {
+            const latest = Trigger.parse(current)
+            return latest && Trigger.browserDue(latest, now) === "pause" ? Trigger.paused(latest, now) as never : current
+          })
+          reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
+          continue
+        }
+        const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!project?.main) continue
+        if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
+        if(BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id)))continue
+        if (trigger.pendingFire) {
+          yield* deliverPending(key, trigger, project.main)
+          continue
+        }
+        let reserved = false
+        const next = Trigger.parse(yield* kv.atomicUpdate(key, (current) => {
+          const latest = Trigger.parse(current)
+          if (!latest || latest.pendingFire || Trigger.browserDue(latest, now) !== "fire") return current
+          const prepared = TriggerDelivery.reserveBrowser(current, now, String(project.main))
+          if (prepared === current) return current
+          reserved = true
+          return prepared as never
+        }))
+        if (!reserved || !next) continue
+        ScheduleView.sync(next, String(project.main))
+        BrowserSchedule.sync({ ...next, browserSessionID: trigger.spec })
+        BrowserSchedule.dispatched(trigger.id, now)
+        const ok = yield* deliverPending(key, next, project.main)
+        if (!ok) BrowserSchedule.deliveryFailed(trigger.id)
+        reportLog({ event: "trigger-fired", trigger: trigger.id, project: trigger.projectID, kind: "browser", rows: rows.length, delivered: ok })
+      }
+    }).pipe(Effect.catch(() => Effect.void))
+    yield* Effect.forever(Effect.sleep(Duration.seconds(5)).pipe(Effect.andThen(withTriggerLease("browser", fireBrowserTriggers)))).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    yield* Effect.forever(Effect.sleep(Duration.seconds(60)).pipe(Effect.andThen(watchReports))).pipe(
+      Effect.forkScoped({ startImmediately: true }),
+    )
+
     // While a worker streams, its run stays visibly alive in the cycle: the
     // sweep must not mistake a long task for a worker gone quiet (a run
     // unmentioned for 5 minutes goes `unknown`, and after 10 the owner gets
@@ -1721,20 +2206,35 @@ const layer: Layer.Layer<
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const form = event.data.form
-          if (form.metadata?.kind !== "question") return
+          if (!isForwardedForm(form.metadata?.kind)) return
           const workerID = Option.getOrUndefined(decodeSessionID(form.sessionID))
           if (!workerID) return
           const task = Option.getOrUndefined(decodeTask(yield* kv.get(TASK + workerID)))
-          if (!task) return
-          const main = (yield* projectForTask(task))?.main ?? task.main
           const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
+          // A member session of a project belongs to its orchestrator even between tasks (a follow-up
+          // sent to it, a task already reported): the society decides, not the human. Only a session
+          // that is no project's member is the operator's own conversation and keeps asking the human.
+          const main = task
+            ? ((yield* projectForTask(task))?.main ?? task.main)
+            : yield* Effect.gen(function* () {
+                if (!worker || worker.agent === Orchestra.agent) return undefined
+                const allProjects = yield* projects()
+                const claims = yield* owners()
+                const claimed = claims[worker.id] ?? Orchestra.sessionOwner(worker.metadata)
+                const project = claimed
+                  ? allProjects.find((item) => item.id === claimed)
+                  : Orchestra.ownerOf(allProjects, worker.location.directory)
+                if (!project || project.main === worker.id) return undefined
+                return project.main
+              }).pipe(Effect.orElseSucceed(() => undefined))
+          if (!main) return
           const title = worker?.title ?? workerID
           yield* sessions
             .synthetic({
               sessionID: main,
               description: `${title}: question`,
               text: [
-                `<team-question session="${workerID}" task="${task.messageID ?? "legacy"}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
+                `<team-question session="${workerID}" task="${task?.messageID ?? "legacy"}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
                 ...form.fields.map((field, index) =>
                   [
                     `${index + 1}. ${field.title ? `[${field.title}] ` : ""}${field.description ?? ""}${field.type === "multiselect" ? " (several may be chosen)" : ""}`,
@@ -1749,7 +2249,7 @@ const layer: Layer.Layer<
                 source: "team",
                 sessionID: workerID,
                 form: form.id,
-                ...(task.messageID ? { taskID: task.messageID } : {}),
+                ...(task?.messageID ? { taskID: task.messageID } : {}),
               },
             })
             .pipe(Effect.ignore)
@@ -1769,12 +2269,36 @@ const layer: Layer.Layer<
       )
     })
 
-    const roles = Effect.fn("Orchestra.roles")(function* () {
+    const localRoles: (projectID: ProjectID) => Effect.Effect<Array<Role & { projectID: ProjectID }>> = Effect.fnUntraced(function* (projectID: ProjectID) {
+      const project = decodeProject(yield* kv.get(PROJECT + projectID))
+      if (Option.isNone(project) || !(yield* importReady(projectID))) return []
+      const prefix = PROJECT_ROLE + projectID + "/"
+      return (yield* stored(prefix, decodeRole))
+        .filter(item => item.id.startsWith(processRolePrefix(projectID)))
+        .map(({ created: _, ...item }) => ({ ...item, agent: Orchestra.role(item.id), origin: "custom" as const, projectID }))
+    })
+    const roles: Interface["roles"] = Effect.fn("Orchestra.roles")(function* (projectID?: ProjectID) {
       const saved = yield* stored(ROLE, decodeRole)
-      return merge(Orchestra.roles, saved).map(({ created: _, ...item }) => ({
-        ...item,
-        agent: Orchestra.role(item.id),
-      }))
+      const global = merge(Orchestra.roles, saved).map(({ created: _, ...item }) => ({ ...item, agent: Orchestra.role(item.id) }))
+      return projectID ? [...global, ...yield* localRoles(projectID)] : global
+    })
+    const scopedRoles: Interface["scopedRoles"] = Effect.fn("Orchestra.scopedRoles")(function* () {
+      const global = yield* roles()
+      const projects = (yield* scanAll(PROJECT)).flatMap(entry => Option.toArray(decodeProject(entry.value)))
+      const locals = yield* Effect.forEach(projects, project => localRoles(project.id))
+      return [...global, ...locals.flat()]
+    })
+    const projectRoleAllowed: Interface["projectRoleAllowed"] = Effect.fn("Orchestra.projectRoleAllowed")(function* (sessionID: SessionID, agent: string) {
+      if (!agent.startsWith("team-process-")) return true
+      // Only explicit ownership counts. A shared directory is never a grant.
+      const owner = yield* kv.get(OWNER + sessionID)
+      const project = typeof owner === "string" ? decodeProject(yield* kv.get(PROJECT + owner)) : Option.none()
+      if (typeof owner === "string" && Option.isNone(project)) return false
+      const main = Option.isSome(project) ? project : (yield* scanAll(PROJECT))
+        .map(entry => decodeProject(entry.value))
+        .find(item => Option.isSome(item) && item.value.main === sessionID) ?? Option.none()
+      if (Option.isNone(main)) return false
+      return (yield* localRoles(main.value.id)).some(role => role.agent === agent)
     })
 
     const templates = Effect.fn("Orchestra.templates")(function* () {
@@ -1798,7 +2322,13 @@ const layer: Layer.Layer<
     })
 
     const access = Effect.fn("Orchestra.access")(function* (sessionID: SessionID) {
-      return Option.getOrElse(decodeAccess(yield* kv.get(ACCESS + sessionID)), () => Orchestra.defaultAccess)
+      const stored = decodeAccess(yield* kv.get(ACCESS + sessionID))
+      if (Option.isSome(stored)) return stored.value
+      // A BrowserAgent session is the Orchestrator's own working session: without a stored level it is "write", not the
+      // read-only default of a session the operator never configured (the Browser tab makes them without a level).
+      const agent = (yield* sessions.get(sessionID).pipe(Effect.option)).pipe(Option.map((item) => item.agent))
+      if (Option.isSome(agent) && /^team-browser/.test(agent.value ?? "")) return "write" as const
+      return Orchestra.defaultAccess
     })
 
     const permissionContext = Effect.fn("Orchestra.permissionContext")(function* (request: CorePermission.Request) {
@@ -2133,6 +2663,7 @@ const layer: Layer.Layer<
             const main = yield* ensureMainUnlocked(project.id)
             const current = yield* get(project.id)
             yield* reconcileTeamUnlocked(current)
+            yield* bootstrapFiles(current)
             return { ...current, main: main.id }
           }),
         )
@@ -2185,10 +2716,66 @@ const layer: Layer.Layer<
       remove: Effect.fn("Orchestra.remove")(function* (id) {
         yield* moveLocks.withLock(id)(
           Effect.gen(function* () {
-            yield* mainLocks.withLock(id)(
+            const cleanup = yield* mainLocks.withLock(id)(
               Effect.gen(function* () {
+                const plan = yield* Effect.gen(function* () {
+                const saved = yield* kv.get(PROJECT_REMOVAL + id)
+                if (saved !== undefined) {
+                  const decoded = Schema.decodeUnknownOption(ProjectRemovalReceipt)(saved)
+                  if (Option.isNone(decoded) || decoded.value.project.id !== id) return yield* Effect.die(new Error("Project removal receipt is invalid. No sessions were removed."))
+                  return decoded.value
+                }
                 const project = yield* get(id)
-                // Forgetting a project keeps its sessions, but outstanding task reservations
+                const all = yield* sessionStore.list()
+                const initialClaims = yield* owners()
+                const owned = new Set<string>()
+                for (const session of all) {
+                  const marker = initialClaims[session.id], metadata = Orchestra.sessionOwner(session.metadata)
+                  if (marker !== undefined && metadata !== undefined && marker !== metadata) continue
+                  const owner = marker ?? metadata
+                  if (owner === id || (owner === undefined && session.id === project.main && Federation.groupSupervisor(session.metadata) === undefined)) owned.add(session.id)
+                }
+                // Child lineage is evidence only while no explicit foreign/group binding conflicts.
+                for (let changed = true; changed;) {
+                  changed = false
+                  for (const session of all) {
+                    if (!session.parentID || !owned.has(session.parentID) || owned.has(session.id)) continue
+                    const marker = initialClaims[session.id], metadata = Orchestra.sessionOwner(session.metadata)
+                    if ((marker !== undefined && marker !== id) || (metadata !== undefined && metadata !== id) || Federation.groupSupervisor(session.metadata) !== undefined)
+                      return yield* Effect.die(new Error("Project deletion refused: an owned session has a foreign child. No session history was removed."))
+                    owned.add(session.id); changed = true
+                  }
+                }
+                const selected = all.filter(session => owned.has(session.id))
+                const ids = selected.map(session => session.id)
+                const sqlRows = ids.length ? yield* database.db.select({ projectID: SessionTable.project_id }).from(SessionTable).where(inArray(SessionTable.id, ids)).all().pipe(Effect.orDie) : []
+                const plan = { project, sessions: ids, sqlProjects: [...new Set(sqlRows.map(row => row.projectID))] }
+                // The receipt binds cleanup to exact IDs before project/owner records disappear.
+                // A retry can finish after an interruption without discovering chats by directory.
+                yield* kv.set(PROJECT_REMOVAL + id, JSON.parse(JSON.stringify(plan)) as Schema.Json)
+                return plan
+                })
+                const project = plan.project
+                // Stop only this project's scoped schedules before releasing its records.
+                // Never infer ownership from a browser URL or a shared directory.
+                const triggerEntries = (yield* scanAll(Trigger.PREFIX + String(id) + "/")).flatMap(entry => {
+                  const trigger = Trigger.parse(entry.value)
+                  return trigger?.projectID === String(id) ? [{ key: entry.key, trigger }] : []
+                })
+                for (const { key, trigger } of triggerEntries) {
+                  yield* kv.remove(key)
+                  ScheduleView.remove(trigger.id)
+                  BrowserSchedule.remove(trigger.id)
+                }
+                const remainingTriggers = (yield* scanAll(Trigger.PREFIX)).flatMap(entry => Trigger.parse(entry.value) ?? [])
+                for (const { trigger } of triggerEntries) {
+                  if (trigger.kind !== "browser") continue
+                  yield* Effect.promise(() => BrowserWatcherLifetime.release({
+                    sessionID: trigger.spec, projectID: String(id), directory: project.directory,
+                    sessions: BrowserRuntime.sessions(), triggers: remainingTriggers, stop: BrowserRuntime.stopPageWatcher,
+                  }))
+                }
+                // Outstanding task reservations
                 // belong to the project lifecycle. Release only this project's tasks so a
                 // surviving worker can be claimed by another project instead of staying blocked.
                 // Lock project -> worker, matching dispatch(), and re-read each marker under lock
@@ -2224,11 +2811,32 @@ const layer: Layer.Layer<
                     ),
                   { concurrency: 1, discard: true },
                 )
+                // Local Vault slots die with this project. Globals and other projects are not touched.
+                // Fail before deleting the project marker if secure-store cleanup is unavailable.
+                yield* Effect.promise(async () => {
+                  const { CredentialVault } = await import("./credential-vault/index.js")
+                  await CredentialVault.local(String(id)).removeProjectSlots(String(id))
+                })
                 yield* kv.remove(MAIN_INITIALIZING + id)
                 yield* kv.remove(PROJECT + id)
                 yield* kv.remove(TEAM_PLAN + id)
                 yield* kv.remove(PROJECT_TEMPLATE + id)
+                // Import manifests and requirements are exact project records, not browser
+                // profiles or shared template receipts. Never scan by an ID prefix here.
+                yield* kv.remove("orchestra/project-import/" + id)
+                yield* kv.remove("orchestra/template-browsers/" + id)
+                yield* kv.remove("orchestra/template-requirements/" + id)
+                yield* kv.remove("orchestra/process-skills/" + id)
+                yield* kv.remove("orchestra/process-skill-definitions/" + id)
+                yield* kv.remove(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)
+                yield* Effect.forEach(yield* scanAll(PROJECT_ROLE + id + "/"), entry => kv.remove(entry.key), { discard: true })
+                yield* PubSub.publish(changed, undefined)
                 yield* kv.remove(MOVE_PLAN + id)
+                yield* kv.remove(STAGE + id)
+                for (const scope of [Rules.projectScope(id), Rules.projectDefaultsScope(id), Rules.orchestratorScope(id)]) {
+                  yield* kv.remove("rules/" + scope)
+                  yield* kv.remove("rules/history/" + scope)
+                }
                 const reports = yield* scanAll(reportPrefix(id))
                 yield* Effect.forEach(reports, (entry) => kv.remove(entry.key), { discard: true })
                 const claims = yield* owners()
@@ -2237,8 +2845,34 @@ const layer: Layer.Layer<
                   (sessionID) => kv.remove(OWNER + sessionID),
                   { discard: true },
                 )
+                return plan
               }),
             )
+            // Never hold mainLocks while interrupting a running session: its final
+            // turn may need that lock. The project is already absent, so no new work can claim it.
+            const selected = new Set(cleanup.sessions)
+            for (const sessionID of cleanup.sessions) {
+              const session = yield* sessionStore.get(sessionID)
+              if (!session) continue
+              const marker = yield* kv.get(OWNER + sessionID)
+              const metadata = Orchestra.sessionOwner(session.metadata)
+              if ((marker !== undefined && marker !== id) || (metadata !== undefined && metadata !== id))
+                return yield* Effect.die(new Error("Project deletion paused: session ownership changed."))
+              const children = yield* sessionStore.list({ parentID: sessionID })
+              if (children.some(child => !selected.has(child.id))) return yield* Effect.die(new Error("Project deletion paused: a foreign child session was found."))
+              yield* sessions.remove(sessionID, { recursive: false }).pipe(Effect.catchTag("Session.NotFoundError", () => Effect.void))
+              yield* kv.remove(ACCESS + sessionID)
+              yield* kv.remove(CATEGORY + sessionID)
+            }
+            for (const sqlProjectID of cleanup.sqlProjects) {
+              // SQL projects are directory-level resources and can contain foreign chats.
+              // Guard in the DELETE statement itself, not with a racy read-before-delete.
+              yield* database.db.delete(ProjectTable).where(and(
+                eq(ProjectTable.id, sqlProjectID),
+                notExists(database.db.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.project_id, sqlProjectID))),
+              )).run().pipe(Effect.orDie)
+            }
+            yield* kv.remove(PROJECT_REMOVAL + id)
           }),
         )
       }),
@@ -2274,10 +2908,10 @@ const layer: Layer.Layer<
             const project = yield* get(id)
             if (Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + id)))) return []
             yield* reconcileTeamUnlocked(project)
-            const list = yield* projectSessions(project)
+            const list = yield* projectSessions(project, true)
             const result: SessionSchema.Info[] = []
             for (const s of list) {
-              if (s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+              if (s.parentID === undefined && s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
                 const metadata = { ...s.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
                 yield* sessions.setMetadata({ sessionID: s.id, metadata }).pipe(Effect.orDie)
                 result.push({ ...s, metadata })
@@ -2295,10 +2929,10 @@ const layer: Layer.Layer<
               ? Effect.succeed(opt.value)
               : Effect.gen(function* () {
                   const project = yield* get(id)
-                  const list = yield* projectSessions(project)
+                  const list = yield* projectSessions(project, true)
                   const result: SessionSchema.Info[] = []
                   for (const s of list) {
-                    if (s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
+                    if (s.parentID === undefined && s.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
                       const metadata = { ...s.metadata, [SessionPlan.CONTEXT_KEY]: CompactionPolicy.mainThreshold }
                       yield* sessions.setMetadata({ sessionID: s.id, metadata }).pipe(Effect.orDie)
                       result.push({ ...s, metadata })
@@ -2325,6 +2959,11 @@ const layer: Layer.Layer<
                 directory: move.value.to,
                 message: `Project "${project.name}" is moving to "${move.value.to}". Reopen it after the move before claiming sessions.`,
               })
+            for (const row of yield* scanAll(PROJECT_REMOVAL)) {
+              const pending = Schema.decodeUnknownOption(ProjectRemovalReceipt)(row.value)
+              if (Option.isSome(pending) && pending.value.sessions.includes(sessionID))
+                return yield* new ProjectMoveError({ projectID, sessionID, directory: project.directory, message: "This session is being deleted with its owning project and cannot be claimed." })
+            }
             yield* kv.set(OWNER + sessionID, projectID)
             const claimedSession = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
             if (claimedSession && claimedSession.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
@@ -2363,7 +3002,7 @@ const layer: Layer.Layer<
 
             // Finish any interrupted roster before creating a second plan for this project.
             yield* reconcileTeamUnlocked(project)
-            const role = (yield* roles()).find((item) => item.agent === input.agent)
+            const role = (yield* roles(project.id)).find((item) => item.agent === input.agent)
             if (!role)
               return yield* new DispatchError({
                 message: `No configured project role owns agent "${input.agent}". Choose a role from the current roster.`,
@@ -2551,7 +3190,7 @@ const layer: Layer.Layer<
                 if (cycle === null) {
                   yield* kv.remove(key)
                   return yield* new DispatchError({
-                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight, or the Society's autonomy mode is observe/off — the task is queued as a proposal, flip the mode to auto to execute it).`,
+                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight, or the Society's autonomy mode is observe/off — the operator may have set observe/off). The task was NOT sent and it is queued as a proposal. To let the Orchestrator delegate, the operator sets orchestra.society.autonomy to "auto" in the Orchestra config and restarts the server; until then do the work in this session yourself and say so.`,
                   })
                 }
                 yield* kv.set(
@@ -2670,9 +3309,29 @@ const layer: Layer.Layer<
         )
       }),
       roles,
+      scopedRoles,
+      projectRoleAllowed,
+      saveProjectRole: Effect.fn("Orchestra.saveProjectRole")(function* (projectID, id, input) {
+        return yield* mainLocks.withLock(projectID)(Effect.gen(function* () {
+          yield* get(projectID)
+          const prefix = processRolePrefix(projectID)
+          if (!id.startsWith(prefix) || !/^[1-9][0-9]{0,2}$/.test(id.slice(prefix.length)))
+            return yield* new TeamError({ message: "Project-local role identity does not belong to this project." })
+          yield* requireRole(input)
+          const key = PROJECT_ROLE + projectID + "/" + id
+          if ((yield* kv.get(key)) !== undefined)
+            return yield* new TeamError({ message: "Project-local role already exists; no role was overwritten." })
+          // Validation is not permission to normalize transferred process rules.
+          yield* kv.set(key, Schema.encodeSync(StoredRole)({ ...input, created: Date.now() }))
+          yield* PubSub.publish(changed, undefined)
+          return { ...input, id, agent: Orchestra.role(id), origin: "custom" as const }
+        }))
+      }),
       saveRole: Effect.fn("Orchestra.saveRole")(function* (id, input) {
         const spec = yield* requireRole(input)
         const target = yield* slot(ROLE, id, yield* roles(), spec.name)
+        if (target.key.startsWith("process-"))
+          return yield* new TeamError({ message: "The process role namespace is reserved for project-local roles." })
         yield* kv.set(ROLE + target.key, Schema.encodeSync(StoredRole)({ ...spec, created: target.created }))
         yield* PubSub.publish(changed, undefined)
         return {
@@ -2715,6 +3374,11 @@ const layer: Layer.Layer<
         yield* PubSub.publish(changed, undefined)
       }),
       playbook: Effect.fn("Orchestra.playbook")(function* (id) {
+        if ((yield* kv.get(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)) !== undefined) {
+          if (!(yield* importReady(id))) return undefined
+          const process = yield* ProjectTemplateV2Runtime.read(kv, id)
+          return process?.playbook ? { name: process.source.name, text: process.playbook } : undefined
+        }
         const templateID = yield* kv.get(PROJECT_TEMPLATE + id)
         if (typeof templateID !== "string") return undefined
         // A live template (built-in, edited or custom) wins; a removed built-in falls back to
@@ -2734,6 +3398,7 @@ const layer: Layer.Layer<
         }
         return history
       }),
+      reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
       changes: Stream.fromPubSub(changed),
     })
   }),
@@ -2938,6 +3603,20 @@ export const workerFavorites = Effect.gen(function* () {
   const config = yield* Effect.serviceOption(Config.Service)
   if (Option.isNone(config)) return []
   return (Config.latest(yield* config.value.entries(), "model_favorites") ?? []).flatMap(parseModel)
+})
+
+// The models the operator switched on in /models: every model of every ENABLED model collection (the
+// enable toggle of the collections screen). The Orchestrator picks worker models only from this pool.
+// A collection written before `enabled` existed reads as enabled, like the picker treats it. Favorites
+// stay plain favorites and play no part here.
+export const workerEnabledModels = Effect.gen(function* () {
+  const config = yield* Effect.serviceOption(Config.Service)
+  if (Option.isNone(config)) return []
+  const collections = Config.latest(yield* config.value.entries(), "model_collections") ?? []
+  return distinctModels(
+    collections.filter((item) => item.enabled !== false).flatMap((item) => (item.models ?? []).flatMap(parseModel)),
+    undefined,
+  )
 })
 
 function originOf(builtin: readonly { id: string }[], id: string): Orchestra.Origin {
@@ -3318,6 +3997,61 @@ export function verificationOf(
 }
 
 // The last assistant answer with text, newest first.
+// One line per report event, kept in a file the operator can send: why did (or did not) a worker's result reach the
+// Orchestrator. Small on purpose: rolled to .1 at 1 MB.
+export const reportLogFile = () => path.join(Global.Path.data, "team-reports.log")
+export function reportLog(entry: Record<string, unknown>) {
+  try {
+    const file = reportLogFile()
+    appendLog(file, `${JSON.stringify({ time: new Date().toISOString(), ...entry })}\n`, 1_000_000)
+  } catch {}
+}
+
+// What a worker's tool call did, in one short line: the tool, what it was asked, what came back.
+function toolBrief(part: { name: string; state: unknown }) {
+  const state = part.state as { status?: string; input?: unknown; content?: unknown; error?: unknown }
+  const input = typeof state.input === "object" && state.input !== null ? (state.input as Record<string, unknown>) : {}
+  const asked = ["action", "url", "ref", "selector", "text", "command", "expression", "path"]
+    .flatMap((key) => (typeof input[key] === "string" ? [`${key}=${String(input[key]).replace(/\s+/g, " ").slice(0, 60)}`] : []))
+    .join(" ")
+  const raw =
+    state.status === "completed"
+      ? Array.isArray(state.content)
+        ? state.content.map((item) => (typeof item === "object" && item !== null && "text" in item ? String((item as { text: unknown }).text) : "")).join(" ")
+        : String(state.content ?? "")
+      : state.error !== undefined
+        ? `error: ${typeof state.error === "object" && state.error !== null && "message" in state.error ? String((state.error as { message: unknown }).message) : String(state.error)}`
+        : `(${state.status ?? "no result"})`
+  const result = raw.replace(/\s+/g, " ").trim().slice(0, 140)
+  return `${part.name}${asked ? ` ${asked}` : ""} -> ${result || "(empty)"}`
+}
+
+/**
+ * The text a worker's task is reported with. The worker's last turn when it wrote text; when it ended on tool calls
+ * (or with nothing), an honest "no final answer" with its last three tool calls and results, so the report is never empty
+ * and an earlier mid-turn remark is never passed off as the result. Messages are newest first.
+ */
+export function finalAnswer(messages: ReadonlyArray<SessionMessage.Info>): { answer: string; noFinal: boolean } {
+  const last = messages.find((message) => message.type === "assistant")
+  const text = last ? finalText(last).at(0) : undefined
+  if (text) return { answer: text, noFinal: false }
+  const calls = messages
+    .flatMap((message) => (message.type === "assistant" ? [message] : []))
+    .toSorted((left, right) => DateTime.toEpochMillis(left.time.created) - DateTime.toEpochMillis(right.time.created))
+    .flatMap((message) => message.content.flatMap((part) => (part.type === "tool" ? [part] : [])))
+  const earlier = messages.flatMap(finalText).at(0)
+  return {
+    noFinal: true,
+    answer: [
+      "NO FINAL ANSWER from the worker: its last turn ended without text, so there is no DONE/PARTLY DONE/NOT DONE report. Treat the task as unconfirmed.",
+      calls.length > 0
+        ? `Its last tool calls: ${calls.slice(-3).map((call) => toolBrief(call)).join(" | ")}`
+        : "It made no tool calls.",
+      ...(earlier ? [`An earlier remark of the worker (not a result): ${earlier.replace(/\s+/g, " ").slice(0, 300)}`] : []),
+    ].join("\n"),
+  }
+}
+
 function finalText(message: SessionMessage.Info) {
   if (message.type !== "assistant") return []
   const text = message.content
@@ -3330,5 +4064,5 @@ function finalText(message: SessionMessage.Info) {
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
+  deps: [Database.node, KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
 })

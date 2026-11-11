@@ -1,5 +1,8 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile, rename } from "node:fs/promises"
 import path from "node:path"
+import { profileBlock, type UserProfile } from "./user-profile"
+import { applyNameBlock } from "./user-name"
+import { randomUUID } from "node:crypto"
 import { Global } from "@orchestra/util/global"
 
 export type AiLanguage = "auto" | "ru" | "en"
@@ -15,18 +18,28 @@ const INSTRUCTION: Record<Exclude<AiLanguage, "auto">, string> = {
 // The core reads the global AGENTS.md as standing instructions for every session and picks up
 // edits while sessions run, so the language choice lives there as one marked block. Everything
 // else in the file belongs to the user and is left exactly as it was.
-export async function applyAiLanguage(language: AiLanguage) {
+let pending: Promise<unknown> = Promise.resolve()
+export function applyAiLanguage(language: AiLanguage, name?: string, profile?: UserProfile) {
+  const operation = pending.catch(() => undefined).then(() => writePreferences(language, name, profile))
+  pending = operation
+  return operation
+}
+async function writePreferences(language: AiLanguage, name?: string, profile?: UserProfile) {
   const file = path.join(process.env.ORCHESTRA_CONFIG_DIR ?? Global.Path.config, "AGENTS.md")
   const before = await readFile(file, "utf8").catch(() => undefined)
-  if (language === "auto" && !before?.includes(START)) return
+  if (language === "auto" && name === undefined && profile === undefined && !before?.includes(START)) return
   const rest = strip(before ?? "")
-  const body = language === "auto" ? rest : [rest, `${START}\n${INSTRUCTION[language]}\n${END}`].filter(Boolean).join("\n\n")
+  const languageBody = language === "auto" ? rest : [rest, `${START}\n${INSTRUCTION[language]}\n${END}`].filter(Boolean).join("\n\n")
+  const named = name === undefined ? languageBody : applyNameBlock(languageBody, name)
+  const body = profile === undefined ? named : profileBlock(named, profile)
   const next = body ? `${body}\n` : ""
   if (next === (before ?? "")) return
   // A file that only ever held this block goes away with it rather than lingering empty.
   if (!next.trim()) return before === undefined ? undefined : rm(file, { force: true })
   await mkdir(path.dirname(file), { recursive: true })
-  await writeFile(file, next)
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+  try { await writeFile(temporary, next, { mode: 0o600 }); await rename(temporary, file) }
+  finally { await rm(temporary, { force: true }).catch(() => undefined) }
 }
 
 function strip(content: string) {

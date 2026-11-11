@@ -15,6 +15,8 @@ import { Wildcard } from "./util/wildcard.js"
 import { PermissionSaved } from "./permission/saved.js"
 import { PluginHooks } from "./plugin/hooks.js"
 import { Room } from "./room.js"
+import path from "node:path"
+import { RuleEnforce } from "./rule-enforce.js"
 
 const PermissionEffect = Permission.Effect
 export { PermissionEffect as Effect }
@@ -324,6 +326,21 @@ const layer = Layer.effect(
         source: input.source,
         effect,
       })
+      // Standing hard rules are final too: a plugin's allow cannot erase
+      // them, and nested tool calls must use the real resolved resources.
+      const ruleAgent = input.agent ?? (yield* sessions.get(input.sessionID))?.agent
+      const ruleMessage = RuleEnforce.resourceRefusal(String(input.sessionID), {
+        ...policyInput, agent: String(ruleAgent ?? ""),
+        resources: ["read", "edit", "write", "external_directory"].includes(policyInput.action)
+          ? policyInput.resources.flatMap(resource => [resource, path.resolve(location.directory, resource)])
+          : policyInput.resources,
+        transport: typeof policyInput.metadata?.transport === "string" ? policyInput.metadata.transport : undefined,
+      })
+      if (ruleMessage) return {
+        effect: "deny" as const,
+        message: ruleMessage,
+        rules: all, save: undefined, scoped: false, onAlways: undefined,
+      }
       // Room rules are authoritative and must run after all plugin hooks. Otherwise a later
       // extension could change a hard deny to allow, or suppress a required program prompt.
       const activeRoomRules = yield* roomRulesForSession(input.sessionID)

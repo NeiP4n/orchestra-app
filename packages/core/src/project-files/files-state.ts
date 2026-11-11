@@ -3,6 +3,7 @@ export * as ProjectFilesState from "./files-state.js"
 import { appendFile, mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Option, Schema } from "effect"
+import { Orchestra } from "@orchestra/schema/orchestra"
 import { Config } from "@orchestra/schema/config"
 import { Federation } from "@orchestra/schema/federation"
 import { Adr } from "../adr.js"
@@ -201,15 +202,28 @@ export const writeConfig = (
 // scope whose stored rules are corrupt fails the sync loudly instead of
 // writing a file that silently drops them.
 
+/** Only a stable project record at this exact directory can own a rule mirror. */
+const ruleScopes = (directory: string, deps: SyncDeps) => Effect.gen(function* () {
+  const records = yield* scanAll(deps.kv, "orchestra/project/")
+  const projects = records.flatMap((entry) => Option.toArray(Schema.decodeUnknownOption(Orchestra.Project)(entry.value)))
+  const own = projects.filter((project) => path.resolve(project.directory) === path.resolve(directory))
+  if (own.length !== 1) return yield* ProjectFilesErrors.invalid(RULES_FILE, "Rule mirror requires one verified project owner for this exact directory.")
+  const id = own[0]!.id
+  return (scope: string) => scope === Rules.projectScope(id) || scope === Rules.projectDefaultsScope(id)
+    || scope === Rules.orchestratorScope(id) || scope.startsWith(`role:${id}:`)
+})
+
 export const syncRules = (
   directory: string,
   deps: SyncDeps,
 ): Effect.Effect<void, ProjectFilesErrors.ProjectFileError, SyncEnv> =>
   Effect.gen(function* () {
+    const allowed = yield* ruleScopes(directory, deps)
     const entries = yield* scanAll(deps.kv, RULES_PREFIX)
     const scopes = entries
       .map((entry) => entry.key.slice(RULES_PREFIX.length))
-      .filter((scope) => scope.length > 0 && !scope.startsWith("history/"))
+      // session:<id> rules belong to one chat and die with it; mirroring them would fill the file with dead entries.
+      .filter(allowed)
       .toSorted()
     const rows: Array<{ scope: string; id: string; text: string; by: string; at: number }> = []
     for (const scope of scopes) {
@@ -237,6 +251,10 @@ export const restoreRules = (
       ),
     )
     if (parsed === undefined) return { file: RULES_FILE, status: "skipped" as const }
+    const allowed = yield* ruleScopes(directory, deps)
+    // Validate the entire file before writing any row, including legacy global mirrors.
+    if (parsed.rules.some((row) => !allowed(row.scope)))
+      return yield* ProjectFilesErrors.invalid(RULES_FILE, "Rule mirror contains foreign or global scopes. No rules were restored.")
     const byScope = new Map<string, Array<{ id: string; text: string; by: string; at: number }>>()
     for (const row of parsed.rules) {
       const scope = byScope.get(row.scope) ?? []
@@ -313,15 +331,28 @@ export const syncDecisions = (
 // the same groups: the per-group USD spend limit lives on the group
 // record, there is no separate budget store.
 
+/** A mirror belongs to one registered project at the exact directory, never to the global installation. */
+const stateOwner = (directory: string, deps: SyncDeps, file: string) => Effect.gen(function* () {
+  const records = yield* scanAll(deps.kv, "orchestra/project/")
+  const projects = records.flatMap(entry => Option.toArray(Schema.decodeUnknownOption(Orchestra.Project)(entry.value)))
+  const own = projects.filter(project => path.resolve(project.directory) === path.resolve(directory))
+  if (own.length !== 1) return yield* ProjectFilesErrors.invalid(file, "State mirror requires one verified project owner for this exact directory.")
+  return own[0]!.id
+})
+
 const readGroups = (
   kv: KV.Interface,
   file: string,
+  owner: Orchestra.ProjectID,
 ): Effect.Effect<ReadonlyArray<Federation.Group>, ProjectFilesErrors.ProjectFileError> =>
   Effect.gen(function* () {
     const entries = yield* scanAll(kv, GROUP_PREFIX)
     const groups: Array<Federation.Group> = []
     for (const entry of entries) {
-      const group = Option.getOrUndefined(Schema.decodeUnknownOption(Federation.Group)(entry.value))
+      const raw = entry.value
+      // A member project cannot export its coordinator's shared state, and foreign groups are invisible.
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw) || !("projects" in raw) || !Array.isArray(raw.projects) || raw.projects[0] !== owner) continue
+      const group = Option.getOrUndefined(Schema.decodeUnknownOption(Federation.Group)(raw))
       if (group === undefined)
         return yield* Effect.fail(
           ProjectFilesErrors.corrupt(file, `stored group ${entry.key} does not decode as a federation group`),
@@ -349,7 +380,8 @@ export const syncSociety = (
   deps: SyncDeps,
 ): Effect.Effect<void, ProjectFilesErrors.ProjectFileError, SyncEnv> =>
   Effect.gen(function* () {
-    const groups = yield* readGroups(deps.kv, SOCIETY_FILE)
+    const owner = yield* stateOwner(directory, deps, SOCIETY_FILE)
+    const groups = yield* readGroups(deps.kv, SOCIETY_FILE, owner)
     const encoded: Array<unknown> = []
     for (const group of groups) encoded.push(yield* encodeGroup(group, SOCIETY_FILE, "write-failed"))
     yield* ProjectFilesFormat.writeYaml(ProjectFilesPaths.writePath(directory, SOCIETY_FILE), { groups: encoded })
@@ -369,6 +401,20 @@ export const restoreSociety = (
       ),
     )
     if (parsed === undefined) return { file: SOCIETY_FILE, status: "skipped" as const }
+    const owner = yield* stateOwner(directory, deps, SOCIETY_FILE)
+    // Validate the whole file before any write. A project mirror is not permission to create cross-project links.
+    for (const group of parsed.groups) {
+      if (group.projects[0] !== owner) return yield* ProjectFilesErrors.invalid(SOCIETY_FILE, "Society mirror contains a foreign coordinator. Nothing was restored.")
+      const raw = yield* deps.kv.get(GROUP_PREFIX + group.name)
+      if (raw === undefined) {
+        if (group.projects.length !== 1 || group.supervisor !== undefined) return yield* ProjectFilesErrors.invalid(SOCIETY_FILE, "Cannot recover multi-project membership or a supervisor from one project file without a verified group record.")
+      } else {
+        const previous = Option.getOrUndefined(Schema.decodeUnknownOption(Federation.Group)(raw))
+        if (!previous) return yield* ProjectFilesErrors.corrupt(SOCIETY_FILE, "The saved group record cannot be verified.")
+        if (JSON.stringify(previous.projects) !== JSON.stringify(group.projects) || Federation.modeOf(previous) !== Federation.modeOf(group) || previous.supervisor !== group.supervisor)
+          return yield* ProjectFilesErrors.invalid(SOCIETY_FILE, "Society mirror changes membership, mode or supervisor. Use the authorized federation workflow instead.")
+      }
+    }
     for (const group of parsed.groups) {
       const encoded = yield* encodeGroup(group, SOCIETY_FILE, "restore-failed")
       yield* deps.kv.set(GROUP_PREFIX + group.name, encoded as unknown as KV.Value)
@@ -381,7 +427,8 @@ export const syncBudget = (
   deps: SyncDeps,
 ): Effect.Effect<void, ProjectFilesErrors.ProjectFileError, SyncEnv> =>
   Effect.gen(function* () {
-    const groups = yield* readGroups(deps.kv, BUDGET_FILE)
+    const owner = yield* stateOwner(directory, deps, BUDGET_FILE)
+    const groups = yield* readGroups(deps.kv, BUDGET_FILE, owner)
     const budgets = groups.flatMap((group) =>
       group.budget === undefined
         ? []
@@ -404,6 +451,8 @@ export const restoreBudget = (
       ),
     )
     if (parsed === undefined) return { file: BUDGET_FILE, status: "skipped" as const }
+    const owner = yield* stateOwner(directory, deps, BUDGET_FILE)
+    const updates: Array<{ key: string; encoded: unknown }> = []
     for (const entry of parsed.budgets) {
       const stored = yield* deps.kv.get(GROUP_PREFIX + entry.group)
       if (stored === undefined)
@@ -421,6 +470,7 @@ export const restoreBudget = (
             `stored group ${entry.group} does not decode as a federation group`,
           ),
         )
+      if (decoded.projects[0] !== owner) return yield* ProjectFilesErrors.invalid(BUDGET_FILE, "Budget mirror contains a group owned by another coordinator. No budgets were restored.")
       const next = yield* Schema.decodeUnknownEffect(Federation.Group)({
         ...decoded,
         budget: entry.budgetUsd,
@@ -433,8 +483,9 @@ export const restoreBudget = (
         ),
       )
       const encoded = yield* encodeGroup(next, BUDGET_FILE, "restore-failed")
-      yield* deps.kv.set(GROUP_PREFIX + entry.group, encoded as unknown as KV.Value)
+      updates.push({ key: GROUP_PREFIX + entry.group, encoded })
     }
+    for (const update of updates) yield* deps.kv.set(update.key, update.encoded as KV.Value)
     return { file: BUDGET_FILE, status: "restored" as const, count: parsed.budgets.length }
   })
 

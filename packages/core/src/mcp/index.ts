@@ -10,6 +10,7 @@ import { Cause, Context, Effect, Exit, FiberSet, Latch, Layer, Schema, Scope, Se
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Credential } from "../credential.js"
 import { DesktopIsolation } from "../desktop-isolation.js"
+import { mcpMayStart } from "./disabled.js"
 import { McpCatalog } from "./catalog.js"
 import { Bus } from "../bus.js"
 import { Environment } from "../environment/index.js"
@@ -394,17 +395,16 @@ export const layer = (options?: Options) =>
         (name: ServerName, entry: ServerEntry, connection: McpClient.Connection) =>
         <E>(effect: Effect.Effect<void, E>) =>
           fork(
-            Effect.suspend(() => (entry.client === connection ? effect : Effect.void)).pipe(
-              locks.withLock(name),
-              Effect.ignore,
-            ),
+            Effect.suspend(() =>
+              entry.client === connection && mcpMayStart(entry.config) ? effect : Effect.void,
+            ).pipe(locks.withLock(name), Effect.ignore),
           )
 
       // Re-establishes a server whose HTTP session the server dropped, unless another path already
       // replaced the connection while this one waited for the lock.
       const recover = (name: ServerName, entry: ServerEntry, connection: McpClient.Connection) =>
         Effect.gen(function* () {
-          if (entry.client !== connection) return
+          if (entry.client !== connection || !mcpMayStart(entry.config)) return
           yield* Effect.logInfo("mcp session expired, reconnecting", { server: name })
           yield* stopServer(name, entry)
           yield* startServer(name, entry)
@@ -418,13 +418,19 @@ export const layer = (options?: Options) =>
         connection: McpClient.Connection,
         run: (connection: McpClient.Connection) => Effect.Effect<A, E>,
       ) =>
-        run(connection).pipe(
+        Effect.suspend((): Effect.Effect<A, E | ToolCallError> =>
+          entry.client === connection && mcpMayStart(entry.config)
+            ? run(connection)
+            : Effect.fail(new ToolCallError({ server: name, tool: "*", message: `MCP server "${name}" is disabled.` })),
+        ).pipe(
           Effect.catchIf(
             // The client module is loaded lazily, so match the tagged error by tag rather than class.
-            (error) => "_tag" in error && error._tag === "MCP.SessionExpiredError",
+            (error: unknown) => typeof error === "object" && error !== null && "_tag" in error && error._tag === "MCP.SessionExpiredError",
             (error) =>
               recover(name, entry, connection).pipe(
-                Effect.flatMap(() => (entry.client ? run(entry.client) : Effect.fail(error))),
+                Effect.flatMap((): Effect.Effect<A, E | ToolCallError> =>
+                  entry.client && mcpMayStart(entry.config) ? run(entry.client) : Effect.fail(error),
+                ),
               ),
           ),
         )
@@ -476,9 +482,13 @@ export const layer = (options?: Options) =>
           for (const delay of ["5 seconds", "15 seconds", "30 seconds"] as const) {
             yield* Effect.sleep(delay)
             if (entries.get(name) !== entry || entry.client) return
-            if (entry.config.disabled || entry.status.status !== "failed") return
+            if (!mcpMayStart(entry.config) || entry.status.status !== "failed") return
             yield* Effect.logWarning("mcp server died, restarting", { server: name })
-            yield* startServer(name, entry).pipe(locks.withLock(name))
+            yield* Effect.suspend(() =>
+              entries.get(name) === entry && !entry.client && entry.status.status === "failed" && mcpMayStart(entry.config)
+                ? startServer(name, entry)
+                : Effect.void,
+            ).pipe(locks.withLock(name))
             if (entry.client) return
           }
         }).pipe(Effect.ignore)
@@ -511,6 +521,13 @@ export const layer = (options?: Options) =>
 
       const startServer = (name: ServerName, entry: ServerEntry) =>
         Effect.gen(function* () {
+          // Central gate, checked under the lifecycle lock by every start/restart path.
+          // Do not resolve credentials, spawn a process or make a network request while OFF.
+          if (entries.get(name) !== entry || !mcpMayStart(entry.config)) {
+            entry.status = { status: "disabled" }
+            yield* bus.publish(McpEvent.StatusChanged, { server: name })
+            return
+          }
           // Announce the handshake so connect() and credential reconnects don't show a stale
           // disabled/failed status for the duration of the connection attempt.
           // A catalog server without its key exits on start; spawning it anyway cost an npx install
@@ -542,7 +559,10 @@ export const layer = (options?: Options) =>
           const prepared =
             entry.config.type === "remote" && !storedOAuth ? yield* McpGitHubAuth.prepare(entry.config) : undefined
           if (prepared?.token)
-            yield* Effect.logInfo("using GitHub CLI token for MCP server", { server: name, directory: location.directory })
+            yield* Effect.logInfo("using GitHub CLI token for MCP server", {
+              server: name,
+              directory: location.directory,
+            })
           const connectConfig = prepared?.config ?? entry.config
           // List tools as part of connect so a failure here marks the server failed rather than
           // leaving it connected with a silently empty tool list and no path to recover.
@@ -665,7 +685,9 @@ export const layer = (options?: Options) =>
       const overrides = new Map<ServerName, Mcp.ServerConfig | false>()
       const reconcileLock = Semaphore.makeUnsafe(1)
       const reconcile = Effect.fnUntraced(function* () {
-        const servers = state.get().servers
+        const servers = McpCatalog.mcpEnabled(process.env)
+          ? state.get().servers
+          : new Map<ServerName, Mcp.ServerConfig>()
         if (!applied && entries.size === 0) {
           for (const [name, server] of servers) {
             entries.set(name, {
@@ -771,6 +793,7 @@ export const layer = (options?: Options) =>
           const name = ServerName.make(server)
           yield* Effect.gen(function* () {
             const target = yield* requireServer(name)
+            if (!mcpMayStart(target.entry.config)) return
             yield* stopServer(name, target.entry)
             yield* startServer(name, target.entry)
           }).pipe(locks.withLock(name))
@@ -792,12 +815,21 @@ export const layer = (options?: Options) =>
         }),
         // Reads report what is connected now; servers still starting contribute once they publish a change.
         tools: Effect.fn("MCP.tools")(function* () {
+          // A removed/disabled server never lists tools, even if a live client lingers: it must not be found by search or called.
           return Array.from(entries.values())
-            .flatMap((entry) => entry.tools ?? [])
+            .flatMap((entry) =>
+              !mcpMayStart(entry.config) || entry.status.status === "disabled" ? [] : (entry.tools ?? []),
+            )
             .toSorted((a, b) => a.server.localeCompare(b.server) || a.name.localeCompare(b.name))
         }),
         callTool: Effect.fn("MCP.callTool")(function* (input) {
           const target = yield* requireServer(input.server)
+          if (!mcpMayStart(target.entry.config) || target.entry.status.status === "disabled")
+            return yield* new ToolCallError({
+              server: target.name,
+              tool: input.name,
+              message: `MCP server "${target.name}" was removed or disabled by the operator and is not available. Use the browser tool for the panel browser.`,
+            })
           // B7: the choke point for every MCP tool call. A real-screen
           // server (playwright, agent-desktop) refuses here when the
           // real-screen opt-in is invalid — even when the server was
@@ -812,10 +844,11 @@ export const layer = (options?: Options) =>
                 message: `MCP server "${target.name}" drives the operator's real screen and is blocked: ${denial}`,
               })
           }
+          const separate = McpCatalog.separateBrowserDenial(String(target.name), process.env)
+          if (separate) return yield* new ToolCallError({ server: target.name, tool: input.name, message: separate })
           if (input.sessionID) {
             const denial = yield* enforceBudget(input.sessionID, target.name)
-            if (denial)
-              return yield* new ToolCallError({ server: target.name, tool: input.name, message: denial })
+            if (denial) return yield* new ToolCallError({ server: target.name, tool: input.name, message: denial })
           }
           yield* target.entry.startup.await
           if (!target.entry.client)
@@ -883,6 +916,7 @@ export const layer = (options?: Options) =>
         instructions: Effect.fn("MCP.instructions")(function* () {
           return Array.from(entries)
             .flatMap(([server, entry]) => {
+              if (!mcpMayStart(entry.config) || entry.status.status === "disabled") return []
               const instructions = entry.client?.instructions
               if (!instructions) return []
               return [{ server, instructions }]
@@ -891,7 +925,9 @@ export const layer = (options?: Options) =>
         }),
         prompts: Effect.fn("MCP.prompts")(function* () {
           return Array.from(entries.values())
-            .flatMap((entry) => entry.prompts ?? [])
+            .flatMap((entry) =>
+              mcpMayStart(entry.config) && entry.status.status !== "disabled" ? (entry.prompts ?? []) : [],
+            )
             .toSorted((a, b) => a.server.localeCompare(b.server) || a.name.localeCompare(b.name))
         }),
         prompt: Effect.fn("MCP.prompt")(function* (input) {

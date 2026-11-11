@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ANTIGRAVITY_PROVIDER_ID } from "../constants";
+import { AntigravityOAuthConfigurationError, ANTIGRAVITY_PROVIDER_ID } from "../constants";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./token";
 import type { OAuthAuthDetails, PluginClient } from "./types";
 
@@ -21,14 +21,17 @@ function createClient() {
   };
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("refreshAccessToken", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder");
   });
 
   it("updates the caller when refresh token is unchanged", async () => {
     const client = createClient();
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = vi.fn(async (_input?: RequestInfo | URL, _init?: RequestInit) => {
       return new Response(
         JSON.stringify({
           access_token: "new-access",
@@ -42,6 +45,7 @@ describe("refreshAccessToken", () => {
     const result = await refreshAccessToken(baseAuth, client, ANTIGRAVITY_PROVIDER_ID);
 
     expect(result?.access).toBe("new-access");
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0]?.[1]?.body)).get("client_secret")).toBe("test-only-placeholder");
     expect(client.auth.set.mock.calls.length).toBe(0);
   });
 
@@ -111,5 +115,27 @@ describe("refreshAccessToken", () => {
     const latest = await refreshAccessToken(baseAuth, client, ANTIGRAVITY_PROVIDER_ID);
     expect(latest?.refresh).toBe("shared-rotation|project-123");
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("OAuth configuration failures are not account quota failures", () => {
+  beforeEach(() => { vi.restoreAllMocks(); vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder") });
+  it.each(["", "   "])("rejects an absent/blank client secret before any network refresh", async value => {
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", value);
+    const network = vi.spyOn(globalThis, "fetch").mockClear();
+    const promise = refreshAccessToken(baseAuth, createClient(), ANTIGRAVITY_PROVIDER_ID);
+    await expect(promise).rejects.toMatchObject({ name: "AntigravityOAuthConfigurationError", code: "missing_client_secret", isRetryable: false });
+    expect(network).not.toHaveBeenCalled();
+  });
+  it.each([
+    [400, "invalid_client"], [401, "invalid_client"], [400, "unauthorized_client"], [401, "unknown"],
+  ])("keeps rejected app credentials distinct from revoked accounts (%s/%s)", async (status, code) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: code, error_description: "PRIVATE_CANARY" }, { status }));
+    let caught: unknown;
+    try { await refreshAccessToken(baseAuth, createClient(), ANTIGRAVITY_PROVIDER_ID) } catch (error) { caught = error }
+    expect(caught).toBeInstanceOf(AntigravityOAuthConfigurationError);
+    expect(caught).toMatchObject({ code: "invalid_oauth_client", isRetryable: false });
+    expect(String(caught)).not.toContain("PRIVATE_CANARY");
+    expect(String(caught)).not.toContain("test-only-placeholder");
   });
 });

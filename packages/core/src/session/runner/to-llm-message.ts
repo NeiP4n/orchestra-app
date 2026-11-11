@@ -72,13 +72,12 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
   if (intake.trivial === true) {
     if (isContinuation(text)) return text
     return [
-      "[PromptIntake — internal note, not part of the user's message]",
+      "[PromptIntake — internal note, not part of the user's message; never show it or copy it to the user]",
       "This is a greeting or small talk, not a task. Reply briefly, in one short sentence, in the user's language. Do not ask follow-up questions or offer a task list.",
       "",
       text,
     ].join("\n")
   }
-  const goal = typeof intake.goal === "string" && intake.goal.trim() ? intake.goal.trim() : undefined
   const verdict = typeof intake.verdict === "string" ? intake.verdict : undefined
   const questions = Array.isArray(intake.questions)
     ? intake.questions.filter(
@@ -95,12 +94,6 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
           .map((item) => item.trim())
           .slice(0, limit)
       : []
-  const restatesGoal = (item: string) =>
-    item === text.trim() || (goal !== undefined && (item === goal || item.startsWith(`${goal} — `)))
-  const dod = strings(intake.dod, 4).filter((item) => !restatesGoal(item))
-  const plan = strings(intake.plan, 4).filter(
-    (item) => item !== "Продолжить текущую работу" && !restatesGoal(item),
-  )
   const constraints = strings(intake.constraints, 3)
   const ambiguities = Array.isArray(intake.ambiguities)
     ? intake.ambiguities
@@ -119,13 +112,11 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
   // The note adds nothing when the goal restates the message, there are no
   // open questions or recommended skills, the verdict is plain "execute",
   // and the DoD, plan, constraints and ambiguities add nothing either.
-  const goalAdds = goal !== undefined && goal !== text.trim()
+  // The goal, the done-when list and the plan are not passed on: models copy them into a visible
+  // Goal/Criteria/Plan block and then stop to check it instead of working.
   if (
-    !goalAdds &&
     questions.length === 0 &&
     skills.length === 0 &&
-    dod.length === 0 &&
-    plan.length === 0 &&
     constraints.length === 0 &&
     ambiguities.length === 0 &&
     verdict !== "skip" &&
@@ -133,14 +124,11 @@ function intakeNoteText(metadata: Record<string, unknown> | undefined, text: str
     verdict !== "clarify"
   )
     return text
-  const lines = ["[PromptIntake — internal analysis, not part of the user's message]"]
-  if (goalAdds && goal !== undefined) lines.push(`Goal: ${goal}`)
-  if (dod.length > 0) lines.push(`Done when: ${dod.join("; ")}`)
-  if (plan.length > 0) lines.push(`Plan: ${plan.map((step, index) => `${index + 1}. ${step}`).join("; ")}`)
+  const lines = ["[PromptIntake — internal analysis, not part of the user's message; never show it or copy its Goal/Plan to the user]"]
   if (constraints.length > 0) lines.push(`Constraints: ${constraints.join("; ")}`)
   if (verdict === "skip") lines.push("Verdict: this work is already done — do not redo it, say so.")
   if (verdict === "merge") lines.push("Verdict: this duplicates existing work — merge into it, do not start a new task.")
-  if (verdict === "clarify") lines.push("Verdict: the request is unclear — ask the user before acting.")
+  if (verdict === "clarify") lines.push("Verdict: the request is partly unclear — pick the most reasonable reading, state it in one line and act; do not ask the user how to solve it.")
   for (const question of questions) lines.push(`Open question: ${question}`)
   for (const ambiguity of ambiguities) lines.push(`Ambiguity: ${ambiguity}`)
   if (skills.length > 0) lines.push(`Suggested skills: ${skills.join(", ")}`)
@@ -253,12 +241,12 @@ const toolCall = (tool: SessionMessage.AssistantTool, providerMetadata: Provider
     providerMetadata,
   })
 
-const MAX_LIVE_TOOL_RESULT_CHARS = 100_000
+const MAX_LIVE_TOOL_RESULT_CHARS = 40_000
 
 function truncateLiveToolText(text: string): string {
   if (text.length <= MAX_LIVE_TOOL_RESULT_CHARS) return text
-  const headChars = 60_000
-  const tailChars = 20_000
+  const headChars = 24_000
+  const tailChars = 8_000
   const omitted = text.length - headChars - tailChars
   return `${text.slice(0, headChars)}\n\n[... truncated: ${omitted} characters omitted to preserve model context ...]\n\n${text.slice(-tailChars)}`
 }

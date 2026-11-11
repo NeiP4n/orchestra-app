@@ -25,11 +25,11 @@ describe("role tool limits", () => {
     expect(toolRules(["desktop"])).toContainEqual({ action: "playtest", resource: "*", effect: "allow" })
   })
 
-  test("web access brings the documentation MCP servers and the browser brings browser automation", () => {
+  test("web access brings the documentation MCP servers; the browser tool brings no external browser automation", () => {
     expect(toolAllowed(["read", "webfetch"], "context7_query-docs")).toBe(true)
     expect(toolAllowed(["read", "webfetch"], "deepwiki_ask_question")).toBe(true)
     expect(toolAllowed(["read", "webfetch"], "playwright_navigate")).toBe(false)
-    expect(toolAllowed(["read", "browser"], "playwright_navigate")).toBe(true)
+    expect(toolAllowed(["read", "browser"], "playwright_navigate")).toBe(false)
     expect(toolAllowed(["read", "desktop"], "agent-desktop_snapshot")).toBe(true)
     expect(toolAllowed(["read"], "context7_query-docs")).toBe(false)
     expect(Permission.evaluate("context7_query-docs", "*", toolRules(["read", "websearch", "webfetch"])).effect).toBe("allow")
@@ -285,17 +285,17 @@ describe("shared team prompt", () => {
 
 describe("orchestrator triage and modes", () => {
   test("sizes the task before it dispatches a team", () => {
-    expect(PROMPT_ORCHESTRATOR).toContain("Task size — decide before you dispatch")
+    expect(PROMPT_ORCHESTRATOR).toContain("Task size - decide silently from the intended outcome, risks and dependencies")
     expect(PROMPT_ORCHESTRATOR).toContain("Quick: one file or one obvious change")
-    expect(PROMPT_ORCHESTRATOR).toContain("Pick the smallest size that really covers the request")
+    expect(PROMPT_ORCHESTRATOR).toContain("No task-size label, RFC, matrix or architecture proposal unless needed or requested")
     expect(PROMPT_ORCHESTRATOR).toContain("at most ten of your own tool calls orienting before the first dispatch")
     expect(PROMPT_ORCHESTRATOR).toContain("the first dispatch may be that investigation")
   })
 
   test("never shrinks a requested project to one simple task", () => {
     expect(PROMPT_ORCHESTRATOR).not.toContain("Default to the smaller size")
-    expect(PROMPT_ORCHESTRATOR).toContain("it is Deep: never shrink it to one simple task")
-    expect(PROMPT_ORCHESTRATOR).toContain("Deep work — how you run it")
+    expect(PROMPT_ORCHESTRATOR).toContain("A request for a whole working system is Deep; finish its actual scope rather than substituting a small demo")
+    expect(PROMPT_ORCHESTRATOR).toContain("Deep work - how you run it")
     expect(PROMPT_ORCHESTRATOR).toContain("Research first")
     expect(PROMPT_ORCHESTRATOR).toContain("Put every milestone on the DoD board")
     expect(PROMPT_ORCHESTRATOR).toContain("dispatch the next milestone that is now unblocked")

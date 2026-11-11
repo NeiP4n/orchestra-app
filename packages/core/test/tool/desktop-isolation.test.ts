@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { spawn } from "node:child_process"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
@@ -8,13 +9,13 @@ import { McpCatalog } from "@orchestra/core/mcp/catalog"
 import { McpAcquire } from "@orchestra/core/mcp/acquire"
 import { McpSelect } from "@orchestra/core/mcp/select"
 import { ShellTool } from "@orchestra/core/tool/plugin/shell"
-import { ZenBrowserTool } from "@orchestra/core/tool/plugin/zen-browser"
 import type { KV } from "@orchestra/core/kv"
 import { check, dedup } from "@orchestra/core/tool/idempotency"
 
 const FUTURE = "2999-01-01T00:00:00Z"
 
-const envWith = (patch: Record<string, string>): NodeJS.ProcessEnv => ({ ...process.env, ...patch } as NodeJS.ProcessEnv)
+const envWith = (patch: Record<string, string>): NodeJS.ProcessEnv =>
+  ({ ...process.env, ...patch }) as NodeJS.ProcessEnv
 
 const optInEnv = (allowlist = "notepad,zen-browser,agent-desktop,playwright"): NodeJS.ProcessEnv =>
   envWith({
@@ -56,7 +57,9 @@ describe("B7 virtual display", () => {
     expect(DesktopIsolation.virtualDisplay(envWith({ ORCHESTRA_VIRTUAL_DISPLAY: ":100" }))).toBe(":100")
     expect(DesktopIsolation.virtualDisplay(envWith({ ORCHESTRA_VIRTUAL_DISPLAY: "garbage" }))).toBe(":99")
     expect(DesktopIsolation.agentDisplayEnv(envWith({}))).toEqual({ DISPLAY: ":99" })
-    expect(DesktopIsolation.agentDisplayEnv(envWith({ ORCHESTRA_VIRTUAL_DISPLAY: ":100" }))).toEqual({ DISPLAY: ":100" })
+    expect(DesktopIsolation.agentDisplayEnv(envWith({ ORCHESTRA_VIRTUAL_DISPLAY: ":100" }))).toEqual({
+      DISPLAY: ":100",
+    })
   })
 
   test("Xvfb command and socket for a display", () => {
@@ -123,22 +126,34 @@ const waitForDeath = async (pid: number | undefined, timeoutMs = 5_000): Promise
   return !isProcessAlive(pid)
 }
 
-/** Run a block with a fake `openbox` first on PATH. `script` is the stub's
- * body; undefined means no openbox at all (PATH is an empty directory). */
-const withOpenboxOnPath = async (script: string | undefined, run: () => Promise<void>): Promise<void> => {
-  const dir = mkdtempSync(path.join(tmpdir(), "b7-openbox-"))
-  if (script !== undefined) {
-    const stub = path.join(dir, "openbox")
-    writeFileSync(stub, script)
-    chmodSync(stub, 0o755)
+/** Inject real cross-platform JS child processes. No shell/PATH override or real desktop/Xvfb is used. */
+const withOpenboxOnPath = async (
+  script: string | undefined,
+  run: (spawnFn: DesktopIsolation.VirtualDisplaySpawnFn) => Promise<void>,
+): Promise<void> => {
+  const children: ReturnType<typeof spawn>[] = []
+  const spawnFn: DesktopIsolation.VirtualDisplaySpawnFn = (command, args, options) => {
+    expect(["openbox", "Xvfb"]).toContain(command)
+    if (command === "openbox" && script === undefined) throw new Error("openbox fixture not installed")
+    const source =
+      command === "Xvfb"
+        ? `require('node:fs').writeFileSync(${JSON.stringify(path.join("/tmp/.X11-unix", `X${args[0]!.slice(1)}`))}, ''); setInterval(()=>{},1000)`
+        : script!
+    const child = spawn(process.execPath, ["-e", source], {
+      env: { ...process.env, ...options?.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    children.push(child)
+    return child
   }
-  const prevPath = process.env.PATH ?? ""
-  process.env.PATH = script === undefined ? dir : `${dir}:${prevPath}`
   try {
-    await run()
+    await run(spawnFn)
   } finally {
-    process.env.PATH = prevPath
-    rmSync(dir, { recursive: true, force: true })
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) child.kill()
+      if (child.exitCode === null && child.signalCode === null)
+        await new Promise<void>((resolve) => child.once("exit", () => resolve()))
+    }
   }
 }
 
@@ -149,10 +164,10 @@ describe("B7 virtual display window manager", () => {
     const recordPath = path.join(tmpdir(), `b7-wm-display-${process.pid}.txt`)
     // The stub records the DISPLAY it was given, then sleeps so the test can
     // watch it live; `exec` keeps the spawned pid.
-    const stub = `#!/bin/sh\necho "$DISPLAY" > "${recordPath}"\nexec sleep 30\n`
+    const stub = `require("node:fs").writeFileSync(${JSON.stringify(recordPath)}, process.env.DISPLAY); setInterval(()=>{},1000)`
     try {
-      await withOpenboxOnPath(stub, async () => {
-        const status = await DesktopIsolation.ensureVirtualDisplay(display)
+      await withOpenboxOnPath(stub, async (spawnFn) => {
+        const status = await DesktopIsolation.ensureVirtualDisplay(display, 5000, spawnFn)
         expect(status.display).toBe(display)
         expect(status.started).toBe(false)
         if (status.windowManagerPid === undefined) throw new Error("expected a window manager pid")
@@ -160,7 +175,7 @@ describe("B7 virtual display window manager", () => {
         expect(isProcessAlive(status.windowManagerPid)).toBe(true)
         expect(readFileSync(recordPath, "utf8").trim()).toBe(display)
         // A second ensure reuses the running manager instead of starting another.
-        const again = await DesktopIsolation.ensureVirtualDisplay(display)
+        const again = await DesktopIsolation.ensureVirtualDisplay(display, 5000, spawnFn)
         expect(again.windowManagerPid).toBe(status.windowManagerPid)
         DesktopIsolation.stopVirtualDisplay(display)
         expect(await waitForDeath(status.windowManagerPid)).toBe(true)
@@ -180,10 +195,10 @@ describe("B7 virtual display window manager", () => {
     const display = ":96"
     const socket = fakeDisplaySocket(display)
     try {
-      await withOpenboxOnPath(undefined, async () => {
+      await withOpenboxOnPath(undefined, async (spawnFn) => {
         let message = ""
         try {
-          await DesktopIsolation.ensureVirtualDisplay(display)
+          await DesktopIsolation.ensureVirtualDisplay(display, 5000, spawnFn)
         } catch (error) {
           message = error instanceof Error ? error.message : String(error)
         }
@@ -205,10 +220,10 @@ describe("B7 virtual display window manager", () => {
     // stderr and passed while the live check failed. Both streams are
     // accepted, so a future openbox that moves the message still works.
     try {
-      for (const redirect of ["", " >&2"]) {
-        const stub = `#!/bin/sh\necho "Openbox-Message: A window manager is already running on screen 0"${redirect}\nexit 0\n`
-        await withOpenboxOnPath(stub, async () => {
-          const status = await DesktopIsolation.ensureVirtualDisplay(display)
+      for (const redirect of ["stdout", "stderr"]) {
+        const stub = `process.${redirect}.write("Openbox-Message: A window manager is already running on screen 0"); process.exit(0)`
+        await withOpenboxOnPath(stub, async (spawnFn) => {
+          const status = await DesktopIsolation.ensureVirtualDisplay(display, 5000, spawnFn)
           expect(status.display).toBe(display)
           expect(status.started).toBe(false)
           expect(status.windowManagerPid).toBeUndefined()
@@ -227,16 +242,10 @@ describe("B7 virtual display window manager", () => {
     // First openbox call fails like a real one on a dead display (verified
     // live 2026-11-07: "Failed to open the display", exit 1) and removes
     // the stale socket, as a dying X server would; later calls stay up.
-    const stub =
-      `#!/bin/sh\n` +
-      `n=$(cat "${countPath}" 2>/dev/null || echo 0)\n` +
-      `n=$((n + 1))\n` +
-      `echo "$n" > "${countPath}"\n` +
-      `if [ "$n" = "1" ]; then rm -f "${socket}"; echo "Openbox-Message: Failed to open the display from the DISPLAY environment variable."; exit 1; fi\n` +
-      `exec sleep 30\n`
+    const stub = `const fs=require('node:fs'); let n=0; try{n=Number(fs.readFileSync(${JSON.stringify(countPath)},'utf8'))}catch{};n++;fs.writeFileSync(${JSON.stringify(countPath)},String(n));if(n===1){fs.unlinkSync(${JSON.stringify(socket)});console.log('Openbox-Message: Failed to open the display from the DISPLAY environment variable.');process.exit(1)};setInterval(()=>{},1000)`
     try {
-      await withOpenboxOnPath(stub, async () => {
-        const status = await DesktopIsolation.ensureVirtualDisplay(display)
+      await withOpenboxOnPath(stub, async (spawnFn) => {
+        const status = await DesktopIsolation.ensureVirtualDisplay(display, 5000, spawnFn)
         expect(status.display).toBe(display)
         expect(status.started).toBe(true)
         if (status.windowManagerPid === undefined) throw new Error("expected a window manager pid")
@@ -258,12 +267,12 @@ describe("B7 virtual display window manager", () => {
   test("a window manager that exits at once fails loudly", async () => {
     const display = ":94"
     const socket = fakeDisplaySocket(display)
-    const stub = `#!/bin/sh\necho "openbox: cannot open display $DISPLAY" >&2\nexit 1\n`
+    const stub = `console.error("openbox: cannot open display " + process.env.DISPLAY); process.exit(1)`
     try {
-      await withOpenboxOnPath(stub, async () => {
+      await withOpenboxOnPath(stub, async (spawnFn) => {
         let message = ""
         try {
-          await DesktopIsolation.ensureVirtualDisplay(display)
+          await DesktopIsolation.ensureVirtualDisplay(display, 5000, spawnFn)
         } catch (error) {
           message = error instanceof Error ? error.message : String(error)
         }
@@ -284,7 +293,11 @@ describe("B7 real-screen opt-in", () => {
     expect(captureOnly.allowed).toBe(false)
     expect(captureOnly.reason).toContain("ORCHESTRA_DESKTOP_REAL_SCREEN=on")
     const noAllowlist = DesktopIsolation.realScreenDecision(
-      envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on", ORCHESTRA_DESKTOP_REAL_SCREEN: "on", ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL: FUTURE }),
+      envWith({
+        ORCHESTRA_DESKTOP_CAPTURE: "on",
+        ORCHESTRA_DESKTOP_REAL_SCREEN: "on",
+        ORCHESTRA_DESKTOP_REAL_SCREEN_UNTIL: FUTURE,
+      }),
     )
     expect(noAllowlist.allowed).toBe(false)
     expect(noAllowlist.reason).toContain("ALLOWLIST is empty")
@@ -305,7 +318,9 @@ describe("B7 real-screen opt-in", () => {
   test("the allowlist must name the app; a basename match counts", () => {
     const env = optInEnv()
     expect(DesktopIsolation.realScreenDecision(env, "calc").allowed).toBe(false)
-    expect(DesktopIsolation.realScreenDecision(env, "calc").reason).toContain("not in ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST")
+    expect(DesktopIsolation.realScreenDecision(env, "calc").reason).toContain(
+      "not in ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST",
+    )
     expect(DesktopIsolation.realScreenDecision(env, "notepad").allowed).toBe(true)
     expect(DesktopIsolation.realScreenDecision(env, "C:\\Windows\\notepad.exe").allowed).toBe(true)
     expect(DesktopIsolation.realScreenDecision(env).allowed).toBe(true)
@@ -332,15 +347,15 @@ describe("B7 shell escapes", () => {
       "wl-copy < file",
       "pbpaste",
       "powershell -Command \"[System.Windows.Forms.SendKeys]::SendWait('hello')\"",
-      "powershell -Command \"[OcDesk]::SetCursorPos(10, 10)\"",
+      'powershell -Command "[OcDesk]::SetCursorPos(10, 10)"',
       "DISPLAY=:0 xdg-open https://example.com",
       "DISPLAY=$DISPLAY grim shot.png",
       // G2-9: macOS GUI control and scripted GUI automation.
       "osascript -e 'tell application \"System Events\" to click at {10, 10}'",
       "cliclick c:100,100",
-      "python3 -c \"import pyautogui; pyautogui.click(10, 10)\"",
-      "python3 -c \"import pynput; from pynput.mouse import Controller\"",
-      "python3 -c \"import pywinauto; pywinauto.mouse.click()\"",
+      'python3 -c "import pyautogui; pyautogui.click(10, 10)"',
+      'python3 -c "import pynput; from pynput.mouse import Controller"',
+      'python3 -c "import pywinauto; pywinauto.mouse.click()"',
       // G2-9: X window tools and Android control.
       "xprop -root",
       "xwininfo -root -tree",
@@ -381,7 +396,9 @@ describe("B7 shell escapes", () => {
 describe("G2-9 desktop platform gate", () => {
   test("Linux always passes: the agent works on its virtual display", () => {
     expect(DesktopIsolation.desktopPlatformDenial(envWith({}), "linux")).toBeUndefined()
-    expect(DesktopIsolation.desktopPlatformDenial(envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on" }), "linux")).toBeUndefined()
+    expect(
+      DesktopIsolation.desktopPlatformDenial(envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on" }), "linux"),
+    ).toBeUndefined()
     expect(DesktopIsolation.desktopPlatformDenial(optInEnv(), "linux")).toBeUndefined()
   })
 
@@ -405,41 +422,26 @@ describe("G2-9 desktop platform gate", () => {
   })
 })
 
-describe("B7 zen_browser gate", () => {
-  test("status is always allowed; every other action needs the opt-in", () => {
-    const env = envWith({ ORCHESTRA_DESKTOP_CAPTURE: "on" })
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "status" }, env)).toBeUndefined()
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "tabs" }, env)).toContain("blocked")
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "navigate", url: "https://example.com" }, env)).toContain("blocked")
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "tabs" }, optInEnv())).toBeUndefined()
-    expect(ZenBrowserTool.deniedByRealScreenGate({ action: "tabs" }, optInEnv("firefox"))).toContain("not in ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST")
-  })
-})
-
 describe("B7 MCP real-screen servers", () => {
   test("only playwright and agent-desktop are marked real-screen", () => {
     expect(McpCatalog.isRealScreenServer("playwright")).toBe(true)
     expect(McpCatalog.isRealScreenServer("agent-desktop")).toBe(true)
     expect(McpCatalog.isRealScreenServer("context7")).toBe(false)
     expect(McpCatalog.isRealScreenServer("serena")).toBe(false)
-    expect(McpCatalog.all.find((entry) => entry.id === "playwright")?.realScreen).toBe(true)
-    expect(McpCatalog.all.find((entry) => entry.id === "agent-desktop")?.realScreen).toBe(true)
+    expect(McpCatalog.all.find((entry) => entry.id === "playwright")).toBeUndefined()
+    expect(McpCatalog.all.find((entry) => entry.id === "agent-desktop")).toBeUndefined()
   })
 
-  test("the selector still matches real-screen servers; the gate lives in acquire, not in ranking", async () => {
-    // rank is a pure matcher: a browser need still finds playwright. What
-    // the gate blocks is installing/connecting it (see the acquire test
-    // below) and calling its tools (MCP.callTool) — not matching the need.
-    await withEnv(
-      { ORCHESTRA_DESKTOP_CAPTURE: undefined, ORCHESTRA_DESKTOP_REAL_SCREEN: undefined },
-      () => {
-        expect(McpSelect.rank("playwright").some((match) => match.entry.id === "playwright")).toBe(true)
-        expect(McpSelect.rank("agent-desktop").some((match) => match.entry.id === "agent-desktop")).toBe(true)
-      },
-    )
+  test("retired real-screen servers are not rediscovered by ranking; safety classification remains", async () => {
+    // Catalog removal must not remove the independent safety classification
+    // used to guard manually configured real-screen servers.
+    await withEnv({ ORCHESTRA_DESKTOP_CAPTURE: undefined, ORCHESTRA_DESKTOP_REAL_SCREEN: undefined }, () => {
+      expect(McpSelect.rank("playwright")).toEqual([])
+      expect(McpSelect.rank("agent-desktop").some((match) => match.entry.id === "agent-desktop")).toBe(false)
+    })
   })
 
-  test("acquire refuses a real-screen server while the gate is closed and installs it once open", async () => {
+  test("acquire cannot reinstall a retired real-screen server, even with a valid opt-in", async () => {
     const calls: string[] = []
     const access: McpAcquire.Access = {
       servers: () => Effect.succeed([]),
@@ -447,15 +449,19 @@ describe("B7 MCP real-screen servers", () => {
       connect: () => Effect.succeed(undefined),
       tools: () => Effect.succeed([]),
     }
-    await withEnv({ ORCHESTRA_DESKTOP_CAPTURE: undefined, ORCHESTRA_DESKTOP_REAL_SCREEN: undefined }, async () => {
-      const refused = await Effect.runPromise(McpAcquire.ensure(access, "agent-desktop"))
-      expect(refused.action).toBe("none")
-      expect(refused.state).toBe("failed")
-      expect(refused.detail).toContain("blocked")
-      expect(calls).toEqual([])
-    })
+    await withEnv(
+      { ORCHESTRA_MCP: "1", ORCHESTRA_DESKTOP_CAPTURE: undefined, ORCHESTRA_DESKTOP_REAL_SCREEN: undefined },
+      async () => {
+        const refused = await Effect.runPromise(McpAcquire.ensure(access, "agent-desktop"))
+        expect(refused.action).toBe("none")
+        expect(refused.state).toBe("unavailable")
+        expect(refused.detail).toContain("No MCP catalog entry")
+        expect(calls).toEqual([])
+      },
+    )
     await withEnv(
       {
+        ORCHESTRA_MCP: "1",
         ORCHESTRA_DESKTOP_CAPTURE: "on",
         ORCHESTRA_DESKTOP_REAL_SCREEN: "on",
         ORCHESTRA_DESKTOP_REAL_SCREEN_ALLOWLIST: "agent-desktop",
@@ -463,8 +469,9 @@ describe("B7 MCP real-screen servers", () => {
       },
       async () => {
         const ensured = await Effect.runPromise(McpAcquire.ensure(access, "agent-desktop"))
-        expect(ensured.action).toBe("installed")
-        expect(calls).toEqual(["add"])
+        expect(ensured.action).toBe("none")
+        expect(ensured.state).toBe("unavailable")
+        expect(calls).toEqual([])
       },
     )
   })
@@ -494,7 +501,12 @@ describe("B7 dedup across re-entry", () => {
     const store = new Map<string, KV.Value>()
     const input = { sessionID: "ses-1", action: "desktop_open", target: "https://example.com" }
     let runs = 0
-    const open = (kv: KV.Interface) => dedup(kv, input, Effect.sync(() => `opened (#${(runs += 1)})`))
+    const open = (kv: KV.Interface) =>
+      dedup(
+        kv,
+        input,
+        Effect.sync(() => `opened (#${(runs += 1)})`),
+      )
     await Effect.runPromise(open(fakeKV(store)))
     expect(runs).toBe(1)
     // The process restarts: a new KV service, the same durable store.

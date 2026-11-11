@@ -395,6 +395,19 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectTemplateListOutput,
+  OrchestraProjectTemplatePrepareSaveInput,
+  OrchestraProjectTemplatePrepareSaveOutput,
+  OrchestraProjectTemplateConfirmSaveInput,
+  OrchestraProjectTemplateConfirmSaveOutput,
+  OrchestraProjectTemplatePrepareCreateInput,
+  OrchestraProjectTemplatePrepareCreateOutput,
+  OrchestraProjectTemplateConfirmCreateInput,
+  OrchestraProjectTemplateConfirmCreateOutput,
+  OrchestraProjectTemplateFinishCreateInput,
+  OrchestraProjectTemplateFinishCreateOutput,
+  OrchestraProjectTemplateBrowsersInput,
+  OrchestraProjectTemplateBrowsersOutput,
   OrchestraProjectListOutput,
   OrchestraTemplateListOutput,
   OrchestraTemplateCreateInput,
@@ -2435,6 +2448,65 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   },
 })
 
+const EndpointOrchestraProjectTemplateList = (raw: RawClient["server.orchestra"]) => () =>
+  preserveEffect<OrchestraProjectTemplateListOutput>()(
+    raw["orchestra.projectTemplate.list"]({}).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointOrchestraProjectTemplatePrepareSave =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplatePrepareSaveInput) =>
+    preserveEffect<OrchestraProjectTemplatePrepareSaveOutput>()(
+      raw["orchestra.projectTemplate.prepareSave"]({
+        payload: { projectID: input["projectID"], browsers: input["browsers"], templateID: input["templateID"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointOrchestraProjectTemplateConfirmSave =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateConfirmSaveInput) =>
+    preserveEffect<OrchestraProjectTemplateConfirmSaveOutput>()(
+      raw["orchestra.projectTemplate.confirmSave"]({
+        payload: {
+          token: input["token"],
+          browsers: input["browsers"],
+          omitUnsafeLinks: input["omitUnsafeLinks"],
+          omitInvalidBrowserBindings: input["omitInvalidBrowserBindings"],
+          acceptUnresolvedRoles: input["acceptUnresolvedRoles"],
+        },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointOrchestraProjectTemplatePrepareCreate =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplatePrepareCreateInput) =>
+    preserveEffect<OrchestraProjectTemplatePrepareCreateOutput>()(
+      raw["orchestra.projectTemplate.prepareCreate"]({
+        payload: { templateID: input["templateID"], settingsDirectory: input["settingsDirectory"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointOrchestraProjectTemplateConfirmCreate =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateConfirmCreateInput) =>
+    preserveEffect<OrchestraProjectTemplateConfirmCreateOutput>()(
+      raw["orchestra.projectTemplate.confirmCreate"]({ payload: { token: input["token"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointOrchestraProjectTemplateFinishCreate =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateFinishCreateInput) =>
+    preserveEffect<OrchestraProjectTemplateFinishCreateOutput>()(
+      raw["orchestra.projectTemplate.finishCreate"]({ payload: { token: input["token"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointOrchestraProjectTemplateBrowsers =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateBrowsersInput) =>
+    preserveEffect<OrchestraProjectTemplateBrowsersOutput>()(
+      raw["orchestra.projectTemplate.browsers"]({ params: { projectID: input["projectID"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
 const EndpointOrchestraProjectList = (raw: RawClient["server.orchestra"]) => () =>
   preserveEffect<OrchestraProjectListOutput>()(raw["orchestra.project.list"]({}).pipe(Effect.mapError(mapClientError)))
 
@@ -2681,6 +2753,15 @@ const EndpointOrchestraLinkList = (raw: RawClient["server.orchestra"]) => (input
   )
 
 const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
+  projectTemplate: {
+    list: EndpointOrchestraProjectTemplateList(raw),
+    prepareSave: EndpointOrchestraProjectTemplatePrepareSave(raw),
+    confirmSave: EndpointOrchestraProjectTemplateConfirmSave(raw),
+    prepareCreate: EndpointOrchestraProjectTemplatePrepareCreate(raw),
+    confirmCreate: EndpointOrchestraProjectTemplateConfirmCreate(raw),
+    finishCreate: EndpointOrchestraProjectTemplateFinishCreate(raw),
+    browsers: EndpointOrchestraProjectTemplateBrowsers(raw),
+  },
   project: {
     list: EndpointOrchestraProjectList(raw),
     create: EndpointOrchestraProjectCreate(raw),

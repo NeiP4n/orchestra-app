@@ -28,6 +28,16 @@ const mandateHeadings = [
 ]
 
 describe("orchestrator prompt size", () => {
+  test("role and roster explain independent project-local worker creation without changing permission ceilings", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("not a staffing ceiling")
+    expect(PROMPT_ORCHESTRATOR).toContain("sessions create with role, text and mcp")
+    expect(PROMPT_ORCHESTRATOR).toContain("newInstance=true")
+    expect(PROMPT_ORCHESTRATOR).toContain("never bypass read-only access")
+    expect(PROMPT_ORCHESTRATOR).toContain("Plan the next dependency wave")
+    expect(PROMPT_ORCHESTRATOR).not.toContain("do not launch subagents")
+    expect(PROMPT_ORCHESTRATOR).toContain("masked Vault input only, never chat, .env")
+    expect(PROMPT_ORCHESTRATOR).toContain("Never ask how to solve or whether to continue")
+  })
   test("the base prompt stays under its word budget", () => {
     expect(words(PROMPT_ORCHESTRATOR)).toBeLessThanOrEqual(BASE_WORD_LIMIT)
   })
@@ -84,4 +94,8 @@ describe("orchestrator prompt size", () => {
     const repeated = bullets(PROMPT_ORCHESTRATOR_FULL).filter((line) => worker.has(line))
     expect(repeated).toEqual([])
   })
+})
+
+test("the Orchestrator reports only what a tool result verified", () => {
+  expect(PROMPT_ORCHESTRATOR).toContain("Report only what a tool result VERIFIED")
 })

@@ -1,3 +1,4 @@
+import { AntigravityOAuthConfigurationError } from "./constants.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -14,7 +15,7 @@ import { createLogger } from "./plugin/logger.js";
 import { ensureProjectContext } from "./plugin/project.js";
 import { executeSearch } from "./plugin/search.js";
 import { startOAuthListener } from "./plugin/server.js";
-import { loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts } from "./plugin/storage.js";
+import { accountWasDeleted, accountDeletionKeys, deleteAccountIdentity, newAccountIdentity, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts } from "./plugin/storage.js";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token.js";
 import { resolveModelWithTier } from "./plugin/transform/model-resolver.js";
 const PROVIDER_ID = "google";
@@ -22,10 +23,24 @@ const METHOD_ID = "antigravity";
 // Core rewrites the standard Google SDK package to its native transport after
 // every provider/model update. Its local module URL avoids that conversion and
 // lets Core's earlier generic SDK loader use our installed dependency directly.
-const SDK_PACKAGE = typeof import.meta.resolve === "function"
-    ? import.meta.resolve("@ai-sdk/google")
-    : pathToFileURL(createRequire(import.meta.url).resolve("@ai-sdk/google")).href;
+const SDK_PACKAGE = resolveSdkPackage();
 const GOOGLE_PACKAGE = `aisdk:${SDK_PACKAGE}`;
+// The compiled CLI binary has no node_modules layout, so resolving the installed
+// SDK package throws there at import time and the whole server dies before it
+// starts. Fall back to the bare package specifier: Core rewrites it to the
+// bundled native Google transport (which uses OAuth access tokens as API keys),
+// so the server starts and Antigravity models keep working through the native
+// route instead of the SDK hook.
+function resolveSdkPackage() {
+    try {
+        if (typeof import.meta.resolve === "function")
+            return import.meta.resolve("@ai-sdk/google");
+        return pathToFileURL(createRequire(import.meta.url).resolve("@ai-sdk/google")).href;
+    }
+    catch {
+        return "@ai-sdk/google";
+    }
+}
 const API_KEY_SENTINEL = "antigravity-oauth";
 const ownsModel = (id) => id.startsWith("antigravity-");
 function mergeBody(base, overlay) {
@@ -82,13 +97,23 @@ export const AntigravityV2Plugin = Plugin.define({
         const outbound = new AsyncLocalStorage();
         let modelAccounts = {};
         let accountCatalogLoaded = false;
+        let catalogWrittenAt = 0;
         const transport = await createAntigravityPlugin(PROVIDER_ID)({
             client,
             directory: ctx.location.directory,
             runtimeVersion: 2,
             canUseAccount: (account, model) => {
+                if (!accountCatalogLoaded)
+                    return true;
                 const eligible = modelAccounts[`antigravity-${resolveModelWithTier(model).actualModel}`];
-                return !accountCatalogLoaded || !!eligible?.includes(accountID(account));
+                if (!eligible)
+                    return false;
+                if (eligible.includes(accountID(account)))
+                    return true;
+                // An account connected after the catalog was written cannot appear in it,
+                // so its absence says nothing about access. Excluding it would keep a
+                // freshly added account out of rotation until the next model discovery.
+                return (account.addedAt ?? 0) > catalogWrittenAt;
             },
             fetch: (input, init) => {
                 const send = outbound.getStore() ?? globalThis.fetch;
@@ -109,8 +134,10 @@ export const AntigravityV2Plugin = Plugin.define({
         const validCache = cached?.identity === accountPoolIdentity(saved?.accounts ?? []) && cached.models;
         let modelDefinitions = validCache ? buildAccountModelDefinitions(validCache) : OPENCODE_V2_MODEL_DEFINITIONS;
         accountCatalogLoaded = !!validCache;
-        if (validCache)
+        if (validCache) {
             modelAccounts = cached.accounts;
+            catalogWrittenAt = cached.updatedAt;
+        }
         let discoveryGeneration = 0;
         let catalogSnapshot;
         const catalogWrites = new Set();
@@ -177,7 +204,8 @@ export const AntigravityV2Plugin = Plugin.define({
             modelDefinitions = buildAccountModelDefinitions(models);
             modelAccounts = eligibleAccounts;
             accountCatalogLoaded = true;
-            catalogSnapshot = JSON.parse(JSON.stringify({ version: 3, identity: accountPoolIdentity(latest?.accounts ?? []), updatedAt: Date.now(), models, accounts: eligibleAccounts }));
+            catalogWrittenAt = Date.now();
+            catalogSnapshot = JSON.parse(JSON.stringify({ version: 3, identity: accountPoolIdentity(latest?.accounts ?? []), updatedAt: catalogWrittenAt, models, accounts: eligibleAccounts }));
             const writing = writeCatalog();
             catalogWrites.add(writing);
             try {
@@ -246,11 +274,13 @@ export const AntigravityV2Plugin = Plugin.define({
                 // V1 credentials are imported with a generic method ID. Only matching
                 // this plugin's existing pool establishes their Antigravity ownership.
                 const metadataID = value.metadata?.antigravityAccountId;
-                const account = stored?.accounts.find(item => matchesAccountToken(item, parseRefreshParts(value.refresh).refreshToken))
-                    ?? stored?.accounts.find(item => (typeof metadataID === "string" && item.id === metadataID) || (typeof boundID === "string" && item.id === boundID) || (typeof value.metadata?.email === "string" && item.email === value.metadata.email));
+                const stableID = typeof metadataID === "string" ? metadataID : typeof boundID === "string" ? boundID : undefined;
+                const token = parseRefreshParts(value.refresh).refreshToken;
+                const sourceRevoked = !!stored && accountWasDeleted(stored, { ...(stableID ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 });
+                const account = sourceRevoked ? undefined : stored?.accounts.find(item => stableID ? accountID(item) === stableID : matchesAccountToken(item, token));
                 if (account && bindingKey)
                     await ctx.storage.set(bindingKey, accountID(account));
-                const knownAccountRemoved = (typeof metadataID === "string" || typeof boundID === "string") && !account;
+                const knownAccountRemoved = (sourceRevoked || typeof metadataID === "string" || typeof boundID === "string") && !account;
                 if (account?.enabled !== false && poolSelection !== "pool" && (connection.type !== "credential" || poolSelection !== connection.id)) {
                     if (!knownAccountRemoved) {
                         const auth = account ? { ...value, refresh: formatRefreshParts(account) } : value;
@@ -315,7 +345,10 @@ export const AntigravityV2Plugin = Plugin.define({
                 let remembered = false;
                 const originalToken = parseRefreshParts(previous.refresh).refreshToken;
                 const saved = await updateAccounts(storage => {
-                    const account = storage.accounts.find(item => matchesAccountToken(item, originalToken) || (typeof previous.metadata?.antigravityAccountId === "string" && item.id === previous.metadata.antigravityAccountId));
+                    const stableID = previous.metadata?.antigravityAccountId;
+                    if (accountWasDeleted(storage, { ...(typeof stableID === "string" ? { id: stableID } : {}), refreshToken: originalToken, addedAt: 0, lastUsed: 0 }))
+                        return false;
+                    const account = storage.accounts.find(item => typeof stableID === "string" ? accountID(item) === stableID : matchesAccountToken(item, originalToken));
                     if (!account)
                         return;
                     remembered = true;
@@ -326,8 +359,7 @@ export const AntigravityV2Plugin = Plugin.define({
                 if (remembered)
                     return saved?.accounts.find(item => item.refreshToken === parts.refreshToken || item.id === previous.metadata?.antigravityAccountId);
                 // A saved native credential may outlive an explicitly deleted pool entry.
-                if (previous.metadata?.antigravityAccountId)
-                    return undefined;
+                return undefined;
             }
             const saved = await updateAccounts(storage => {
                 const account = storage.accounts.find(item => matchesAccountToken(item, parts.refreshToken) || (!!email && item.email === email));
@@ -336,7 +368,7 @@ export const AntigravityV2Plugin = Plugin.define({
                     account.email = email ?? account.email;
                 }
                 else {
-                    storage.accounts.push({ id: accountID({ refreshToken: parts.refreshToken }), refreshToken: parts.refreshToken, projectId: parts.projectId, managedProjectId: parts.managedProjectId, email, enabled: true, addedAt: Date.now(), lastUsed: 0 });
+                    storage.accounts.push({ id: newAccountIdentity(storage, parts.refreshToken), refreshToken: parts.refreshToken, projectId: parts.projectId, managedProjectId: parts.managedProjectId, email, enabled: true, addedAt: Date.now(), lastUsed: 0 });
                 }
             });
             return saved?.accounts.find(item => item.refreshToken === parts.refreshToken);
@@ -463,7 +495,7 @@ export const AntigravityV2Plugin = Plugin.define({
                         label: "Google OAuth (Antigravity)",
                         form: [
                             { key: "projectId", type: "string", title: "Google Cloud project ID (optional)" },
-                            { key: "manual", type: "boolean", title: "Paste an authorization code or callback URL", default: true },
+                            { key: "manual", type: "boolean", title: "Paste the authorization code manually instead of using the local callback", default: false },
                         ],
                     },
                     async authorize(answer) {
@@ -482,6 +514,9 @@ export const AntigravityV2Plugin = Plugin.define({
                                     if (callback.origin !== redirect.origin || callback.pathname !== redirect.pathname || callback.searchParams.get("state") !== state) {
                                         throw new Error("Invalid Antigravity OAuth callback URL or state");
                                     }
+                                    const denied = callback.searchParams.get("error");
+                                    if (denied)
+                                        throw new Error(`Google did not authorize the sign-in: ${callback.searchParams.get("error_description") ?? denied}`);
                                     code = callback.searchParams.get("code") ?? "";
                                 }
                                 if (!code)
@@ -504,10 +539,26 @@ export const AntigravityV2Plugin = Plugin.define({
                                 invalidateLoader();
                                 return oauthCredential({ ...result, type: "oauth" }, { ...(result.email ? { email: result.email } : {}), ...(account?.id ? { antigravityAccountId: account.id } : {}) });
                             });
-                            if (answer.manual !== false) {
-                                return { url: auth.url, instructions: "Open this URL, then paste the authorization code or full callback URL.", mode: "code", callback: complete };
+                            const manual = {
+                                url: auth.url,
+                                instructions: "Open this URL, then paste the authorization code or full callback URL.",
+                                mode: "code",
+                                callback: complete,
+                            };
+                            if (answer.manual === true)
+                                return manual;
+                            // An earlier attempt that was cancelled still holds the callback port until it times out.
+                            await Promise.allSettled([...listeners].map((previous) => previous.close()));
+                            listeners.clear();
+                            let listener;
+                            try {
+                                listener = await startOAuthListener();
                             }
-                            const listener = await startOAuthListener();
+                            catch (error) {
+                                // The local callback is unavailable (port taken, no loopback); pasting still works.
+                                log.warn("Antigravity callback listener unavailable", { error: String(error) });
+                                return { ...manual, instructions: `The local callback could not start (${error instanceof Error ? error.message : String(error)}). ${manual.instructions}` };
+                            }
                             listeners.add(listener);
                             const callback = listener.waitForCallback()
                                 .then((url) => complete(url.toString()))
@@ -528,7 +579,11 @@ export const AntigravityV2Plugin = Plugin.define({
                         return runCredentialOperation(async () => {
                             const sourceConnection = await ctx.integration.connection.active(PROVIDER_ID);
                             const stored = await loadManagedAccounts();
-                            const original = stored?.accounts.find(account => matchesAccountToken(account, parseRefreshParts(credential.refresh).refreshToken) || (typeof credential.metadata?.antigravityAccountId === "string" && account.id === credential.metadata.antigravityAccountId));
+                            const stableID = credential.metadata?.antigravityAccountId;
+                            const token = parseRefreshParts(credential.refresh).refreshToken;
+                            if (stored && accountWasDeleted(stored, { ...(typeof stableID === "string" ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 }))
+                                return { ...credential, access: "", expires: Date.now() + 6 * 60_000 };
+                            const original = stored?.accounts.find(account => typeof stableID === "string" ? accountID(account) === stableID : matchesAccountToken(account, token));
                             const previous = original?.id ? { ...credential, refresh: formatRefreshParts(original), metadata: { ...credential.metadata, antigravityAccountId: original.id } } : credential;
                             try {
                                 const refreshed = await refreshAccessToken(previous, client, PROVIDER_ID);
@@ -539,6 +594,8 @@ export const AntigravityV2Plugin = Plugin.define({
                                 return oauthCredential(account ? { ...refreshed, refresh: formatRefreshParts(account) } : refreshed, { ...credential.metadata, ...(account?.id ? { antigravityAccountId: account.id } : {}) });
                             }
                             catch (error) {
+                                if (error instanceof AntigravityOAuthConfigurationError)
+                                    throw error;
                                 if (error instanceof AntigravityTokenRefreshError && error.code === "invalid_grant") {
                                     let revoked = false;
                                     await updateAccounts(stored => {
@@ -557,6 +614,53 @@ export const AntigravityV2Plugin = Plugin.define({
                                 // step available so the transport can rotate to another account.
                                 // Six minutes clears Core's five-minute refresh buffer briefly.
                                 return { ...credential, access: "", expires: Date.now() + 6 * 60_000 };
+                            }
+                        });
+                    },
+                    async remove(credential, credentialID) {
+                        return runCredentialOperation(async () => {
+                            const bindingKey = `connection-account:${credentialID}`;
+                            const boundID = await ctx.storage.get(bindingKey);
+                            const metadataID = credential.metadata?.antigravityAccountId;
+                            if (typeof boundID === "string" && typeof metadataID === "string" && boundID !== metadataID)
+                                throw new Error("Conflicting account identity bindings; reopen the account manager");
+                            const stableID = typeof metadataID === "string" ? metadataID : typeof boundID === "string" ? boundID : undefined;
+                            const token = parseRefreshParts(credential.refresh).refreshToken;
+                            let owned = false;
+                            invalidateLoader();
+                            try {
+                                await transport.flush?.();
+                                const saved = await updateAccounts(storage => {
+                                    // Stable binding wins. Never fall back to email, or from a missing
+                                    // stable ID to another account which happens to have the same token.
+                                    const previouslyRevoked = accountWasDeleted(storage, { ...(stableID ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 });
+                                    const candidates = previouslyRevoked ? [] : storage.accounts.filter(account => stableID ? accountID(account) === stableID : matchesAccountToken(account, token));
+                                    if (candidates.length > 1)
+                                        throw new Error("Ambiguous account identity; reopen the account manager");
+                                    const account = candidates[0];
+                                    owned = !!account || !!stableID || previouslyRevoked || credential.methodID === METHOD_ID;
+                                    if (!owned)
+                                        return false;
+                                    if (account)
+                                        return deleteAccountIdentity(storage, accountID(account));
+                                    // Repeated deletion and legacy credentials must also revoke stale
+                                    // snapshots when the pool file has already lost its account row.
+                                    const keys = accountDeletionKeys({ ...(stableID ? { id: stableID } : {}), refreshToken: token, addedAt: 0, lastUsed: 0 });
+                                    const existing = new Set(storage.deletedAccountKeys ?? []);
+                                    const changed = keys.some(key => !existing.has(key));
+                                    storage.deletedAccountKeys = [...new Set([...existing, ...keys])];
+                                    return changed;
+                                }, { strict: true });
+                                hasSavedAccounts = saved?.accounts.some(account => account.enabled !== false) ?? false;
+                                if (owned) {
+                                    await ctx.storage.remove(bindingKey);
+                                    await ctx.storage.remove("model-catalog");
+                                }
+                            }
+                            finally {
+                                // Also retire a loader created while the first flush was draining.
+                                invalidateLoader();
+                                await transport.flush?.();
                             }
                         });
                     },
@@ -705,12 +809,10 @@ export const AntigravityV2Plugin = Plugin.define({
                 await ctx.provider.reload();
             }, runCredentialOperation));
             if (hasSavedAccounts && ctx.options.discoverModels !== false && (!validCache || Date.now() - (cached?.updatedAt ?? 0) > 3600_000)) {
-                try {
-                    await refreshModels();
-                }
-                catch (error) {
-                    log.warn("Model discovery unavailable; using cached or fallback models", { error: String(error) });
-                }
+                // Discovery asks Google once per account. Setup must not wait for it: the host fails a plugin
+                // whose setup runs past 30 seconds, and every model of the provider goes with it. The cached or
+                // fallback catalog serves until discovery finishes and reloads the provider.
+                void refreshModels().catch(error => log.warn("Model discovery unavailable; using cached or fallback models", { error: String(error) }));
             }
             return cleanup;
         }

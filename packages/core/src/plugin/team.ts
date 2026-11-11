@@ -1,5 +1,6 @@
 export * as TeamPlugin from "./team.js"
 
+import { RuleEnforce } from "../rule-enforce.js"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { define } from "@orchestra/plugin/effect/plugin"
@@ -7,6 +8,7 @@ import { modeOf } from "@orchestra/schema/federation"
 import { Mode } from "@orchestra/schema/mode"
 import { Model } from "@orchestra/schema/model"
 import type { SessionID } from "@orchestra/schema/session-id"
+import { PromptInput } from "@orchestra/schema/prompt-input"
 import { Tool } from "@orchestra/schema/tool"
 import { Cause, Effect, Option, Stream } from "effect"
 import { Agent } from "../agent.js"
@@ -46,7 +48,7 @@ const NOTES_LIMIT = 8_000
 // Permission actions a role's tool list governs; other actions (asking, other directories) are not tools.
 const TOOL_ACTIONS = new Set(Orchestra.toolGroups.flatMap((group) => group.actions))
 // The Orchestrator may look around briefly before it dispatches; past this many calls it must hand the work on.
-const EXPLORE_LIMIT = 6
+export const EXPLORE_LIMIT = 15
 const EXPLORING_TOOLS = new Set(["read", "grep", "glob", "shell"])
 // Shell commands the Registry (hub) has ready recipes for. A model that never calls hub is told once per session.
 const HUB_COVERED = /(?:^|[\s;&|(])(?:rg|grep|egrep|fgrep|find|fd|jq|yq)\s|git\s+grep/
@@ -103,6 +105,10 @@ const SOCIETY_GUIDANCE = (name: string, projects: ReadonlyArray<{ id: string; na
     .filter(Boolean)
     .join("\n")
 
+// The BrowserAgent works at once and answers in plain words: no Goal/Criteria/Plan block, no report form.
+// The first line is the state word the Orchestrator reads; the rest is free text.
+export const BROWSER_TEAM = `You are the BrowserAgent of a project's AI team. The Orchestrator sends you page commands for one browser session; its message is your whole brief. Act on it at once: do not write a goal, criteria or plan first, and do not stop to look for a reason you cannot continue. If a step fails, try another route in the page. Your final message is your report to the Orchestrator. Its first line is exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, English). Then a short plain summary in the language of the task.`
+
 export const TEAM = `You are one session of a project's AI team, working for the project's Orchestrator. Each task you receive comes from it. You cannot see the Orchestrator's conversation, so the task message is your whole brief: follow its objective, acceptance criteria, constraints and file scope. Your role's own rules follow these shared ones.
 
 How to work:
@@ -114,6 +120,7 @@ Fast-Read & Targeted Navigation Protocol:
 - NARROW GREP: Use 'grep' with specific 'include' patterns and path restrictions instead of scanning the whole project.
 - IMMEDIATE ACTION: Jump straight into the task's assigned file scope and deliver verified results.
 - Start working right away. Do not ask the Orchestrator for things you can find in the repository. If something is truly missing, make a reasonable, reversible assumption, state it in the report, and continue; stop only when guessing could cause damage.
+- Before you write "I do not know" or "I cannot": look it up first (research or websearch, the repository, project notes, memory), then ask through a question naming the colleague role that would know (researcher, architect, debugger). Only then report that you could not, and list what you tried.
 - Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
 - Use the project's own languages, frameworks, scripts and conventions.
 - Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.
@@ -176,7 +183,8 @@ export const Plugin = define({
     const federation = yield* Federation.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
-    const team ={ roles: yield* orchestra.roles() }
+    const agents = yield* Agent.Service
+    const team = { roles: yield* orchestra.scopedRoles() }
     yield* warnUnlistedRoles(team.roles)
     // A session's stored mode wins; without one, the role's default applies. `auto` is an
     // explicit cancellation of the default, not a missing value to replace.
@@ -196,7 +204,7 @@ export const Plugin = define({
     })
     yield* orchestra.changes.pipe(
       Stream.runForEach(() =>
-        orchestra.roles().pipe(
+        orchestra.scopedRoles().pipe(
           Effect.tap((roles) => Effect.sync(() => (team.roles = roles))),
           Effect.tap((roles) => warnUnlistedRoles(roles)),
           Effect.andThen(ctx.agent.reload()),
@@ -209,8 +217,9 @@ export const Plugin = define({
         editor.update(role.agent, (item) => {
           item.name = Agent.Name.make(role.name)
           item.description = role.description
-          item.system = role.rules ? `${TEAM}\n\n${role.rules}` : TEAM
+          item.system = role.id === "browser-agent" ? `${BROWSER_TEAM}\n\n${role.rules}` : role.rules ? `${TEAM}\n\n${role.rules}` : TEAM
           item.mode = "primary"
+          if (role.projectID) item.hidden = true
           if (role.model) item.model = Model.Ref.parse(role.model)
           // A role limited to some tools sees only those; the evaluate hook below keeps the
           // limit even where the operator's config allows a tool for every agent. A role
@@ -230,11 +239,18 @@ export const Plugin = define({
     // so what one worker learned (how to build, test and run it, decisions made) reaches the next.
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, event.agent)))
+          return yield* Effect.die(new Error("This process role belongs to another project or its project was removed."))
         // The crew's standing rules ride on every request of its sessions, the Society's chat included.
         // A load failure is never silent: an agent that starts without its rules is worse than one
         // that does not start, so the failure is handed to the model as an explicit stop.
+        RuleEnforce.loading(String(event.sessionID))
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
-          Effect.flatMap((scopes) => Rules.block(kv, scopes)),
+          Effect.flatMap((scopes) => Rules.loadCurrent(kv, scopes, String(event.sessionID))),
+          // The same rules feed the hard check before tool calls and the end-of-turn judge.
+          Effect.map((loaded) => {
+            return loaded.block
+          }),
           Effect.catchCause((cause) =>
             Cause.hasInterruptsOnly(cause)
               // The hook's effect never fails: only the interrupt reasons are rethrown,
@@ -365,7 +381,10 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     // Sessions whose last worker report was a provider limit. Cleared by the operator's next message.
     const limited = new Set<SessionID>()
     yield* ctx.session.hook("prompt", (event) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
+        if (Option.isSome(current) && !(yield* orchestra.projectRoleAllowed(event.sessionID, (yield* agents.select(current.value.agent)).id)))
+          return yield* new PromptInput.Rejected({ reason: "This process role belongs to another project or its project was removed.", source: "project-role" })
         exploring.delete(event.sessionID)
         if (isLimitReport(event.prompt.text ?? "")) limited.add(event.sessionID)
         else if (!(event.prompt.text ?? "").includes("<team-report")) limited.delete(event.sessionID)
@@ -375,6 +394,8 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     const hubSeen = new Set<SessionID>()
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, event.agent)))
+          return yield* new Tool.Error({ message: "This process role belongs to another project or its project was removed." })
         if (event.tool === "hub") return void hubSeen.add(event.sessionID)
         const member = team.roles.find((role) => role.agent === event.agent)
         if (
@@ -426,6 +447,13 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     // Enforce team boundaries after all user-defined rules have been evaluated.
     yield* ctx.permission.hook("evaluate", (event) =>
       Effect.gen(function* () {
+        const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
+        const selected = yield* agents.select(event.agent ?? Option.getOrUndefined(current)?.agent)
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, selected.id))) {
+          event.effect = "deny"
+          event.message = "This process role belongs to another project or its project was removed."
+          return
+        }
         if (event.action === "subagent") {
           if (event.agent !== Orchestra.agent && !team.roles.some((role) => role.agent === event.agent)) return
           event.effect = "deny"
@@ -439,7 +467,7 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
         if (
           event.action === "external_directory" &&
           event.effect === "ask" &&
-          (event.agent === Orchestra.agent || team.roles.some((role) => role.agent === event.agent))
+          (event.agent === Orchestra.agent || team.roles.some((role) => !role.projectID && role.agent === event.agent))
         ) {
           event.effect = "allow"
           return

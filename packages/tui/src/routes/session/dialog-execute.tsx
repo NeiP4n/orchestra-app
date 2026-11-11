@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { TextAttributes, type CodeRenderable, type LineInfo, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import type { SessionMessageAssistantTool } from "@orchestra/client/promise"
@@ -22,6 +23,9 @@ export function DialogExecute(props: { part: SessionMessageAssistantTool }) {
   const clipboard = useClipboard()
   const toast = useToast()
   const theme = useTheme().surface("dialog")
+  const closeHover = createHoverFeedback()
+  const codeHover = createHoverFeedback()
+  const outputHover = createHoverFeedback()
   const contentTheme = useTheme()
   const dimensions = useTerminalDimensions()
   const config = useConfig().data
@@ -98,7 +102,7 @@ export function DialogExecute(props: { part: SessionMessageAssistantTool }) {
           execute
         </text>
         <text fg={failed() ? theme.text.feedback.error.base : theme.text.muted}>{status()}</text>
-        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
@@ -164,13 +168,13 @@ export function DialogExecute(props: { part: SessionMessageAssistantTool }) {
       </scrollbox>
       <box flexDirection="row" gap={3} flexWrap="wrap" paddingLeft={2} paddingRight={2}>
         <text fg={theme.text.muted}>↑/↓ scroll</text>
-        <text onMouseUp={() => copy("code")}>
+        <text bg={codeHover.background()} onMouseOver={codeHover.onMouseOver} onMouseOut={codeHover.onMouseOut} onMouseUp={() => copy("code")}>
           <span style={{ fg: copied() === "code" ? theme.text.feedback.success.base : theme.text.base }}>
             <b>{copied() === "code" ? "✓ copied" : "c"}</b>
           </span>
           <span style={{ fg: theme.text.muted }}>{copied() === "code" ? "" : " copy code"}</span>
         </text>
-        <text onMouseUp={() => copy("output")}>
+        <text bg={outputHover.background()} onMouseOver={outputHover.onMouseOver} onMouseOut={outputHover.onMouseOut} onMouseUp={() => copy("output")}>
           <span style={{ fg: copied() === "output" ? theme.text.feedback.success.base : theme.text.base }}>
             <b>{copied() === "output" ? "✓ copied" : "o"}</b>
           </span>

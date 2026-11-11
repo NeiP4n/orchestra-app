@@ -488,6 +488,7 @@ export function RunFormBody(props: {
                       backgroundColor={
                         state().selected === rows().length ? props.theme.formfieldFocusedBg : "transparent"
                       }
+                      onMouseMove={() => setState((previous) => formSetSelected(previous, rows().length))}
                       onMouseUp={() => choose(rows().length)}
                     >
                       <text

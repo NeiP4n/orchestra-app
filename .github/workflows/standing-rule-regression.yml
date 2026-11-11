@@ -1,0 +1,54 @@
+name: standing-rule-regression
+
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/rule-enforce.ts'
+      - 'packages/core/src/permission.ts'
+      - 'packages/core/src/tool/plugin/patch.ts'
+      - 'packages/core/test/rule-enforce.test.ts'
+      - 'packages/core/test/rules.test.ts'
+      - 'packages/core/test/permission.test.ts'
+      - 'packages/core/test/tool-patch.test.ts'
+      - '.github/workflows/standing-rule-regression.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'packages/core/src/rule-enforce.ts'
+      - 'packages/core/src/permission.ts'
+      - 'packages/core/src/tool/plugin/patch.ts'
+      - 'packages/core/test/rule-enforce.test.ts'
+      - 'packages/core/test/rules.test.ts'
+      - 'packages/core/test/permission.test.ts'
+      - 'packages/core/test/tool-patch.test.ts'
+      - '.github/workflows/standing-rule-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rules:
+    name: Standing rule guards (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Real final permission evaluator and rule lifecycle
+        run: bun test packages/core/test/rule-enforce.test.ts packages/core/test/rules.test.ts packages/core/test/permission.test.ts
+      - name: Real patch refuses before reading or writing
+        run: bun test packages/core/test/tool-patch.test.ts --test-name-pattern 'standing path' 

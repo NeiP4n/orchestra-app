@@ -3,7 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
-const CLIENT_SECRET = "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";
+const CLIENT_SECRET = process.env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET;
+if (!CLIENT_SECRET?.trim()) {
+  throw new Error("Не задана ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET: настройте OAuth client secret для Google Antigravity.");
+}
 const CLOUD_CODE_BASE = "https://daily-cloudcode-pa.googleapis.com";
 const USER_AGENT = "antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)";
 const FALLBACK_PROJECT_ID = "bamboo-precept-lgxtn";

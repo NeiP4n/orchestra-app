@@ -1,6 +1,9 @@
+import { browserBatch } from "../util/browser-batch"
+import { createStateFeedback } from "../ui/state-feedback"
+import { useMotion } from "./neural"
+import { useConfig } from "../config"
 import { TextAttributes } from "@opentui/core"
-import { useTerminalDimensions } from "@opentui/solid"
-import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type {
   OrchestraAccess,
@@ -12,6 +15,7 @@ import type {
 } from "@orchestra/client/promise"
 import { Federation } from "@orchestra/schema/federation"
 import { Orchestra } from "@orchestra/schema/orchestra"
+import { owningProject } from "../util/project-owner"
 import { Mode } from "@orchestra/schema/mode"
 import { useClient } from "../context/client"
 import { useData } from "../context/data"
@@ -26,7 +30,12 @@ import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DialogGroups } from "./dialog-groups"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
+import { browserSessionGroups, openedFromProjects } from "../util/browser-sessions"
 import { DialogPrompt } from "../ui/dialog-prompt"
+import { DialogSessionRename } from "./dialog-session-rename"
+import { DialogSelect } from "../ui/dialog-select"
+import { DialogRules } from "./dialog-rules"
+import * as BrowserRuntime from "../util/browser-runtime"
 import { DialogConfirm } from "../ui/dialog-confirm"
 import { ClearSessionsAction } from "./clear-sessions"
 import { useNotes, type NotesTab } from "../context/notes"
@@ -37,8 +46,8 @@ import { HoverAction } from "./hover-action"
 import { DialogMode } from "./dialog-mode"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
-import { tint } from "../theme/color"
-import { hoverBackground } from "../ui/hover"
+import { browserIndicator, browserRunningColor } from "../util/browser-indicator"
+import { hoverBackground, selectionBackground } from "../ui/hover"
 import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
 
@@ -240,18 +249,23 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const [removed, setRemoved] = createStore<Record<string, boolean>>({})
 
   const current = () => (route.data.type === "session" ? data.session.get(route.data.sessionID) : undefined)
+  // The Console and Browser views are per project: the tree lists only projects there, and picking one
+  // opens its main session, whose directory decides the shell (or the browser sessions) shown.
+  const projectOnly = () => notes.tab() === "console" || notes.tab() === "browser"
+  const inProject = (project: OrchestraProject) =>
+    current()?.location.directory !== undefined &&
+    owningProject(projects(), current()!.location.directory)?.id === project.id
   const palette = () => neuralPalette(theme)
-  const energy = useNeuralEnergy()
   const empty = useEmptyRoom()
-  const dimensions = useTerminalDimensions()
   // A narrow panel keeps the switch as two icons so the names below get the room.
-  const iconOnly = () => props.width < 36
+  const energy = useNeuralEnergy()
+  const iconOnly = () => props.width < 40
   // A narrow panel keeps session titles readable by showing the category and access controls
   // only on the hovered session.
   const narrow = () => props.width < 36
   const shared = createMemo(() => new Set((rooms.latest ?? []).map((room) => room.sessionID)))
   const owner = (session: Pick<SessionInfo, "id" | "location" | "metadata">) => {
-    const claimed = projectList.owner(session.id) ?? Orchestra.sessionOwner(session.metadata)
+    const claimed = projectList.owner(session.id) ?? Orchestra.sessionOwner(session.metadata) ?? notes.browserChatRecord(session.id)?.projectID
     // A group chat belongs to its group, not to the project whose directory happens to contain it.
     if (claimed === undefined && Federation.groupSupervisor(session.metadata) !== undefined) return undefined
     return Orchestra.ownerOf(projects(), session.location.directory, claimed)
@@ -290,12 +304,140 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
+  // Categories and access come from the server with the project's session list, once, when the project opens. A
+  // session the Orchestrator creates later (with its category) was in the list but not in the category map, so it
+  // landed under "Other" until the project was reopened. When the set of sessions an open project owns changes,
+  // the map is fetched again (one request at a time per project, a short wait so a burst of creates is one fetch).
+  const seenSessions = new Map<string, string>()
+  const refreshing = new Set<string>()
+  const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const refresh = (projectID: string) => {
+    if (refreshing.has(projectID)) return
+    refreshing.add(projectID)
+    void client.api.orchestra.project
+      .sessions({ projectID })
+      .then((result) => {
+        result.data.forEach((session) => data.session.remember(session))
+        setAccess(result.access)
+        setCategory(result.category)
+      })
+      .catch(() => undefined)
+      .finally(() => refreshing.delete(projectID))
+  }
+  createEffect(() => {
+    const list = data.session.list()
+    for (const project of projects()) {
+      const signature = list
+        .filter((session) => owner(session)?.id === project.id)
+        .map((session) => session.id)
+        .toSorted()
+        .join(",")
+      const before = seenSessions.get(project.id)
+      seenSessions.set(project.id, signature)
+      if (before === undefined || before === signature || !untrack(() => expanded[project.id])) continue
+      clearTimeout(refreshTimers.get(project.id))
+      refreshTimers.set(
+        project.id,
+        setTimeout(() => refresh(project.id), 400),
+      )
+    }
+  })
+  onCleanup(() => refreshTimers.forEach((timer) => clearTimeout(timer)))
+
   const toggle = (projectID: string) => {
     notes.setProject(projectID)
     if (expanded[projectID]) return setExpanded(projectID, false)
     void expand(projectID)
   }
 
+  // The closed browser sessions of a project: pick one to bring back (same profile, same name), or remove it from the
+  // list. Removing the profile folder too (logins, cookies) is its own key and asks first.
+  const openClosedPicker = (project: OrchestraProject) => {
+    const closed = () => notes.closedBrowserSessions(project.id)
+    const again = () => (closed().length > 0 ? openClosedPicker(project) : dialog.clear())
+    // A confirm dialog clears the dialog stack right after its callbacks, so what follows waits one tick.
+    const next = (fn: () => void) => void setTimeout(fn, 0)
+    dialog.replace(() => (
+      <DialogSelect
+        title={t("Reopen a closed browser session")}
+        options={closed().map((item) => ({
+          title: item.group ? `${item.group} · ${item.name}` : item.name,
+          value: item.id,
+          description: new Date(item.closedAt).toLocaleString(),
+        }))}
+        onSelect={(option) => {
+          dialog.clear()
+          notes.reopenBrowserSession(project.id, option.value)
+          notes.setProject(project.id)
+          if (!inProject(project)) void openMain(project)
+        }}
+        actions={[
+          {
+            command: "dialog.browser.delete-chat",
+            title: "удалить чат, сохранить логины",
+            bind: "ctrl+k",
+            onTrigger: (option) => {
+              const item = closed().find((entry) => entry.id === option.value)
+              if (!item?.chat) return
+              const chatID = item.chat
+              dialog.replace(() => <DialogConfirm title="Удалить закрытый чат браузера?" message={`${item.name}: чат удалится, профиль и логины сохранятся.`} onConfirm={() => {
+                void (async () => {
+                  await beforeRemoveChat({ id: chatID })
+                  await notes.removeBoundBrowserChat(project.id, chatID)
+                  await afterRemoveChat({ id: chatID })
+                  if (route.data.type === "session" && route.data.sessionID === chatID) route.navigate({ type: "home" })
+                  next(again)
+                })().catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
+              }} onCancel={() => next(again)} />)
+            },
+          },
+          {
+            command: "dialog.browser.forget",
+            title: t("remove from list"),
+            bind: "ctrl+d",
+            onTrigger: (option) => {
+              notes.forgetClosedBrowserSession(project.id, option.value)
+              again()
+            },
+          },
+          {
+            command: "dialog.browser.erase",
+            title: t("delete with logins"),
+            bind: "ctrl+x",
+            onTrigger: (option) => {
+              const name = closed().find((item) => item.id === option.value)?.name ?? option.title
+              dialog.replace(() => (
+                <DialogConfirm
+                  title={t("Delete browser session")}
+                  message={`${name}: ${t("deletes the saved Chrome profile (logins, cookies, history). This cannot be undone.")}`}
+                  label={{ confirm: t("Delete"), cancel: t("Keep") }}
+                  onConfirm={() => {
+                    const failed = BrowserRuntime.deleteProfile(option.value)
+                    if (failed) {
+                      next(() =>
+                        dialog.replace(() => (
+                          <DialogConfirm
+                            title={t("Could not delete")}
+                            message={failed}
+                            onConfirm={() => next(again)}
+                            onCancel={() => next(again)}
+                          />
+                        )),
+                      )
+                      return
+                    }
+                    notes.forgetClosedBrowserSession(project.id, option.value)
+                    next(again)
+                  }}
+                  onCancel={() => next(again)}
+                />
+              ))
+            },
+          },
+        ]}
+      />
+    ))
+  }
   const openMain = (project: OrchestraProject) => {
     if (project.main) {
       route.navigate({ type: "session", sessionID: project.main })
@@ -365,17 +507,24 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       />
     ))
 
+  const beforeRemoveChat = async (session: { id: string }) => {
+    const bound = notes.browserChatRecord(session.id)
+    if (bound) await BrowserRuntime.closeBlockedBrowser(bound.item.id)
+  }
+  const afterRemoveChat = async (session: { id: string }) => {
+    await notes.retireDeletedBrowserChat(session.id)
+    setRemoved(session.id, true)
+    data.session.evict(session.id)
+  }
   const remove = (sessionID: string) => {
     if (armed() !== sessionID) return arm(sessionID)
     clearArmed()
-    void client.api.session
-      .remove({ sessionID })
-      .then(() => {
-        setRemoved(sessionID, true)
-        data.session.evict(sessionID)
-        if (route.data.type === "session" && route.data.sessionID === sessionID) route.navigate({ type: "home" })
-      })
-      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+    void (async () => {
+      await beforeRemoveChat({ id: sessionID })
+      await client.api.session.remove({ sessionID })
+      await afterRemoveChat({ id: sessionID })
+      if (route.data.type === "session" && route.data.sessionID === sessionID) route.navigate({ type: "home" })
+    })().catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
   const roomKey = (room: JoinedRoom) => `room:${room.url}#${room.roomID}`
@@ -465,12 +614,382 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       )
     })
 
+  // Subagents (sessions with a parent) are listed under their parent, running ones first, so a task the Orchestrator
+  // handed off can be found: "↳ <title> · <role> · <status>". At most CHILD_LIMIT per parent, the rest as a count.
+  const CHILD_LIMIT = 30
+  const childrenOf = (parentID: string | undefined) => {
+    if (parentID === undefined) return { shown: [], more: 0 }
+    const all = data.session
+      .list()
+      .filter((item) => item.parentID === parentID && !removed[item.id] && !isBrowserRole(item.agent) && !/browser/i.test(item.title ?? ""))
+      .toSorted((a, b) => Number(data.session.status(b.id) === "running") - Number(data.session.status(a.id) === "running"))
+    return { shown: all.slice(0, CHILD_LIMIT), more: Math.max(0, all.length - CHILD_LIMIT) }
+  }
+  const childRows = (parentID: string | undefined, depth = 1): JSX.Element => {
+    const found = childrenOf(parentID)
+    return (
+      <>
+        <For each={found.shown}>
+          {(child) => (
+            <>
+            <Row
+              id={`child:${child.id}`}
+              feedback={rowFeedback(child.id)}
+              hover={hover}
+              setHover={setHover}
+              selected={child.id === current()?.id}
+              onClick={() => route.navigate({ type: "session", sessionID: child.id })}
+            >
+              <Branch lit={child.id === current()?.id || hover() === `child:${child.id}`} />
+              <text flexShrink={0} fg={theme.text.muted}>
+                {`${"  ".repeat(depth)}${data.session.status(child.id) === "running" ? "↳ ● " : "↳ ○ "}`}
+              </text>
+              <box flexGrow={1} minWidth={0}>
+              <text fg={theme.text.muted} wrapMode="none" truncate>
+                {`${child.title || t("Untitled")} · ${String(child.agent ?? "").replace(/^team-/, "") || "subagent"} · ${
+                  waiting().has(child.id) ? t("waiting") : data.session.status(child.id) === "running" ? t("running") : t("idle")
+                }`}
+              </text>
+              </box>
+              {rowButtons(child)}
+            </Row>
+            {childRows(child.id, depth + 1)}
+            </>
+          )}
+        </For>
+        <Show when={found.more > 0}>
+          <box flexDirection="row" paddingLeft={1}>
+            <Branch through />
+            <text fg={theme.text.muted} wrapMode="none">{`    + ${found.more} ${t("more subagents")}`}</text>
+          </box>
+        </Show>
+      </>
+    )
+  }
+
+  // The browser sessions of a project with reopen and new. Shown in the Browser tab and, always, as the "Browsers"
+  // group of the project tree.
+  // Verify local CDP identities only, including profiles opened by another Orchestra process.
+  // No website reads, screenshots or launches. Refresh after operations and every 15 seconds.
+  const [browserConnectionRevision, setBrowserConnectionRevision] = createSignal(0)
+  onMount(() => {
+    onCleanup(BrowserRuntime.subscribeBrowserState(() => setBrowserConnectionRevision((n) => n + 1)))
+    const timer = setInterval(() => setBrowserConnectionRevision((n) => n + 1), 15000)
+    onCleanup(() => clearInterval(timer))
+  })
+  const [browserRunning, { refetch: refreshBrowserRunning }] = createResource(
+    () => ({ revision: browserConnectionRevision(), ids: [...new Set(projects().flatMap((project) => notes.browserSessions(project.id).map((item) => item.id)))].sort() }),
+    async ({ ids }) => {
+      const result: Record<string, boolean> = {}
+      let cursor = 0
+      // Bound local probes even when there are hundreds of saved profiles.
+      await Promise.all(Array.from({ length: Math.min(4, ids.length) }, async () => {
+        while (cursor < ids.length) {
+          const id = ids[cursor++]!
+          result[id] = await BrowserRuntime.profileRunning(id).catch(() => false)
+        }
+      }))
+      return result
+    },
+  )
+  const browserConnected = (id: string) => browserRunning()?.[id]
+  const browserCount = (project: OrchestraProject, compact = false) => {
+    const ids = [...new Set(notes.browserSessions(project.id).map((item) => item.id))]
+    const verified = ids.filter((id) => browserConnected(id) === true).length
+    const count = ids.some((id) => browserConnected(id) === undefined) ? "?" : verified
+    return compact ? `${count}/${ids.length}` : `запущено ${count} из ${ids.length}`
+  }
+  const [browserToggleBusy, setBrowserToggleBusy] = createSignal<Record<string, boolean>>({})
+  const toggleBrowser = async (project: OrchestraProject, id: string) => {
+    if (browserToggleBusy()[id] || browserBatchProgress()[project.id]) return
+    setBrowserToggleBusy((value) => ({ ...value, [id]: true }))
+    try {
+      if (await BrowserRuntime.profileRunning(id)) await BrowserRuntime.closeBlockedBrowser(id)
+      else {
+        const warning = BrowserRuntime.browserResources().warning
+        if (warning) toast.show({ message: warning, variant: "warning", duration: 6000 })
+        await BrowserRuntime.open(id)
+        void notes.selectBrowserSession(project.id, id)
+        await notes.ensureBrowserAgent(project.id, id, project.directory)
+        notes.setProject(project.id)
+        notes.setTab("browser")
+        if (!inProject(project)) void openMain(project)
+      }
+    } catch (error) { toast.show({ message: errorMessage(error), variant: "error" }) }
+    finally {
+      setBrowserToggleBusy((value) => ({ ...value, [id]: false }))
+      await refreshBrowserRunning()
+    }
+  }
+  const [browserBatchProgress, setBrowserBatchProgress] = createSignal<Record<string, string>>({})
+  const batchBrowsers = async (project: OrchestraProject, stop = false) => {
+    if (browserBatchProgress()[project.id] || notes.browserSessions(project.id).some((item) => browserToggleBusy()[item.id])) return
+    const ids = notes.browserSessions(project.id).map((item) => item.id)
+    if (!ids.length) return
+    if (stop) {
+      const yes = await confirmClear({ title: "Остановить браузеры проекта?", message: `Закрыть Chrome ${ids.length} сессий? Чаты, профили и логины сохранятся. Наблюдение остановится до следующего запуска.`, label: { confirm: "Остановить", cancel: "Отмена" } })
+      if (!yes) return
+    }
+    const warning = BrowserRuntime.browserResources().warning
+    if (warning && !stop) toast.show({ message: warning, variant: "warning", duration: 6000 })
+    try {
+      const result = await browserBatch(ids, stop ? BrowserRuntime.closeBlockedBrowser : BrowserRuntime.open, (done, total) => {
+        setBrowserBatchProgress((value) => ({ ...value, [project.id]: `${stop ? "Остановка" : "Запуск"} ${done}/${total}` }))
+        setBrowserConnectionRevision((n) => n + 1)
+      })
+      toast.show({ message: result.failures.length ? `${stop ? "Остановлено" : "Запущено/подключено"} ${result.total - result.failures.length}/${result.total}. Ошибки: ${result.failures.map((f) => `${f.id}: ${errorMessage(f.error)}`).join("; ")}` : `${stop ? "Остановлено" : "Запущено/подключено"} ${result.total}/${result.total}.`, variant: result.failures.length ? "warning" : "success", duration: 6000 })
+    } finally {
+      setBrowserBatchProgress((value) => ({ ...value, [project.id]: "" }))
+      setBrowserConnectionRevision((n) => n + 1)
+    }
+  }
+  const browserToolbar = (project: OrchestraProject, collapsible = false) => (
+    <box flexDirection="row" flexShrink={0} height={1} paddingLeft={1} gap={1}>
+      <box flexGrow={1} minWidth={0}
+        backgroundColor={collapsible && hover() === `browser-fold:${project.id}` ? hoverBackground(theme) : undefined}
+        onMouseOver={() => { if (collapsible) setHover(`browser-fold:${project.id}`) }} onMouseOut={() => setHover(undefined)}
+        onMouseUp={() => { if (collapsible) notes.toggleGroup(`${project.id}:Browsers`) }}>
+        <text fg={theme.text.muted} wrapMode="none" truncate>{`${collapsible ? (notes.groupCollapsed(`${project.id}:Browsers`) ? "▸ " : "▾ ") : ""}${t("Browsers")} · ${browserBatchProgress()[project.id] || browserCount(project, props.width < 46)}`}</text>
+      </box>
+      <HoverAction id={`browser-start-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} onClick={() => void batchBrowsers(project)}>
+        <text fg={theme.text.action.primary.base} wrapMode="none">▶ Все</text>
+      </HoverAction>
+      <HoverAction id={`browser-stop-all:${project.id}`} disabled={!!browserBatchProgress()[project.id]} variant="destructive" onClick={() => void batchBrowsers(project, true)}>
+        <text fg={theme.text.muted} wrapMode="none">■ Все</text>
+      </HoverAction>
+    </box>
+  )
+  const browserRows = (project: OrchestraProject): JSX.Element => (
+    <>
+                  <Show when={notes.tab() === "browser"}>{browserToolbar(project)}</Show>
+                  <For each={browserSessionGroups(notes.browserSessions(project.id)).flatMap((group) => group.sessions)}>
+                    {(item) => {
+                      const [removeHovered, setRemoveHovered] = createSignal(false)
+                      const chosen = () => notes.browserSelected(project.id)?.id === item.id
+                      const indicator = () => {
+                        browserConnectionRevision()
+                        return browserIndicator(BrowserRuntime.browserState(item.id), browserConnected(item.id), props.width < 50)
+                      }
+                      const runningColor = () => browserRunningColor(theme.background.raised.base)
+                      const indicatorColor = () => indicator().phase === "running" ? runningColor()
+                        : indicator().phase === "error" ? theme.text.feedback.error.base
+                        : ["starting", "stopping", "checking"].includes(indicator().phase) ? theme.text.feedback.warning.base : theme.text.muted
+                      return (
+                        <>
+                        <Row
+                          id={`browser:${item.id}`}
+                          feedback={item.chat ? rowFeedback(item.chat) : undefined}
+                          hover={hover}
+                          setHover={setHover}
+                          selected={chosen() && inProject(project)}
+                          onClick={() => {
+                            void (async () => {
+                            await notes.selectBrowserSession(project.id, item.id)
+                            const chat = await notes.ensureBrowserAgent(project.id, item.id, project.directory)
+                            notes.setProject(project.id)
+                            // From the Projects tab the row opens only its chat; the tab stays (the user's explicit pick).
+                            if (notes.tab() !== "browser" && chat) {
+                              if (!(route.data.type === "session" && route.data.sessionID === chat)) openedFromProjects.add(chat)
+                              route.navigate({ type: "session", sessionID: chat })
+                              return
+                            }
+                            if (!inProject(project)) void openMain(project)
+                            })().catch(error => toast.show({message:errorMessage(error),variant:"error"}))
+                          }}
+                        >
+                          <Branch lit={chosen() && inProject(project)} />
+                          <text flexShrink={0} fg={indicatorColor()} wrapMode="none">
+                            {`${indicator().glyph} ${indicator().label} `}
+                          </text>
+                          <Show when={item.chat !== undefined && data.session.status(item.chat) === "running"}>
+                            <NeuronDot energy={0.9} />
+                            <text fg={theme.text.muted} wrapMode="none">AI </text>
+                          </Show>
+                          <box flexGrow={1} minWidth={0}>
+                            <text fg={theme.text.base} wrapMode="none" truncate>
+                              {item.group ? `${item.group} · ${item.name}` : item.name}
+                            </text>
+                          </box>
+                          <HoverAction
+                            id={`browser-toggle:${item.id}`}
+                            disabled={!!browserBatchProgress()[project.id] || !!browserToggleBusy()[item.id]}
+                            paddingLeft={1}
+                            paddingRight={1}
+                            onClick={() => void toggleBrowser(project, item.id)}
+                          >
+                            <text fg={theme.text.action.primary.base} wrapMode="none">{browserToggleBusy()[item.id] ? "…" : browserConnected(item.id) ? "■" : "▶"}</text>
+                          </HoverAction>
+                          <HoverAction
+                            id={`browser-rename:${item.id}`}
+                            onClick={() =>
+                              dialog.replace(() => (
+                                <DialogPrompt
+                                  title={t("Rename browser session")}
+                                  placeholder={t("Name (logins and cookies stay)")}
+                                  value={item.name}
+                                  onCancel={() => dialog.clear()}
+                                  onConfirm={(value) => {
+                                    dialog.clear()
+                                    notes.renameBrowserSession(project.id, item.id, value)
+                                  }}
+                                />
+                              ))
+                            }
+                          >
+                            <text fg={theme.text.action.primary.base}>{"✎ "}</text>
+                          </HoverAction>
+                          <HoverAction
+                            id={`browser-remove:${item.id}`}
+                            onMouseEnter={() => setRemoveHovered(true)}
+                            onMouseLeave={() => setRemoveHovered(false)}
+                            onClick={() => {
+                              const removalKey = `browser-remove:${item.id}`
+                              if (armed() !== removalKey) return arm(removalKey)
+                              clearArmed()
+                              void (async () => {
+                                await BrowserRuntime.closeBlockedBrowser(item.id)
+                                if (item.chat) {
+                                  const chatID = item.chat
+                                  await notes.removeBoundBrowserChat(project.id, chatID)
+                                  await afterRemoveChat({ id: chatID })
+                                  if (route.data.type === "session" && route.data.sessionID === chatID) route.navigate({ type: "home" })
+                                }
+                                await notes.removeBrowserSession(project.id, item.id)
+                              })()
+                                .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
+                            }}
+                          >
+                            <text fg={removeHovered() || armed() === `browser-remove:${item.id}` ? theme.text.feedback.error.base : theme.text.muted}>{armed() === `browser-remove:${item.id}` ? " удалить чат? " : "×"}</text>
+                          </HoverAction>
+                        </Row>
+                        <Show when={indicator().reason}>
+                          <text fg={theme.text.feedback.error.base} wrapMode="word" paddingLeft={2}>{indicator().reason}</text>
+                        </Show>
+                        </>
+                      )
+                    }}
+                  </For>
+                  <Show when={notes.closedBrowserSessions(project.id).length > 0}>
+                    <Row
+                      id={`browser-reopen:${project.id}`}
+                      hover={hover}
+                      setHover={setHover}
+                      onClick={() => openClosedPicker(project)}
+                    >
+                      <Branch />
+                      <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                        {`↺ ${t("Reopen closed session")} (${notes.closedBrowserSessions(project.id).length})`}
+                      </text>
+                    </Row>
+                  </Show>
+
+                  <Row
+                    id={`browser-new:${project.id}`}
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => {
+                      notes.addBrowserSession(project.id, project.directory)
+                      notes.setProject(project.id)
+                      if (!inProject(project)) void openMain(project)
+                    }}
+                  >
+                    <Branch last />
+                    <text fg={theme.text.action.primary.base} wrapMode="none" truncate>
+                      {`+ ${t("New browser session")}`}
+                    </text>
+                  </Row>
+    </>
+  )
+
+  // A subagent whose chain of parents does not end at the Orchestrator or at a session listed in this project would be
+  // listed nowhere (its parent is hidden, in another project, or not loaded), so it is listed as a session of its own.
+  const orphan = (parentID: string, project: OrchestraProject) => {
+    const list = data.session.list()
+    let current = list.find((item) => item.id === parentID)
+    for (let hops = 0; current && hops < 8; hops++) {
+      if (current.id === project.main) return false
+      if (!current.parentID) {
+        const root = current
+        return (
+          isBrowserRole(root.agent) || /browser/i.test(root.title ?? "") ||
+          owner(root)?.id !== project.id
+        )
+      }
+      const up: string = current.parentID
+      current = list.find((item) => item.id === up)
+    }
+    return true
+  }
+
+  // Rename and delete for a row of any kind (subagent, BrowserAgent chat, plain session). Deleting asks once ("delete?"),
+  // then removes the session on the server and clears what points at it (remove()).
+  const rowButtons = (session: { id: string; title?: string }, rename = true) => {
+    const [hovered, setHovered] = createSignal(false)
+    return (
+      <>
+        <Show when={rename}>
+          <HoverAction
+            id={`session-rename:${session.id}`}
+            onClick={() => dialog.replace(() => <DialogSessionRename sessionID={session.id} currentTitle={session.title} />)}
+          >
+            <text fg={theme.text.action.primary.base}>{" ✎ "}</text>
+          </HoverAction>
+        </Show>
+        <HoverAction
+          id={`session-delete:${session.id}`}
+          variant="destructive"
+          onMouseEnter={() => setHover(session.id)}
+          onMouseLeave={() => setHover(session.id)}
+          onHoverChange={setHovered}
+          onClick={() => remove(session.id)}
+        >
+          <text fg={hovered() ? theme.text.action.destructive.hovered : armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
+            {armed() === session.id ? ` ${t("delete?")} ` : " × "}
+          </text>
+        </HoverAction>
+      </>
+    )
+  }
+
+  // Every session of a browser role (the BrowserAgent, or a role the Orchestrator made for page work such as
+  // "team-browser-registration-agent"), subagents included, is listed in the Browsers group, never beside the sessions.
+  const isBrowserRole = (agent: string | undefined) => agent !== undefined && /browser/i.test(agent)
+  // A session is a browser one by its agent id, or its title ("Browser 2", "Browser Registration Agent"), or because a
+  // browser record owns it as its chat. Several signs on purpose: the Orchestrator makes these through different paths.
+  const ownedByBrowserRecord = (project: OrchestraProject, id: string) =>
+    notes.browserChatRecord(id)?.projectID === project.id
+  const isBrowserSession = (project: OrchestraProject, session: { id: string; agent?: string; title?: string }) =>
+    isBrowserRole(session.agent) || /browser/i.test(session.title ?? "") || ownedByBrowserRecord(project, session.id)
+
+  // BrowserAgent chats no browser session owns (the Orchestrator created them) belong to the Browsers group too.
+  const browserChatsOf = (project: OrchestraProject) =>
+    data.session
+      .list()
+      .filter(
+        (session) =>
+          (isBrowserRole(session.agent) || /browser/i.test(session.title ?? "")) &&
+          !removed[session.id] &&
+          !ownedByBrowserRecord(project, session.id) &&
+          !notes.retiredBrowserChat(project.id, session.id) &&
+          !notes.claimedChat(session.id) &&
+          owner(session)?.id === project.id,
+      )
+
+  // Orphan BrowserAgent chats stay visible in Browsers, but listing/restoring them
+  // must never create a Chrome profile. Only an explicit New browser action does.
+
   const sessionsOf = (project: OrchestraProject) =>
     data.session
       .list()
       .filter(
         (session) =>
-          !session.parentID && !removed[session.id] && session.id !== project.main && owner(session)?.id === project.id,
+          (!session.parentID || orphan(session.parentID, project)) &&
+          !removed[session.id] &&
+          session.id !== project.main &&
+          // A BrowserAgent chat belongs to its browser session and is listed in the Browser tab, not here. One that no
+          // browser session owns (the Orchestrator created it with sessions create) would be listed nowhere, so it stays here.
+          !isBrowserSession(project, session) &&
+          owner(session)?.id === project.id,
       )
 
   // A chat the AI is waiting on: a pending question or permission request, subagents included.
@@ -484,6 +1003,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       void data.session.permission.sync(id).catch(() => undefined)
       void data.session.form.sync(id).catch(() => undefined)
     }),
+  )
+  const feedbackMotion = useMotion()
+  const feedbackConfig = useConfig().data
+  const rowFeedback = createStateFeedback(
+    () => data.session.list().map((session) => ({ id: session.id, phase: waiting().has(session.id) ? "waiting" as const : data.session.status(session.id) === "running" ? "working" as const : "idle" as const })),
+    () => !props.collapsed && feedbackMotion() && (feedbackConfig.stateEffects ?? true),
   )
   const projectWaiting = (project: OrchestraProject) =>
     [project.main, ...sessionsOf(project).map((session) => session.id)].some((id) => id !== undefined && waiting().has(id))
@@ -549,39 +1074,35 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         </box>
       }
     >
-      <box width={props.width} height="100%" flexShrink={0} backgroundColor={theme.background.raised.base} paddingTop={1}>
+      <box width={props.width} height="100%" flexShrink={0} overflow="hidden" paddingRight={1} backgroundColor={theme.background.raised.base}>
         {/* The panel's head: a segmented switch between the tree and the notes, the main action, and collapse. */}
-        <box flexDirection="row" paddingLeft={1} paddingRight={1} gap={1} flexShrink={0}>
+        <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} columnGap={1} flexShrink={0}>
+          {/* Labels fit at >=40 columns; narrower panels name the active tab. No blank spacer rows. */}
           <box flexDirection="row" flexShrink={0}>
-            <Tab tab="projects" icon="◉" label={iconOnly() ? "" : t("Projects")} hover={hover} setHover={setHover} />
-            <Tab tab="notes" icon="✎" label={iconOnly() ? "" : t("Notes")} hover={hover} setHover={setHover} />
+            <Tab tab="projects" icon="◉" label={!iconOnly() || notes.tab() === "projects" ? t("Projects") : ""} hover={hover} setHover={setHover} />
+            <Tab tab="notes" icon="✎" label={!iconOnly() || notes.tab() === "notes" ? t("Notes") : ""} hover={hover} setHover={setHover} />
+            <Tab tab="console" icon="›_" label={!iconOnly() || notes.tab() === "console" ? t("Console") : ""} hover={hover} setHover={setHover} />
+            <Tab tab="browser" icon="◎" label={!iconOnly() || notes.tab() === "browser" ? t("Browser") : ""} hover={hover} setHover={setHover} />
           </box>
           <box flexGrow={1} />
-          <NeuralChip
-            id="project-tree.new"
-            icon="+"
-            label={props.width < 30 ? "" : t("New")}
-            accent
-            onClick={() => (notes.tab() === "notes" ? notes.setCreating(true) : edit())}
-          />
+          <HoverAction id="project-tree.new" onClick={() => (notes.tab() === "notes" ? notes.setCreating(true) : edit())}>
+            <text fg={theme.text.action.primary.base} wrapMode="none">{props.width < 60 ? "+" : `+ ${t("New")}`}</text>
+          </HoverAction>
           <Show when={props.onHide}>
-            <HoverAction id="project-tree.hide" onClick={() => props.onHide?.()} paddingLeft={1} paddingRight={1}>
+            <HoverAction id="project-tree.hide" onClick={() => props.onHide?.()}>
               <text fg={palette().synapse}>‹</text>
             </HoverAction>
           </Show>
         </box>
-        {/* Decoration goes first on a short window: the tree needs every row. */}
-        <Show when={dimensions().height >= 24} fallback={<box height={1} flexShrink={0} />}>
-          <box paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} flexShrink={0}>
-            <NeuralLine energy={energy()} seed={5} backdrop={theme.background.raised.base} />
-          </box>
-        </Show>
+        <box height={1} flexShrink={0} paddingLeft={1} paddingRight={1}>
+          <NeuralLine energy={energy()} seed={5} backdrop={theme.background.raised.base} />
+        </box>
         <Show when={notes.tab() === "notes"}>
           <ProjectNotes />
         </Show>
         <box
-          visible={notes.tab() === "projects"}
-          flexGrow={notes.tab() === "projects" ? 1 : 0}
+          visible={notes.tab() !== "notes"}
+          flexGrow={notes.tab() !== "notes" ? 1 : 0}
           minHeight={0}
           position="relative"
           onSizeChange={function () {
@@ -688,6 +1209,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         {(project) => (
                           <Row
                             id={`group-orchestrator:${section().name}:${project.id}`}
+                            feedback={project.main ? rowFeedback(project.main) : undefined}
                             hover={hover}
                             setHover={setHover}
                             selected={project.main !== undefined && project.main === current()?.id}
@@ -709,7 +1231,17 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   <For each={section().projects}>
                     {(project) => (
                       <box paddingLeft={section().name ? 2 : 0}>
-                <Row id={project.id} hover={hover} setHover={setHover} onClick={() => toggle(project.id)}>
+                <Row
+                  id={project.id}
+                  hover={hover}
+                  setHover={setHover}
+                  selected={projectOnly() && inProject(project)}
+                  onClick={() => {
+                    if (!projectOnly()) return toggle(project.id)
+                    notes.setProject(project.id)
+                    void openMain(project)
+                  }}
+                >
                   {/* A project is a neuron: lit while any of its sessions works, open when expanded. */}
                   <text
                     flexShrink={0}
@@ -721,7 +1253,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           : theme.text.muted
                     }
                   >
-                    {expanded[project.id] ? "◉ " : "○ "}
+                    {projectOnly() ? (inProject(project) ? "◉ " : "○ ") : expanded[project.id] ? "◉ " : "○ "}
                   </text>
                   <box flexGrow={1} minWidth={0}>
                     <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
@@ -744,9 +1276,33 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <text fg={theme.text.action.primary.base}>{hover() === project.id ? " ✱" : "  "}</text>
                   </HoverAction>
                 </Row>
-                <Show when={expanded[project.id]}>
+                {/* Browser view: the project's browser sessions, any number, each its own profile. */}
+                <Show when={notes.tab() === "browser"}>
+                  {browserRows(project)}
+                </Show>
+                <Show when={expanded[project.id] && !projectOnly()}>
+                  {/* The rulebooks of this project: the crew's rules, and the rules only its Orchestrator gets (operator-only). */}
+                  <Row
+                    id={`project-rules:${project.id}`}
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => dialog.replace(() => <DialogRules scope={`project:${project.id}`} title={project.directory} />)}
+                  >
+                    <Branch />
+                    <text fg={theme.text.muted} wrapMode="none" truncate>{`§ ${t("Project rules")}`}</text>
+                  </Row>
+                  <Row
+                    id={`orchestrator-rules:${project.id}`}
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => dialog.replace(() => <DialogRules scope={`orchestrator:${project.id}`} title={`${t("Orchestrator")}: ${project.directory}`} />)}
+                  >
+                    <Branch />
+                    <text fg={theme.text.muted} wrapMode="none" truncate>{`§ ${t("Orchestrator rules")}`}</text>
+                  </Row>
                   <Row
                     id={`${project.id}:main`}
+                    feedback={project.main ? rowFeedback(project.main) : undefined}
                     hover={hover}
                     setHover={setHover}
                     selected={project.main !== undefined && project.main === current()?.id}
@@ -765,26 +1321,62 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       {project.main !== undefined && waiting().has(project.main) ? `? ${t("Orchestrator")}` : t("Orchestrator")}
                     </text>
                   </Row>
+                  {childRows(project.main)}
+                  <Show when={notes.tab() !== "browser"}>
+                  {browserToolbar(project, true)}
+                  <Show when={!notes.groupCollapsed(`${project.id}:Browsers`)}>
+                  {browserRows(project)}
+                  <For each={browserChatsOf(project)}>
+                    {(chat) => (
+                      <Row
+                        id={`browser-chat:${chat.id}`}
+                        hover={hover}
+                        setHover={setHover}
+                        selected={chat.id === current()?.id}
+                        onClick={() => route.navigate({ type: "session", sessionID: chat.id })}
+                      >
+                        <Branch lit={chat.id === current()?.id} />
+                        <text flexShrink={0} fg={theme.text.muted}>{"◎ "}</text>
+                        <box flexGrow={1} minWidth={0}>
+                          <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || t("Browser agent")}</text>
+                        </box>
+                        {rowButtons(chat)}
+                      </Row>
+                    )}
+                  </For>
+                  </Show>
+                  </Show>
                   <For each={visibleGroupsOf(project).groups}>
                     {(group) => (
                       <>
                         <Show when={group.name}>
-                          <box flexDirection="row" paddingLeft={1}>
+                          <box
+                            flexDirection="row"
+                            paddingLeft={1}
+                            backgroundColor={hover() === `group-fold:${project.id}:${group.name}` ? hoverBackground(theme) : undefined}
+                            onMouseOver={() => setHover(`group-fold:${project.id}:${group.name}`)}
+                            onMouseOut={() => setHover(undefined)}
+                            onMouseUp={() => notes.toggleGroup(`${project.id}:${group.name}`)}
+                          >
                             <Branch through />
                             <text fg={palette().synapse} wrapMode="none" truncate>
-                              {`# ${group.name}`}
+                              {`${notes.groupCollapsed(`${project.id}:${group.name}`) ? "▸" : "▾"} ${["Planning", "Quality", "General"].includes(group.name) ? t(group.name) : group.name}${
+                                notes.groupCollapsed(`${project.id}:${group.name}`) ? ` (${group.sessions.length})` : ""
+                              }`}
                             </text>
                           </box>
                         </Show>
-                        <For each={group.sessions}>
+                        <For each={group.name && notes.groupCollapsed(`${project.id}:${group.name}`) ? [] : group.sessions}>
                           {(session) => {
                             const [modeHovered, setModeHovered] = createSignal(false)
                             const [categoryHovered, setCategoryHovered] = createSignal(false)
                             const [accessHovered, setAccessHovered] = createSignal(false)
                             const [deleteHovered, setDeleteHovered] = createSignal(false)
                             return (
+                            <>
                             <Row
                               id={session.id}
+                              feedback={rowFeedback(session.id)}
                               hover={hover}
                               setHover={setHover}
                               selected={session.id === current()?.id}
@@ -856,6 +1448,14 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 </HoverAction>
                               </Show>
                               <HoverAction
+                                id={`session-rename:${session.id}`}
+                                onClick={() =>
+                                  dialog.replace(() => <DialogSessionRename sessionID={session.id} currentTitle={session.title} />)
+                                }
+                              >
+                                <text fg={theme.text.action.primary.base}>{" ✎ "}</text>
+                              </HoverAction>
+                              <HoverAction
                                 id={`session-delete:${session.id}`}
                                 variant="destructive"
                                 onMouseEnter={() => setHover(session.id)}
@@ -872,10 +1472,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                         : theme.text.muted
                                   }
                                 >
-                                  {armed() === session.id ? ` ${t("delete?")}` : " ×"}
+                                  {armed() === session.id ? ` ${t("delete?")} ` : " × "}
                                 </text>
                               </HoverAction>
                             </Row>
+                            {childRows(session.id)}
+                            </>
                             )
                           }}
                         </For>
@@ -927,11 +1529,10 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             }}
           </For>
           </Section>
-          <Section title={t("Multiplayer")} icon="⇄" gap>
-            <box flexDirection="row" flexWrap="wrap" gap={1} paddingBottom={1}>
+          <Section title={t("Multiplayer")} icon="⇄" stackActions={props.width < 36} actions={<>
               <SectionButton icon="◈" label={t("Host")} onClick={() => openRooms(DialogHost)} />
-              <SectionButton icon="⇢" label={t("Connect")} onClick={() => openRooms(DialogConnect)} />
-            </box>
+              <SectionButton icon="⇢" label={props.width < 50 ? t("Join") : t("Connect")} onClick={() => openRooms(DialogConnect)} />
+            </>}>
             <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
               <Row
                 id="mesh:connected"
@@ -967,7 +1568,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                         : theme.text.action.destructive.base
                     }
                   >
-                    {armed() === "mesh:leave" ? " leave?" : " ×"}
+                    {armed() === "mesh:leave" ? " leave?" : " × "}
                   </text>
                 </HoverAction>
               </Row>
@@ -1004,7 +1605,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             : theme.text.action.destructive.base
                         }
                       >
-                        {armed() === `hosted:${room.id}` ? ` ${t("close?")}` : " ×"}
+                        {armed() === `hosted:${room.id}` ? ` ${t("close?")}` : " × "}
                       </text>
                     </HoverAction>
                   </Row>
@@ -1052,7 +1653,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                             : theme.text.action.destructive.base
                         }
                       >
-                        {armed() === roomKey(room) ? ` ${t("leave?")}` : " ×"}
+                        {armed() === roomKey(room) ? ` ${t("leave?")}` : " × "}
                       </text>
                     </HoverAction>
                   </Row>
@@ -1083,16 +1684,23 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             </For>
             <Show when={(rooms.latest ?? []).length === 0 && joined.joined.length === 0}>
               <box paddingLeft={1} paddingRight={1}>
-                <text fg={theme.text.muted} attributes={TextAttributes.ITALIC} wrapMode="word">
-                  {t("No rooms yet. Host a session or connect to someone else's.")}
-                </text>
+                <text fg={theme.text.muted} wrapMode="none" truncate>Нет подключённых комнат</text>
               </box>
             </Show>
           </Section>
+          <Show when={data.session.list().some((session) => !removed[session.id] && !owner(session) && (/browser/i.test(session.agent ?? "") || /browser/i.test(session.title ?? "")))}>
+            <text fg={theme.text.muted}>Старые чаты браузера (без проекта)</text>
+            <For each={data.session.list().filter((session) => !removed[session.id] && !owner(session) && (/browser/i.test(session.agent ?? "") || /browser/i.test(session.title ?? "")))}>{(chat) => (
+              <Row id={`orphan-browser:${chat.id}`} hover={hover} setHover={setHover} selected={chat.id === current()?.id} onClick={() => route.navigate({ type: "session", sessionID: chat.id })}>
+                <text fg={theme.text.base} wrapMode="none" truncate>{chat.title || "Браузер"}</text>
+                {rowButtons(chat)}
+              </Row>
+            )}</For>
+          </Show>
           </box>
         </scrollbox>
-        {/* In a chat, the room the tree leaves below it shows every Session's hub on the network. */}
-        <Show when={route.data.type === "session" && empty.room() >= 5}>
+        {/* Paint only unused rows, outside layout flow; never take height from the tree. */}
+        <Show when={empty.room() >= 5}>
           <box position="absolute" left={0} bottom={0} width="100%" height={empty.room()} paddingLeft={1} paddingRight={1}>
             <AllSessionsField
               currentID={route.data.type === "session" ? route.data.sessionID : undefined}
@@ -1104,6 +1712,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         </box>
         <ClearSessionsAction
           api={client.api.session}
+          beforeRemove={beforeRemoveChat}
+          afterRemove={afterRemoveChat}
           confirm={confirmClear}
           notify={(options) => toast.show(options)}
           currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined}
@@ -1114,49 +1724,30 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   )
 }
 
-// A collapsible section of the panel: a rounded card whose border carries the name, so projects
-// and multiplayer read as separate blocks. The first line holds the count, the actions and the fold.
+// Dense, border-free section: title, count, actions and fold share one terminal row.
 function Section(props: {
   title: string
   icon: string
   count?: number
   gap?: boolean
+  stackActions?: boolean
   actions?: JSX.Element
   children: JSX.Element
 }) {
   const theme = useTheme()
   const [open, setOpen] = createSignal(true)
-  const [hovered, setHovered] = createSignal(false)
-  const palette = () => neuralPalette(theme)
   return (
-    <box
-      flexShrink={0}
-      marginTop={props.gap ? 1 : 0}
-      marginLeft={1}
-      marginRight={1}
-      border
-      borderStyle="rounded"
-      borderColor={hovered() ? tint(theme.border.base, palette().signal, 0.6) : theme.border.base}
-      title={` ${props.icon} ${props.title.toLocaleUpperCase()} `}
-      titleColor={hovered() ? palette().signal : theme.text.base}
-      onMouseOver={() => setHovered(true)}
-      onMouseOut={() => setHovered(false)}
-    >
-      <box flexDirection="row" paddingRight={0} flexShrink={0}>
-        <Show when={props.count !== undefined}>
-          <box paddingLeft={1} flexShrink={0}>
-            <text fg={palette().signal} wrapMode="none">
-              {`${props.count}`}
-            </text>
-          </box>
-        </Show>
-        <box flexGrow={1} />
-        {props.actions}
-        <HoverAction id={`section-fold:${props.title}`} paddingLeft={1} paddingRight={1} onClick={() => setOpen(!open())}>
-          <text fg={theme.text.muted}>{open() ? "▾" : "▸"}</text>
+    <box flexShrink={0}>
+      <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} flexShrink={0}>
+        <HoverAction id={`section-fold:${props.title}`} flexGrow={1} minWidth={0} onClick={() => setOpen(!open())}>
+          <text fg={theme.text.muted} wrapMode="none" truncate>{`${open() ? "▾" : "▸"} ${props.icon} ${props.title}${props.count === undefined ? "" : ` · ${props.count}`}`}</text>
         </HoverAction>
+        <Show when={!props.stackActions}>{props.actions}</Show>
       </box>
-      <Show when={open()}>{props.children}</Show>
+      <Show when={open()}>
+        <Show when={props.stackActions}><box flexDirection="row" height={1} paddingLeft={1}>{props.actions}</box></Show>
+        {props.children}
+      </Show>
     </box>
   )
 }
@@ -1189,10 +1780,10 @@ function Tab(props: {
       id={id}
       flexDirection="row"
       flexShrink={0}
-      paddingLeft={1}
+      paddingLeft={0}
       paddingRight={1}
       backgroundColor={
-        active() ? theme.background.action.primary.focused : props.hover() === id ? hoverBackground(theme) : undefined
+        active() ? selectionBackground(theme) : props.hover() === id ? hoverBackground(theme) : undefined
       }
       onMouseOver={() => props.setHover(id)}
       onMouseOut={() => props.setHover(undefined)}
@@ -1202,27 +1793,29 @@ function Tab(props: {
       }}
     >
       {/* On the filled active half the icon takes the label's color, or it vanishes into the fill. */}
+      <Show when={!props.label}>
       <text
         fg={
           active()
-            ? theme.text.action.primary.focused
+            ? theme.text.base
             : props.hover() === id
-              ? theme.text.action.primary.hovered
+              ? theme.text.base
               : palette().synapse
         }
         wrapMode="none"
       >
-        {props.label ? `${props.icon} ` : props.icon}
+        {props.icon}
       </text>
+      </Show>
       <text
         fg={
           active()
-            ? theme.text.action.primary.focused
+            ? theme.text.base
             : props.hover() === id
               ? theme.text.base
               : theme.text.muted
         }
-        attributes={active() ? TextAttributes.BOLD : undefined}
+        attributes={active() ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         wrapMode="none"
       >
         {props.label}
@@ -1497,7 +2090,7 @@ function RoomPeople(props: {
                         : destructive(`kick:${item.member.id}`)
                     }
                   >
-                    {armed() === `kick:${item.member.id}` ? ` ${t("Kick?")}` : " ×"}
+                    {armed() === `kick:${item.member.id}` ? ` ${t("Kick?")}` : " × "}
                   </text>
                 </HoverAction>
                 <HoverAction

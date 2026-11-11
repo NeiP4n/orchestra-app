@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid"
 import { createSignal, For, Show } from "solid-js"
@@ -128,6 +129,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
         <box flexDirection="row" flexWrap="wrap" justifyContent="center" gap={2} rowGap={1} flexShrink={0}>
           <For each={actions}>
             {(action, index) => {
+              const hover = createHoverFeedback()
               const isSelected = () => selected() === index()
               const copyColor = () =>
                 action.copy
@@ -140,10 +142,12 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
               return (
                 <box flexDirection="column" alignItems="center" flexShrink={0}>
                   <box
+                    onMouseOver={hover.onMouseOver}
+                    onMouseOut={hover.onMouseOut}
                     onMouseDown={() => setSelected(index())}
                     onMouseUp={() => action.onUse()}
                     backgroundColor={
-                      copyColor() ?? (isSelected() ? theme.background.action.primary.focused : theme.background.raised.base)
+                      hover.background() ?? copyColor() ?? (isSelected() ? theme.background.action.primary.focused : theme.background.raised.base)
                     }
                     minWidth={15}
                     alignItems="center"
@@ -152,7 +156,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
                   >
                     <text
                       attributes={TextAttributes.BOLD}
-                      fg={copyColor() || isSelected() ? theme.text.action.primary.focused : theme.text.base}
+                      fg={hover.active() ? theme.text.base : copyColor() || isSelected() ? theme.text.action.primary.focused : theme.text.base}
                     >
                       {action.label()}
                     </text>

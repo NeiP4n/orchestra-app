@@ -13,7 +13,7 @@ const sandboxes = Array.from({ length: 12 }, (_, index) => `${directory}/workspa
 const override =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='red'/%3E%3C/svg%3E"
 
-const contributors = "https://api.github.com/repos/anomalyco/opencode/contributors?anon=1&per_page=1"
+const contributors = "https://api.github.com/repos/NeiP4n/orchestra-app/contributors?anon=1&per_page=1"
 
 test.use({ serviceWorkers: "block" })
 
@@ -103,6 +103,7 @@ test("rapid theme changes settle on the last selected theme", async ({ page }) =
     if (route.request().resourceType() === "script") {
       await new Promise((resolve) => setTimeout(resolve, 1800))
     }
+
     await route.continue()
   })
 
@@ -439,42 +440,32 @@ test.describe("pages open before slow data", () => {
   })
 
   for (const fails of [false, true]) {
-    test(`about ${fails ? "keeps its fallback when contributors fail" : "updates contributors later"}`, async ({
-      page,
-    }) => {
+    test(`about stays local when contributor API ${fails ? "fails" : "responds"} and notices restore focus`, async ({ page }) => {
       const { settings } = await open(page)
-      const gate = Promise.withResolvers<void>()
+      const requests: string[] = []
       await page.route(contributors, async (route) => {
-        await gate.promise
+        requests.push(route.request().url())
 
         if (fails) return route.abort("failed")
-        await route.fulfill({
-          json: [],
-          headers: {
-            "access-control-allow-origin": "*",
-            "access-control-expose-headers": "Link",
-            Link: `<${contributors}&page=1004>; rel="last"`,
-          },
-        })
+        await route.fulfill({ json: [], headers: { Link: `<${contributors}&page=1004>; rel="last"` } })
       })
-      const requested = page.waitForRequest(contributors)
       await settings.getByRole("tab", { name: "About", exact: true }).click()
-      await requested
       await expect(settings.getByText("Released under the MIT License", { exact: true })).toBeVisible()
-      await expect(settings.getByRole("link", { name: "935 others", exact: true })).toBeVisible()
       await expect(settings.getByRole("button", { name: "Back to app" })).toBeVisible()
-
-      const website = settings.getByRole("link", { name: "www.opencode.ai", exact: true })
-      await website.focus()
-
-      const settled = fails
-        ? page.waitForEvent("requestfailed", (request) => request.url() === contributors)
-        : page.waitForResponse(contributors)
-
-      gate.resolve()
-      await settled
-      await expect(settings.getByRole("link", { name: fails ? "935 others" : "988 others", exact: true })).toBeVisible()
-      await expect(website).toBeFocused()
+      const about = settings.locator(".settings-about-content")
+      await expect(about).not.toContainText(/OpenCode|Anomaly|Typeset|First published|First illustrated/i)
+      const notices = settings.getByRole("button", { name: "Third-party notices", exact: true })
+      await notices.click()
+      const dialog = page.getByRole("dialog")
+      await expect(dialog.getByText("OpenCode (upstream)", { exact: true })).toBeVisible()
+      await expect(dialog).toContainText("Copyright (c) 2025 opencode")
+      await expect(dialog).toContainText("© Anomaly Innovations, Inc.")
+      await expect(dialog).toContainText("Permission is hereby granted, free of charge")
+      await expect(dialog).toHaveCSS("font-family", /^"?IBM Plex Mono"?,/)
+      await page.keyboard.press("Escape")
+      await expect(dialog).toHaveCount(0)
+      await expect(notices).toBeFocused()
+      expect(requests).toEqual([])
     })
   }
 })
@@ -834,7 +825,7 @@ test("the add server dialog pairs from a one-time link and explains a spent one"
 
   const spent = await addServer()
   await expect(spent.getByRole("alert")).toHaveText(
-    "This pairing link expired or was already used. Run opencode pair to get a new one.",
+    "This pairing link expired or was already used. Run orchestra pair to get a new one.",
   )
 })
 

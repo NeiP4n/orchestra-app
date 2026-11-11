@@ -132,17 +132,18 @@ describe("PlaytestTool", () => {
   })
 
   test("launch paths stay inside the project (arch3 №6)", () => {
-    const root = "/project/game"
-    expect(PlaytestTool.resolveLaunchTarget("./Game.exe", root)).toBe("/project/game/Game.exe")
-    expect(PlaytestTool.resolveLaunchTarget("bin/Game.exe", root)).toBe("/project/game/bin/Game.exe")
-    expect(PlaytestTool.resolveLaunchTarget("/project/game/Game.exe", root)).toBe("/project/game/Game.exe")
-    expect(() => PlaytestTool.resolveLaunchTarget("/tmp/evil.exe", root)).toThrow("must stay inside the project")
+    const root = path.resolve("project", "game")
+    expect(PlaytestTool.resolveLaunchTarget("./Game.exe", root)).toBe(path.join(root, "Game.exe"))
+    expect(PlaytestTool.resolveLaunchTarget("bin/Game.exe", root)).toBe(path.join(root, "bin", "Game.exe"))
+    expect(PlaytestTool.resolveLaunchTarget(path.join(root, "Game.exe"), root)).toBe(path.join(root, "Game.exe"))
+    expect(() => PlaytestTool.resolveLaunchTarget(path.resolve(root, "..", "evil.exe"), root)).toThrow("must stay inside the project")
+    expect(() => PlaytestTool.resolveLaunchTarget(path.join(`${root}-sibling`, "Game.exe"), root)).toThrow("must stay inside the project")
     expect(() => PlaytestTool.resolveLaunchTarget("../evil.exe", root)).toThrow("must stay inside the project")
     expect(() => PlaytestTool.resolveLaunchTarget("bin/../../evil.exe", root)).toThrow("must stay inside the project")
   })
 
   test("bare launch names are allowlisted, batch files are refused (arch3 №6)", () => {
-    const root = "/project/game"
+    const root = path.resolve("project", "game")
     expect(PlaytestTool.resolveLaunchTarget("powershell.exe", root)).toBe("powershell.exe")
     expect(PlaytestTool.resolveLaunchTarget("pwsh.exe", root)).toBe("pwsh.exe")
     expect(PlaytestTool.resolveLaunchTarget("electron.exe", root)).toBe("electron.exe")
@@ -151,13 +152,14 @@ describe("PlaytestTool", () => {
     expect(() => PlaytestTool.resolveLaunchTarget("regedit.exe", root)).toThrow("only a known launcher")
     expect(() => PlaytestTool.resolveLaunchTarget("launch.bat", root)).toThrow("refuses .bat/.cmd")
     expect(() => PlaytestTool.resolveLaunchTarget("scripts/run.cmd", root)).toThrow("refuses .bat/.cmd")
-    expect(() => PlaytestTool.resolveLaunchTarget("/project/game/run.bat", root)).toThrow("refuses .bat/.cmd")
+    expect(() => PlaytestTool.resolveLaunchTarget(path.join(root, "run.bat"), root)).toThrow("refuses .bat/.cmd")
   })
 
   test("launch working directories stay inside the project (arch3 №6)", () => {
-    const root = "/project/game"
-    expect(PlaytestTool.resolveLaunchDir("bin", root)).toBe("/project/game/bin")
-    expect(() => PlaytestTool.resolveLaunchDir("/tmp", root)).toThrow("must stay inside the project")
+    const root = path.resolve("project", "game")
+    expect(PlaytestTool.resolveLaunchDir("bin", root)).toBe(path.join(root, "bin"))
+    expect(() => PlaytestTool.resolveLaunchDir(path.dirname(root), root)).toThrow("must stay inside the project")
+    expect(() => PlaytestTool.resolveLaunchDir(`${root}-sibling`, root)).toThrow("must stay inside the project")
     expect(() => PlaytestTool.resolveLaunchDir("../elsewhere", root)).toThrow("must stay inside the project")
   })
 

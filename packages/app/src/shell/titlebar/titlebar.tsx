@@ -14,7 +14,6 @@ import { useLanguage } from "@/runtime/i18n/language"
 import { useSettings } from "@/settings/model"
 import { WindowsAppMenu } from "./windows-menu"
 import { applyPath, backPath, forwardPath, type HistoryLocation } from "./history"
-import { OrchestraLogo } from "@/providers/orchestra-logo"
 import { NeuralDot, NeuralLine } from "@orchestra/ui/neural-field"
 import { TitlebarTabStrip } from "@/shell/titlebar/tab-strip"
 import { makeEventListener } from "@solid-primitives/event-listener"
@@ -36,8 +35,6 @@ import { rootSession } from "@/shell/routes/session"
 import { TitlebarItem } from "@orchestra/gui-extensions/sdk"
 import { useExtensionHost } from "@/runtime/extension/host"
 import { TitlebarItems, useTitlebarItems } from "@/runtime/extension/titlebar-items"
-import devIcon from "../../../../desktop/icons/dev/64x64.png"
-import betaIcon from "../../../../desktop/icons/beta/64x64.png"
 
 const titlebarHeight = 36
 
@@ -184,7 +181,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
     >
       <Show when={platform.platform === "desktop"}>
         <div class="flex shrink-0 items-center gap-2 self-center ps-3 pe-1" data-slot="titlebar-brand">
-          <OrchestraLogo class="size-5 text-v2-icon-icon-base" />
+            <NeuralDot />
           <span class="text-[13px] font-semibold tracking-[0.22em] text-v2-text-text-base">ORCHESTRA</span>
           {/* One breathing neuron: it shows whether the agents are working right now. */}
           <NeuralDot />
@@ -611,7 +608,9 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                         <span data-slot="mobile-tab-title" dir="auto" class="min-w-0 flex-1 truncate text-start">
                           {currentTitle()}
                         </span>
-                        <span class="shrink-0 text-v2-text-text-muted">{tabsStore.length}</span>
+                          <span class="shrink-0 text-v2-text-text-muted">
+                            {tabsStore.filter((tab) => tab.type !== "draft" || !tab.home).length}
+                          </span>
                       </MobileDrawerTrigger>
                       <MobileDrawerContent>
                         <MobileDrawerLabel class="sr-only">{language.t("titlebar.tabs")}</MobileDrawerLabel>
@@ -619,7 +618,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                           <div data-slot="mobile-tabs-drawer-list">
                             <TitlebarTabStrip
                               orientation="vertical"
-                              tabs={tabsStore}
+                                tabs={tabsStore.filter((tab) => tab.type !== "draft" || !tab.home)}
                               currentTab={currentTab()}
                               onNavigate={(tab) => {
                                 tabs.select(tab)
@@ -694,7 +693,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                     fallback={
                       <>
                         <TitlebarTabStrip
-                          tabs={tabsStore}
+                            tabs={tabsStore.filter((tab) => tab.type !== "draft" || !tab.home)}
                           currentTab={currentTab()}
                           onNavigate={(tab, el) => {
                             tabs.select(tab)
@@ -746,7 +745,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                             <div class="flex min-h-0 flex-1 flex-col gap-1">
                               <TitlebarTabStrip
                                 orientation="vertical"
-                                tabs={tabsStore}
+                                  tabs={tabsStore.filter((tab) => tab.type !== "draft" || !tab.home)}
                                 currentTab={currentTab()}
                                 onNavigate={(tab, el) => {
                                   tabs.select(tab)
@@ -846,13 +845,13 @@ function ChannelIndicator(props: { horizontal?: boolean; sidebar?: boolean }) {
         aria-label={debug()?.label}
         aria-pressed={debug()?.pressed}
       >
-        <img
-          src={channel === "beta" ? betaIcon : devIcon}
-          alt={debug() ? "" : label()}
-          class="shrink-0 rounded-[4px] shadow-[var(--v2-elevation-raised)]"
-          classList={{ "size-6": props.sidebar, "size-5": !props.sidebar }}
-          draggable={false}
-        />
+        <span
+          role={debug() ? undefined : "img"}
+          aria-label={debug() ? undefined : label()}
+          class="size-5 text-v2-icon-icon-base"
+        >
+          <NeuralDot />
+        </span>
       </Dynamic>
     </Tooltip>
   )

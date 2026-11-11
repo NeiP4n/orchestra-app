@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest"
 import {
   ANTIGRAVITY_CLIENT_ID,
   ANTIGRAVITY_SCOPES,
@@ -14,7 +14,12 @@ function encodeState(projectId: string): string {
   return Buffer.from(JSON.stringify({ verifier: "verifier-1", projectId }), "utf8").toString("base64url")
 }
 
+beforeEach(() => {
+  vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "test-only-placeholder")
+})
+
 afterEach(() => {
+  vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
 
@@ -54,6 +59,8 @@ describe("exchangeAntigravity project lookup", () => {
       projectId: "project-1",
       email: "user@example.com",
     })
+    const tokenCall = fetchMock.mock.calls.find(([input]) => String(input) === "https://oauth2.googleapis.com/token")!
+    expect(new URLSearchParams(String(tokenCall[1]?.body)).get("client_secret")).toBe("test-only-placeholder")
     const loadCalls = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/v1internal:loadCodeAssist"))
     expect(loadCalls).toHaveLength(1)
     const [input, init] = loadCalls[0]!
@@ -81,4 +88,31 @@ describe("exchangeAntigravity project lookup", () => {
     expect(result).toMatchObject({ type: "success", refresh: "refresh-2|my-project", projectId: "my-project" })
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("loadCodeAssist"))).toBe(false)
   })
+})
+
+
+describe("local OAuth configuration preflight", () => {
+  it("refuses before opening Google or making requests when the local secret is missing", async () => {
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    const network = vi.fn()
+    vi.stubGlobal("fetch", network)
+    await expect(authorizeAntigravity()).rejects.toMatchObject({ code: "missing_client_secret", isRetryable: false })
+    expect(network).not.toHaveBeenCalled()
+  })
+  it("preserves a safe configuration reason when configuration disappears after authorization", async () => {
+    vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
+    const network = vi.fn()
+    vi.stubGlobal("fetch", network)
+    await expect(exchangeAntigravity("code", encodeState("project"))).rejects.toMatchObject({ code: "missing_client_secret" })
+    expect(network).not.toHaveBeenCalled()
+  })
+})
+
+
+it("reports rejected application credentials without echoing a Google response body", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "invalid_client", error_description: "PRIVATE_RESPONSE_CANARY" }, 401)))
+  let failure: unknown
+  try { await exchangeAntigravity("code", encodeState("project")) } catch (error) { failure = error }
+  expect(failure).toMatchObject({ code: "invalid_oauth_client", isRetryable: false })
+  expect(String(failure)).not.toContain("PRIVATE_RESPONSE_CANARY")
 })

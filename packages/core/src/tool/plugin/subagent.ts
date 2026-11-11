@@ -3,7 +3,7 @@ export * as SubagentTool from "./subagent.js"
 import { ToolFailure } from "@orchestra/ai"
 import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
-import { Effect, Predicate, Schema } from "effect"
+import { Effect, Option, Predicate, Schema } from "effect"
 import { Agent } from "../../agent.js"
 import { Config } from "../../config.js"
 import { Job } from "../../job.js"
@@ -16,11 +16,11 @@ import { SubagentJob } from "../../session/subagent-job.js"
 
 export const name = "subagent"
 
-const backgroundResult = (sessionID: SessionSchema.ID) => ({
+const backgroundResult = (sessionID: SessionSchema.ID, facts: string) => ({
   sessionID,
   status: "running" as const,
   output: [
-    `The subagent is working in the background (sessionID: ${sessionID}). You will be notified automatically when it finishes.`,
+    `The subagent is working in the background. VERIFIED: ${facts}. You will be notified automatically when it finishes.`,
     "DO NOT sleep, poll for progress, ask the subagent for status, or duplicate this subagent's work; avoid working with the same files or topics it is using.",
     "Work on non-overlapping tasks, or briefly tell the user what you launched and end your response.",
   ].join("\n"),
@@ -223,10 +223,17 @@ export const Plugin = {
                 description: input.description,
               }
               yield* subagents.start(recovery)
+              // Report what was read back from the session store, not what was asked for.
+              const confirmed = yield* sessions.get(child.id).pipe(Effect.option)
+              if (Option.isNone(confirmed))
+                return yield* new ToolFailure({
+                  message: `NOT CONFIRMED: subagent session ${child.id} cannot be read back. Treat it as not started: retry once, then tell the operator it failed.`,
+                })
+              const facts = `sessionID ${child.id}, title "${confirmed.value.title ?? ""}", agent ${confirmed.value.agent ?? agent.id}, parent ${context.sessionID}`
 
               if (background) {
                 yield* subagents.background(recovery)
-                return backgroundResult(child.id)
+                return backgroundResult(child.id, facts)
               }
 
               const result = yield* jobs.block({ id: child.id, sessionID: context.sessionID }).pipe(
@@ -245,7 +252,7 @@ export const Plugin = {
                 })
               if (result?.type === "backgrounded") {
                 yield* subagents.notify(recovery, result.info.started_at)
-                return backgroundResult(child.id)
+                return backgroundResult(child.id, facts)
               }
               if (result?.info.status === "error")
                 return yield* new ToolFailure({

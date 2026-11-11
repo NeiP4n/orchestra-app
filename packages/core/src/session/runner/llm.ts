@@ -1,3 +1,6 @@
+import { appendFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 export * as SessionRunnerLLM from "./llm.js"
 
 import { Message, ProviderCooldown, isContextOverflowFailure } from "@orchestra/ai"
@@ -6,7 +9,7 @@ import { Mode } from "@orchestra/schema/mode"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
-import { Cause, Clock, DateTime, Effect, Exit, FiberMap, Layer, Option } from "effect"
+import { Cause, Clock, DateTime, Duration, Effect, Exit, FiberMap, Layer, Option } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
 import { Config } from "../../config.js"
@@ -37,6 +40,7 @@ import { llmClient } from "../../effect/app-node-platform.js"
 import { StepFailedError } from "../error.js"
 import { SessionRunnerRetry } from "./retry.js"
 import { mainSessionFallbackChain } from "./error-taxonomy.js"
+import { ProjectMetrics } from "../../project-files/metrics.js"
 import { SessionStep } from "./step.js"
 import { ToolOutput } from "../../tool-output.js"
 import { ToolPruning } from "../tool-pruning.js"
@@ -48,6 +52,7 @@ import { Location } from "../../location.js"
 import { SessionMemory } from "../../memory/session.js"
 import { scrubText } from "../../memory/scrub.js"
 import { SessionCompletionGate } from "../completion-gate.js"
+import { RuleEnforce } from "../../rule-enforce.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
   "The previous response was interrupted. Continue from where you left off without repeating completed content."
@@ -281,6 +286,8 @@ const layer = Layer.effect(
         const exceeded = Limits.drainBudgetExceeded(drainBudget, yield* Clock.currentTimeMillis)
         if (exceeded) return yield* failDrainBudget(sessionID, exceeded, drainBudget)
         continuing = yield* runStep(next.context, step, refused, drainBudget, toolPruneUnusedSteps, pruneState)
+        // A step that finished ends the run of identical failures: two refusals in a row means in a row.
+        failureSignatures.delete(refused)
         step++
         force = false
         entering = false
@@ -363,6 +370,7 @@ const layer = Layer.effect(
         // and the model cannot call what it cannot see.
         const pruned = ToolPruning.pruneTools(loaded.tools, loaded.messages, {
           unusedSteps: toolPruneUnusedSteps,
+          agent: loaded.agent.id,
           protectedNames: Mode.toolsOf(loaded.session.metadata, loaded.agent.id),
         })
         if (pruned.pruned.length > 0 && pruned.pruned.join(",") !== pruneState.lastPruned.join(",")) {
@@ -405,9 +413,13 @@ const layer = Layer.effect(
           tools,
           system: transcript.system,
           measurementRetryOf,
-          messages: stepLimitReached
-            ? [...transcript.messages, Message.assistant(MAX_STEPS_PROMPT)]
-            : transcript.messages,
+          // The request must end with a user message: Claude (Anthropic, Vertex, Antigravity) and others refuse an
+          // assistant message last ("does not support assistant message prefill", 400), and every fallback model
+          // refuses it the same way. The step-limit notice is therefore a user message, and a history that still
+          // ends on an assistant message gets a short user line.
+          messages: [
+            ...endOnUser(stepLimitReached ? [...transcript.messages, Message.user(MAX_STEPS_PROMPT)] : transcript.messages),
+          ],
           // Keep tool definitions on the final Step to preserve the provider's cached prefix.
           toolChoice: stepLimitReached ? "none" : undefined,
           webSocket: "session",
@@ -425,6 +437,7 @@ const layer = Layer.effect(
           // cache in SessionMemory), so a step that never touches a tool
           // never creates the session memory database.
           onToolSettled: toolSettledCapture(location.project.directory, sessionID, scrubText),
+          onUsageSettled: usageCapture(location.project.directory, {projectID:String(location.project.id),sessionID:String(sessionID),messageID:String(assistantMessageID),providerID:String(loaded.model.ref.providerID),modelID:String(loaded.model.ref.id)}),
           retry: (cause, error, proposed) =>
             retry.decide({
               cause,
@@ -437,7 +450,7 @@ const layer = Layer.effect(
           recoverContinuation,
           fallback: (cause, error) => nextModel(loaded, cause, error, refused),
           recoverOverflow: Effect.suspend(() =>
-            recoverOverflow
+            recoverOverflow && compaction.getSettings().auto
               ? compaction
                   .compact({ reason: "overflow", context: loaded })
                   .pipe(Effect.map((result) => result.status === "completed"))
@@ -494,6 +507,8 @@ const layer = Layer.effect(
             yield* Dod.status(location.project.directory),
             yield* DateTime.now,
             sessionID,
+            undefined,
+            loaded.agent.id,
           )
           if (nudge) {
             yield* bus.publish(SessionEvent.Synthetic, {
@@ -503,6 +518,40 @@ const layer = Layer.effect(
               metadata: { [SessionCompletionGate.MetadataKey]: true },
             })
             return true
+          }
+          // The soft layer of the rulebook: a light judge reads the finished turn against the free-text rules this
+          // session carries and sends it back to work with the rule quoted. At most JUDGE_MAX times per operator turn;
+          // any failure of the judge lets the turn end.
+          if (title.ask) {
+            const judged = yield* Effect.gen(function* () {
+              const rules = RuleEnforce.recall(String(sessionID)).filter((entry) => !RuleEnforce.isDirective(entry.text))
+              if (rules.length === 0) return undefined
+              const messages = yield* store.context(sessionID)
+              if (SessionCompletionGate.judgedCount(messages, RuleEnforce.JUDGE_KEY) >= RuleEnforce.JUDGE_MAX) return undefined
+              const digest = SessionCompletionGate.turnDigest(messages)
+              const line = yield* title
+                .ask!({ sessionID, system: RuleEnforce.JUDGE_SYSTEM, text: RuleEnforce.judgePrompt(rules, digest) })
+                .pipe(Effect.timeoutOption(Duration.seconds(25)), Effect.map(Option.getOrUndefined))
+              const found = RuleEnforce.verdict(line, rules)
+              RuleEnforce.log({
+                layer: "soft",
+                outcome: found ? "sent-back" : "passed",
+                session: String(sessionID),
+                agent: String(loaded.agent.id),
+                ...(found ? { rule: found.entry.text, by: found.entry.by } : {}),
+                what: found ? found.why : String(line ?? "no verdict"),
+              })
+              return found
+            }).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+            if (judged) {
+              yield* bus.publish(SessionEvent.Synthetic, {
+                sessionID,
+                text: `<system-reminder>\nRule check: this turn breaks a standing rule (${judged.entry.by === "operator" ? "set by the operator" : judged.entry.title}): "${judged.entry.text}". ${judged.why ? `Why: ${judged.why}. ` : ""}Fix it now, then finish. If you believe the rule does not apply, say why in one sentence.\n</system-reminder>`,
+                description: "Rule check",
+                metadata: { [RuleEnforce.JUDGE_KEY]: true },
+              })
+              return true
+            }
           }
         }
         if (completed !== undefined) return completed
@@ -529,12 +578,35 @@ const layer = Layer.effect(
     // providers; and `fallbackModel` no longer re-checks retryability — step.ts only
     // calls it after the retry policy already declined (retries spent), so a retryable
     // cause here means "change the model", not "wait again".
+    const failureSignatures = new WeakMap<Set<string>, string[]>()
     const nextModel = Effect.fn("SessionRunner.nextModel")(function* (
       loaded: SessionContext.Loaded,
       cause: AIError,
       error: SessionError.Error,
       refused: Set<string>,
     ) {
+      // The same error from two models in a row is the request's, not the models': stop the chain so the
+      // real reason is shown instead of six fallbacks that all fail alike.
+      const signature = `${cause.reason._tag}:${String(error.message ?? "").replace(/[\w-]*\d[\w-]*/g, "#").slice(0, 160)}`
+      const seenErrors = failureSignatures.get(refused) ?? []
+      failureSignatures.set(refused, [...seenErrors, signature])
+      if (seenErrors.at(-1) === signature) {
+        yield* Effect.logWarning("two models in a row failed with the same error; the fallback chain stops", {
+          sessionID: loaded.session.id,
+          signature,
+        })
+        return false
+      }
+      // Only the Orchestrator (or the operator) changes a team agent's model. A BrowserAgent or worker whose model fails
+      // stops with the real error, which reaches the Orchestrator in the team report; it decides what to switch to.
+      if (!mayFallBack(loaded.agent.id, process.env.ORCHESTRA_TEAM_MODEL_FALLBACK)) {
+        yield* Effect.logWarning("a team agent does not switch models by itself; the error goes to the Orchestrator", {
+          sessionID: loaded.session.id,
+          agent: loaded.agent.id,
+          message: error.message,
+        })
+        return false
+      }
       const listed = Orchestra.sessionModels(loaded.session.metadata)
       // The catalog is read for every session now, not only main sessions: a
       // worker whose own list is exhausted (or all on one dead provider) falls
@@ -564,6 +636,13 @@ const layer = Layer.effect(
       })
       if (!next) return false
       refused.add(modelKey(next))
+      const why = `${cause.reason._tag}${cause.reason.http?.status ? ` HTTP ${cause.reason.http.status}` : ""}: ${String(error.message ?? "").slice(0, 300)}`
+      try {
+        appendFileSync(
+          join(homedir(), "orchestra-browser-debug.log"),
+          `${new Date().toISOString()} model-fallback ${loaded.model.ref.providerID}/${loaded.model.ref.id} -> ${next.providerID}/${next.id} ${why.replace(/\s+/g, " ")}\n`,
+        )
+      } catch {}
       yield* Effect.logWarning("the provider refused this model; the worker continues on its next model", {
         sessionID: loaded.session.id,
         model: loaded.model.ref,
@@ -573,9 +652,10 @@ const layer = Layer.effect(
       if (listed.length === 0 || next.providerID !== loaded.model.ref.providerID)
         yield* bus.publish(SessionEvent.Synthetic, {
           sessionID: loaded.session.id,
-          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
+          text: `Провайдер отказался от модели ${loaded.model.ref.id}; сессия продолжается на запасной модели ${next.id} (провайдер ${next.providerID}). Причина: ${why}. Это не тихая подмена: если запасная тоже откажет, ошибка уйдёт на эскалацию.`,
           description: "Model fallback",
           metadata: {
+            reason: why,
             previous: `${loaded.model.ref.providerID}/${loaded.model.ref.id}`,
             next: `${next.providerID}/${next.id}`,
           },
@@ -687,6 +767,15 @@ const modelIdentity = (model: Model.Ref) => `${model.providerID}/${model.id}`
 /** `refused` holds full keys (`provider/id#variant`); a refusal is per model, not per variant. */
 const refusedIdentities = (refused: ReadonlySet<string>) => new Set([...refused].map((key) => key.split("#")[0] ?? key))
 
+/** A team agent (agent id "team-...") never switches model on its own unless the operator turns it on. */
+export const mayFallBack = (agent: string, flag: string | undefined) => !String(agent).startsWith("team-") || flag === "1"
+
+/** A provider-safe tail: the last message is never the assistant's. */
+export function endOnUser<T extends { readonly role: string }>(messages: ReadonlyArray<T>): ReadonlyArray<T> {
+  const last = messages.at(-1)
+  return last?.role === "assistant" ? [...messages, Message.user("Continue.") as unknown as T] : messages
+}
+
 /**
  * The next model a session may try after its provider refused the current one outright. This
  * runs ONLY after the retry policy already declined (see `step.ts`: the fallback is called
@@ -735,3 +824,7 @@ export const node = makeLocationNode({
     Location.node,
   ],
 })
+
+/** Primary-step scalar sink, exported for an isolated no-provider integration test. */
+export const usageCapture = (directory:string, ids:Omit<ProjectMetrics.Receipt,"tokens"|"at">) =>
+  (tokens:ProjectMetrics.Receipt["tokens"]) => Effect.tryPromise(()=>ProjectMetrics.append(directory,{...ids,at:Date.now(),tokens})).pipe(Effect.ignore)

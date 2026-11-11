@@ -66,21 +66,27 @@ export function createStorage(root: string, channel: string) {
       const existing = entries.get(file)
       if (existing) return existing.value as Entry<Value>
 
-      const load = () => {
+      const load = (strict = false) => {
         try {
           return clone(JSON.parse(readFileSync(file, "utf8")) as Value)
-        } catch {
+        } catch (error) {
+          // A damaged/unreadable existing file is not an empty store. In particular,
+          // do not overwrite browser sessions with defaults after a failed read.
+          if (strict && !(typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")) throw error
           return clone(options.initial)
         }
       }
       const [store, setStore] = createStore(load())
       const merge = (next: Value) => reconcile(next, { key: options.key })
-      const reload = () => batch(() => setStore(merge(load())))
+      const reload = () => {
+        try { batch(() => setStore(merge(load(true)))) }
+        catch (error) { console.error("Storage reload failed; retaining last known state", { file, error }) }
+      }
       const update = (mutation: (draft: Value) => void) => {
         const operation = Flock.withLock(
           file,
           async () => {
-            const draft = load()
+            const draft = load(true)
             mutation(draft)
             const next = clone(draft)
             await writeJsonAtomic(file, next)

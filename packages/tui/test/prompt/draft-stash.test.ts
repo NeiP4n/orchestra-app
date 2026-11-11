@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { saveDraft, takeDraft } from "../../src/component/prompt/draft-stash"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { flushDraftStash, initDraftStash, saveDraft, takeDraft } from "../../src/component/prompt/draft-stash"
 import { emptyPrompt } from "../../src/prompt/history"
 
 // The Prompt component stashes an unsent draft in onCleanup and takes it back
@@ -38,5 +41,45 @@ describe("prompt draft stash", () => {
     const second = draft("second")
     saveDraft("ses_a", second)
     expect(takeDraft("ses_a")).toBe(second)
+  })
+
+  test("drafts persist to the state file and a taken draft leaves it", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "draft-stash-persist-"))
+    initDraftStash(dir)
+
+    saveDraft("ses_persist", draft("survives restart"))
+    await flushDraftStash()
+    const file = path.join(dir, "prompt-drafts.json")
+    const written = JSON.parse(readFileSync(file, "utf8"))
+    expect(written.drafts.ses_persist.prompt.text).toBe("survives restart")
+
+    // Restoring the draft removes it from the file too, so a stale copy
+    // never comes back after the next restart.
+    expect(takeDraft("ses_persist")?.prompt.text).toBe("survives restart")
+    await flushDraftStash()
+    expect(JSON.parse(readFileSync(file, "utf8")).drafts.ses_persist).toBeUndefined()
+  })
+
+  test("a file written by a previous run loads on init", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "draft-stash-load-"))
+    writeFileSync(
+      path.join(dir, "prompt-drafts.json"),
+      JSON.stringify({ version: 1, drafts: { ses_old: { prompt: { ...emptyPrompt(), text: "from before" }, cursor: 3 } } }),
+    )
+
+    initDraftStash(dir)
+
+    const restored = takeDraft("ses_old")
+    expect(restored?.prompt.text).toBe("from before")
+    expect(restored?.cursor).toBe(3)
+  })
+
+  test("a corrupt state file starts empty instead of crashing", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "draft-stash-corrupt-"))
+    writeFileSync(path.join(dir, "prompt-drafts.json"), "{not json at all")
+
+    initDraftStash(dir)
+
+    expect(takeDraft("ses_anything")).toBeUndefined()
   })
 })

@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
@@ -1631,12 +1632,13 @@ function encode(script: string) {
 
 export function Header(props: { title: string; onClose?: () => void }) {
   const theme = useTheme().surface("dialog")
+  const closeHover = createHoverFeedback("secondary")
   return (
     <box flexDirection="row" justifyContent="space-between">
       <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
         {props.title}
       </text>
-      <text fg={theme.text.muted} onMouseUp={() => props.onClose?.()}>
+      <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => props.onClose?.()}>
         esc
       </text>
     </box>

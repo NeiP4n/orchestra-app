@@ -1,3 +1,6 @@
+import { showInGeneralNetwork } from "../util/browser-sessions"
+import { useNotes } from "../context/notes"
+import { networkNames } from "../util/network-labels"
 import type { RGBA } from "@opentui/core"
 import { createMemo, createSignal, Show } from "solid-js"
 import { useData } from "../context/data"
@@ -14,7 +17,7 @@ function useSessionScope(sessionID: () => string) {
   const scope = createMemo(() => [sessionID(), ...workers().map((session) => session.id)])
   const names = createMemo(() => ({
     [sessionID()]: t("this session"),
-    ...Object.fromEntries(workers().map((session) => [session.id, (session.title || "worker").slice(0, 14)])),
+    ...networkNames(workers().map((session) => ({ id: session.id, title: session.title || "worker" }))),
   }))
   const running = () => scope().some((id) => data.session.status(id) === "running")
   return { workers, scope, names, running }
@@ -53,35 +56,24 @@ export function SessionNetwork(props: { sessionID: string }) {
   })
   const busyWorkers = () => session.workers().filter((worker) => data.session.status(worker.id) === "running").length
 
+  const [width, setWidth] = createSignal(44)
   return (
-    <box flexShrink={0} gap={0}>
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <NeuronDot energy={session.running() ? 0.35 : 0.04} session={session.scope()} />
-        <text fg={theme.text.muted} wrapMode="none" flexGrow={1}>
-          {t("Session network")}
+    <box flexDirection="row" gap={1} height={1} flexShrink={0} minWidth={0} onSizeChange={function () { setWidth(this.width) }}>
+      <NeuronDot energy={session.running() ? 0.35 : 0.04} session={session.scope()} />
+      <text fg={theme.text.muted} wrapMode="none" truncate minWidth={0} flexShrink={1}>
+        {width() < 34 ? t("Network") : t("Session network")}
+      </text>
+      <text fg={doing().lit ? palette().spark : theme.text.muted} wrapMode="none" truncate minWidth={0} flexGrow={1}>
+        {`· ${doing().text}`}
+      </text>
+      <Show when={session.workers().length > 0 && width() >= 48}>
+        <text fg={busyWorkers() > 0 ? palette().signal : theme.text.muted} wrapMode="none" flexShrink={0}>
+          {t("{count} workers", { count: `${busyWorkers()}/${session.workers().length}` })}
         </text>
-        <Show when={session.workers().length > 0}>
-          <text fg={busyWorkers() > 0 ? palette().signal : theme.text.muted} wrapMode="none">
-            {t("{count} workers", { count: `${busyWorkers()}/${session.workers().length}` })}
-          </text>
-        </Show>
-      </box>
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <text fg={doing().lit ? palette().spark : theme.text.muted} wrapMode="none" flexGrow={1}>
-          {doing().text}
-        </text>
-        <Show when={tally().running.length > 0}>
-          <text fg={palette().signal} wrapMode="none">
-            {`▸${tally().running.length}`}
-          </text>
-        </Show>
-        <text fg={tally().done > 0 ? palette().done : theme.text.muted} wrapMode="none">
-          {`✓${tally().done}`}
-        </text>
-        <text fg={tally().failed > 0 ? palette().fail : theme.text.muted} wrapMode="none">
-          {`✗${tally().failed}`}
-        </text>
-      </box>
+      </Show>
+      <Show when={tally().running.length > 0}><text fg={palette().signal} wrapMode="none" flexShrink={0}>{`▸${tally().running.length}`}</text></Show>
+      <text fg={tally().done > 0 ? palette().done : theme.text.muted} wrapMode="none" flexShrink={0}>{`✓${tally().done}`}</text>
+      <text fg={tally().failed > 0 ? palette().fail : theme.text.muted} wrapMode="none" flexShrink={0}>{`✗${tally().failed}`}</text>
     </box>
   )
 }
@@ -109,23 +101,24 @@ export function SessionNetworkField(props: { sessionID: string; backdrop: RGBA; 
 // The whole network: every Session's hub, labelled with its title, so the chat screen shows which
 // other conversations are working right now.
 export function AllSessionsField(props: { currentID?: string; backdrop: RGBA; height: number }) {
+  const notes = useNotes()
   const data = useData()
   const t = useT()
   const names = createMemo(() =>
-    Object.fromEntries(
+    networkNames(
       data.session
         .list()
-        .filter((session) => !session.parentID)
+        .filter((session) => !session.parentID && showInGeneralNetwork(session, !!notes.browserChatRecord(session.id)))
         .toSorted((left, right) => {
           const busy =
             Number(data.session.status(right.id) === "running") - Number(data.session.status(left.id) === "running")
           return busy || right.time.updated - left.time.updated
         })
         .slice(0, 6)
-        .map((session) => [
-          session.id,
-          session.id === props.currentID ? t("this session") : (session.title || "session").slice(0, 14),
-        ]),
+        .map((session) => ({
+          id: session.id,
+          title: session.id === props.currentID ? t("this session") : session.title || "session",
+        })),
     ),
   )
   const running = () => data.session.list().some((session) => data.session.status(session.id) === "running")

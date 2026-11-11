@@ -247,7 +247,59 @@ test("uses the active location for integration data without scoping credential r
   }
 })
 
-async function renderIntegration(activeLocation?: LocationRef, form?: FormFields) {
+for (const language of ["en", "ru"] as const) test(`delete confirmation survives a rendered frame and reports a server refusal without removing the row (${language})`, async () => {
+  const fixture = await renderIntegration(undefined, undefined, "Account store is locked. Retry after the operation finishes.", language)
+  try {
+    fixture.app.mockInput.pressArrow("down")
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame((frame) => frame.includes("again to confirm"))
+    await fixture.app.renderOnce()
+    expect(fixture.requests).toEqual([])
+    if (process.env.CAPTURE_GOOGLE_DELETE) await Bun.write(process.env.CAPTURE_GOOGLE_DELETE + "-confirm.json", JSON.stringify(fixture.app.captureSpans()))
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame((frame) => frame.includes(language === "en" ? "Delete refused" : "Удаление отклонено") && frame.includes("HTTP 409"))
+    expect(fixture.requests).toEqual([{ method: "DELETE", path: "/api/credential/cred_personal" }])
+    expect(fixture.accounts).toHaveLength(2)
+    expect(fixture.app.captureCharFrame().replace(/\s+/g, " ")).toContain("Account store is locked.")
+    expect(fixture.app.captureCharFrame()).toContain("Personal")
+    expect(fixture.app.captureCharFrame()).not.toContain("again to confirm")
+    if (process.env.CAPTURE_GOOGLE_DELETE) await Bun.write(process.env.CAPTURE_GOOGLE_DELETE + `-refused-${language}.json`, JSON.stringify(fixture.app.captureSpans()))
+  } finally { fixture.app.renderer.destroy() }
+})
+
+for (const language of ["en", "ru"] as const) test(`linked-owner deletion refusal explains recovery and keeps the account (${language})`, async () => {
+  const fixture = await renderIntegration(undefined, undefined, "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept.", language)
+  try {
+    fixture.app.mockInput.pressArrow("down")
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame(frame => frame.includes("again to confirm"))
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame(frame => frame.replace(/\s+/g, " ").includes(language === "en" ? "Enable its plugin" : "Включи плагин"))
+    const frame = fixture.app.captureCharFrame().replace(/\s+/g, " ")
+    expect(frame).toContain(language === "en" ? "The credential was kept." : "Запись сохранена.")
+    expect(frame).toContain("Personal")
+    expect(fixture.accounts).toHaveLength(2)
+    expect(fixture.requests).toEqual([{ method: "DELETE", path: "/api/credential/cred_personal" }])
+    if (process.env.CAPTURE_GOOGLE_DELETE) await Bun.write(process.env.CAPTURE_GOOGLE_DELETE + `-owner-${language}.json`, JSON.stringify(fixture.app.captureSpans()))
+  } finally { fixture.app.renderer.destroy() }
+})
+
+for (const language of ["en", "ru"] as const) test(`native Antigravity removal warns about the independent plugin pool (${language})`, async () => {
+  const fixture = await renderIntegration(undefined, undefined, undefined, language, "google-antigravity")
+  try {
+    fixture.app.mockInput.pressArrow("down")
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame(frame => frame.replace(/\s+/g, " ").includes(language === "en" ? "separate Antigravity" : "плагина Antigravity"))
+    expect(fixture.requests).toEqual([])
+    expect(fixture.accounts).toHaveLength(2)
+    if (process.env.CAPTURE_POOL_WARNING) await Bun.write(process.env.CAPTURE_POOL_WARNING + `-${language}.json`, JSON.stringify(fixture.app.captureSpans()))
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitFor(() => fixture.requests.length === 1)
+    expect(fixture.requests).toEqual([{ method: "DELETE", path: "/api/credential/cred_personal" }])
+  } finally { fixture.app.renderer.destroy() }
+})
+
+async function renderIntegration(activeLocation?: LocationRef, form?: FormFields, deleteFailure?: string, language: "en" | "ru" = "en", integrationID = "openai") {
   const events = createEventStream()
   const requests: Array<{ method: string; path: string; body?: unknown }> = []
   const locations: LocationRef[] = []
@@ -275,8 +327,8 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
         location,
         data: [
           {
-            id: "openai",
-            name: "OpenAI",
+            id: integrationID,
+            name: integrationID === "google-antigravity" ? "Google Antigravity" : "OpenAI",
             methods: [{ type: "key", label: "API key", form }],
             connections: [...accounts, { type: "env", name: "OPENAI_API_KEY" }],
           },
@@ -310,7 +362,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
         id: `evt_switched_${id}`,
         created: Date.now(),
         type: "credential.switched",
-        data: { integrationID: "openai", credentialID: id },
+        data: { integrationID, credentialID: id },
       })
       return new Response(null, { status: 204 })
     }
@@ -326,6 +378,10 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
 
     if (request.method === "DELETE" && /^\/api\/credential\/[^/]+$/.test(url.pathname)) {
       const id = url.pathname.split("/")[3]
+      if (deleteFailure) {
+        requests.push({ method: request.method, path: url.pathname })
+        return json({ _tag: "ConflictError", resource: id, message: deleteFailure }, { status: 409 })
+      }
       const active = accounts[0]?.id === id
       accounts = accounts.filter((account) => account.id !== id)
       requests.push({ method: request.method, path: url.pathname })
@@ -335,7 +391,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
           id: `evt_switched_${id}`,
           created: Date.now(),
           type: "credential.switched",
-          data: { integrationID: "openai", credentialID: accounts[0]?.id ?? null },
+          data: { integrationID, credentialID: accounts[0]?.id ?? null },
         })
       return new Response(null, { status: 204 })
     }
@@ -351,7 +407,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
       location.set(activeLocation)
       void data.location.integration
         .sync(activeLocation)
-        .then(() => dialog.replace(() => <DialogIntegration integrationID="openai" autoConnect />))
+        .then(() => dialog.replace(() => <DialogIntegration integrationID={integrationID} autoConnect />))
     })
     return null
   }
@@ -359,7 +415,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
   const app = await testRender(
     () => (
       <TestTuiContexts>
-        <ConfigProvider config={createTuiResolvedConfig()}>
+        <ConfigProvider config={createTuiResolvedConfig({ language })}>
           <Keymap.Provider>
             <ToastProvider>
               <ClientProvider api={createApi(calls.fetch)}>

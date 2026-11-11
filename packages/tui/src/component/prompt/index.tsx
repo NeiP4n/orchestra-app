@@ -32,7 +32,7 @@ import { parseSlashHead } from "../../prompt/parse"
 import { stringWidth } from "../../util/string-width"
 import { createStore, produce, unwrap } from "solid-js/store"
 import { emptyPrompt, usePromptHistory, type PromptInfo, type PromptPartRef } from "../../prompt/history"
-import { saveDraft, takeDraft } from "./draft-stash"
+import { initDraftStash, saveDraft, takeDraft } from "./draft-stash"
 import { Skill } from "@orchestra/schema/skill"
 import type { JsonValue } from "@orchestra/client/promise"
 import type { Session } from "@orchestra/schema/session"
@@ -737,6 +737,7 @@ export function Prompt(props: PromptProps) {
   const stashSessionID = props.sessionID
 
   onMount(() => {
+    initDraftStash(paths.state)
     const saved = takeDraft(stashSessionID)
     if (store.prompt.text) return
     if (saved && saved.prompt.text) {
@@ -1554,6 +1555,11 @@ export function Prompt(props: PromptProps) {
 
   // Keep the last resolved prompt display visible while destination catalogs load;
   // availability and submission still use the live location-scoped catalog.
+  // Diagnostic: when the agent shown is not the one the chat was created with, say which one the chat has and whether
+  // the server's agent list knows it, so a single screenshot shows why (unknown agent, hidden, or replaced).
+  // A browser chat is labelled from its own session agent, not from the agent list.
+  const browserChatLabel = () =>
+    props.sessionID && data.session.get(props.sessionID)?.agent === "team-browser-agent" ? "BrowserAgent" : undefined
   const promptDisplay = createMemo<{
     agentLabel: string | undefined
     agentColor: RGBA | undefined
@@ -1574,7 +1580,9 @@ export function Prompt(props: PromptProps) {
       const agent = local.agent.current()
       const model = local.model.parsed()
       return {
-        agentLabel: agent ? Locale.titlecase(agent.id) : undefined,
+        agentLabel: agent
+          ? Locale.titlecase(agent.id)
+          : undefined,
         agentColor: agent ? local.agent.color(agent.id) : undefined,
         modelLabel: model.model,
         providerLabel: model.provider,
@@ -1594,7 +1602,9 @@ export function Prompt(props: PromptProps) {
     if (store.mode === "shell") return theme.text.action.primary.selected
     return promptDisplay().agentColor ?? theme.border.base
   })
-  const agentLabel = createMemo(() => (store.mode === "shell" ? "Shell" : promptDisplay().agentLabel))
+  const agentLabel = createMemo(() =>
+    store.mode === "shell" ? "Shell" : (browserChatLabel() ?? promptDisplay().agentLabel),
+  )
   const animateMetadata = !revealedPromptMetadata.has(local)
   const metadataAnimationsEnabled = () => animationsEnabled() && animateMetadata
   const agentMetaAlpha = createFadeIn(() => !!agentLabel(), metadataAnimationsEnabled)

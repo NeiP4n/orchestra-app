@@ -1,3 +1,5 @@
+import { KV } from "@orchestra/core/kv"
+import { SessionStore } from "@orchestra/core/session/store"
 import { Database } from "@orchestra/core/database/database"
 import { V1Migration } from "@orchestra/core/database/v1-migration"
 import { App } from "@orchestra/core/app"
@@ -59,8 +61,11 @@ import type { ServerOptions } from "./options"
 import { legacyRouteAlias } from "./alias"
 
 const applicationServiceNodes = [
+  App.node,
   Global.node,
   Database.node,
+  KV.node,
+  SessionStore.node,
   Bus.node,
   EventLogger.node,
   httpClient,

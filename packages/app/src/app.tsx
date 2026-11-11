@@ -58,7 +58,8 @@ export function AppBaseProviders(
     <MetaProvider>
       <Font />
       <ThemeProvider
-        defaultTheme={props.defaultTheme}
+        defaultTheme={props.defaultTheme ?? "sculk"}
+        defaultColorScheme="dark"
         onThemeApplied={(_, mode, scheme) => {
           props.onThemeApplied?.(mode, scheme)
         }}

@@ -58,13 +58,13 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
 
   const frame = app.captureCharFrame()
   // Verify category tabs are rendered
-  for (const category of ["All", "General", "Chat", "Agent", "Notifications", "Developer"])
+  for (const category of ["All", "General", "Chat", "Безопасность", "Notifications", "Developer", "Профиль"])
     expect(frame).toContain(category)
 
   // Verify rich footer card metadata is rendered: the default stays, the internal config
   // path is engineering detail the dialog no longer shows.
   expect(frame).not.toContain("path:")
-  expect(frame).toContain("default:")
+  expect(frame).not.toContain("default:")
   expect(frame).toContain("tab")
 })
 
@@ -139,4 +139,15 @@ test("decluttered tuning knobs are not listed even with Developer mode on", asyn
   expect(frame).toContain("Permissions")
   for (const removed of ["Context governor", "Auto-compact", "Developer tools", "Animations", "Mascot", "Tabs", "Mouse"])
     expect(frame).not.toContain(removed)
+})
+
+for (const width of [80, 120, 160]) test(`Settings retains right-side options at ${width} columns`, async () => {
+  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({ theme: { name: "opencode", mode: "dark" } })}><ClientProvider api={serverApi()}><ThemeProvider mode="dark" source={emptyThemeSource}><Keymap.Provider><ToastProvider><DialogProvider><DialogConfig /></DialogProvider></ToastProvider></Keymap.Provider></ThemeProvider></ClientProvider></ConfigProvider></TestTuiContexts>, { width, height: 40 })
+  app.renderer.start()
+  await app.waitForFrame(frame => frame.includes("AI language") && frame.includes("Theme"))
+  const frame = app.captureCharFrame()
+  expect(frame).toContain("Language")
+  expect(frame).toContain("AI language")
+  expect(frame).toContain("Theme")
+  app.renderer.destroy()
 })

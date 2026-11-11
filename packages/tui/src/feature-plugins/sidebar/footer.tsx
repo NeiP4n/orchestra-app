@@ -12,7 +12,7 @@ import { hoverBackground } from "../../ui/hover"
 export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: string }) {
   const t = useT()
   const dimensions = useTerminalDimensions()
-  const [hoveredAction, setHoveredAction] = createSignal<"dismiss" | "connect">()
+  const [hoveredAction, setHoveredAction] = createSignal<"dismiss">()
   const [onboarding, updateOnboarding] = props.context.storage.store("getting-started", {
     initial: { dismissed: false },
   })
@@ -69,29 +69,6 @@ export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: s
           <text fg={props.context.theme.text.muted}>
             {t("Orchestra includes free models so you can start immediately.")}
           </text>
-          <text fg={props.context.theme.text.muted}>
-            {t("Connect one of 75+ providers to use other models, including Claude, GPT and Gemini.")}
-          </text>
-          <box
-            id="sidebar.footer.getting-started.connect"
-            flexDirection="row"
-            flexGrow={1}
-            flexShrink={1}
-            gap={1}
-            justifyContent="space-between"
-            backgroundColor={
-              hoveredAction() === "connect" ? hoverBackground(props.context.theme) : undefined
-            }
-            onMouseOver={() => setHoveredAction("connect")}
-            onMouseOut={() => setHoveredAction(undefined)}
-            onMouseUp={(event) => {
-              event.stopPropagation()
-              props.context.keymap.dispatch("provider.connect")
-            }}
-          >
-            <text fg={props.context.theme.text.base}>{t("Connect provider")}</text>
-            <text fg={props.context.theme.text.muted}>/connect</text>
-          </box>
         </box>
       </box>
     </Show>

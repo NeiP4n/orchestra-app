@@ -94,7 +94,7 @@ export class Society extends Schema.Class<Society>("Config.Orchestra.Society")({
   }),
   autonomy: Schema.Literals(["off", "observe", "auto"]).pipe(optional).annotate({
     description:
-      "How much work the Society's router may take on its own (default observe): off takes nothing, observe prepares runs but executes none, auto executes",
+      "How much work the Society's router may take on its own (default auto): off takes nothing, observe prepares runs but executes none, auto executes",
   }),
 }) {}
 

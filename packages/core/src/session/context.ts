@@ -1,3 +1,5 @@
+import { KV } from "../kv.js"
+import { SessionProjectOwner } from "./project-owner.js"
 export * as SessionContext from "./context.js"
 
 import { Dod } from "../dod.js"
@@ -18,6 +20,7 @@ import { McpInstructions } from "../mcp/instructions.js"
 import { Memory } from "../memory/index.js"
 import { MemoryInstructions } from "../memory/instructions.js"
 import { SessionMemory } from "../memory/session.js"
+import { BrowserInstructions } from "../browser/instructions.js"
 import { NoteInstructions } from "../note-instructions.js"
 import { McpTool } from "../tool/mcp.js"
 import { ReferenceInstructions } from "../reference/instructions.js"
@@ -100,6 +103,7 @@ const layer = Layer.effect(
     const skillInstructions = yield* SkillInstructions.Service
     const hubInstructions = yield* HubInstructions.Service
     const store = yield* SessionStore.Service
+    const kv = yield* KV.Service
     const registry = yield* Tool.Service
 
     const resolveModel = (session: SessionSchema.Info) => models.resolve(session, model.available)
@@ -142,9 +146,7 @@ const layer = Layer.effect(
       // Session permissions narrow discovery the same way they narrow the tool snapshot.
       const permissions = Permission.merge(agent.info.permissions, session.permissions ?? [])
       // Without readable history every section stays whole: a missed rule costs more than tokens.
-      const history = InstructionRouter.enabled()
-        ? yield* store.context(sessionID).pipe(Effect.option)
-        : Option.none()
+      const history = InstructionRouter.enabled() ? yield* store.context(sessionID).pipe(Effect.option) : Option.none()
       const route = Option.match(history, {
         onNone: () => undefined,
         onSome: (messages) => {
@@ -175,7 +177,7 @@ const layer = Layer.effect(
           tools: Effect.succeed(toolsSnapshot),
           builtins: builtins.load(availableToolNames),
           discovery: discovery.load(route),
-          skills: skillInstructions.load(permissions),
+          skills: skillInstructions.load(permissions, { sessionID, agent: agent.info.id }),
           references: referenceInstructions.load(),
           mcp: mcpInstructions.load(permissions),
           entries: entries.load(sessionID),
@@ -202,6 +204,7 @@ const layer = Layer.effect(
           loaded.builtins,
           loaded.entries,
           loaded.canvas,
+          BrowserInstructions.make(session.location.directory, yield* SessionProjectOwner.resolve(kv, session)),
         ]),
         tools: loaded.tools,
       }
@@ -236,6 +239,7 @@ export const node = makeLocationNode({
   service: Service,
   layer,
   deps: [
+    KV.node,
     Agent.node,
     Model.node,
     Database.node,

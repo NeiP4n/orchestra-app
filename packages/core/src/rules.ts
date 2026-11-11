@@ -1,5 +1,7 @@
 export * as Rules from "./rules.js"
 
+import { RuleEnforce } from "./rule-enforce.js"
+
 import { Cause, Effect, Option, Schema } from "effect"
 import { SessionID } from "@orchestra/schema/session-id"
 import type { Federation } from "./federation.js"
@@ -38,7 +40,24 @@ const HISTORY_CAP = 100
 
 export const GLOBAL = "global"
 export const projectScope = (id: string) => `project:${id}`
+/** Independent, editable copy of defaults, initialized atomically including an empty copy. */
+export const projectDefaultsScope = (id: string) => `project-defaults:${id}`
+export const societyDefaultsScope = (name: string) => `society-defaults:${name}`
+const snapshotScope = (kv: KV.Interface, scope: string) => Effect.gen(function* () {
+  if ((yield* kv.get(KEY + scope)) !== undefined) return
+  const defaults = yield* listStrict(kv, GLOBAL)
+  yield* kv.atomicUpdate(KEY + scope, (current) => current === undefined ? defaults as unknown as KV.Value : current)
+})
+export const snapshotDefaults = (kv: KV.Interface, projectID: string) => snapshotScope(kv, projectDefaultsScope(projectID))
+export const snapshotSocietyDefaults = (kv: KV.Interface, name: string) => snapshotScope(kv, societyDefaultsScope(name))
+
 export const societyScope = (name: string) => `society:${name}`
+/** Rules the operator puts on a project's Orchestrator: it gets them every turn; nobody but the operator removes them. */
+export const orchestratorScope = (project: string) => `orchestrator:${project}`
+/** Rules for one role (agent name) of a project: only sessions of that role carry them. The Orchestrator hands them out. */
+export const roleScope = (project: string, role: string) => `role:${project}:${role}`
+/** Rules for one session: only that session carries them. */
+export const sessionScope = (id: string) => `session:${id}`
 
 /** A scope's stored rules could not be read, or some of its stored entries are corrupt. */
 export class LoadError extends Schema.TaggedError<LoadError>()("Rules.LoadError", {
@@ -78,6 +97,14 @@ const toRule = (item: Partial<Rule>): Rule => ({
   at: Number(item.at ?? 0),
 })
 
+// Two defaults that made the AI ask the operator how to solve a task (three questions before code, a read-only
+// "questions only" phase) were removed from DEFAULT_SOCIETY_RULES. Societies seeded earlier still store them, so a
+// stored rule with exactly one of these texts, seeded by "operator", is no longer loaded.
+const LEGACY_DEFAULTS: ReadonlySet<string> = new Set([
+  "Before writing code for a task, first write exactly 3 questions about what is unclear in it, then work from the answers.",
+  "The first 30 minutes of a sprint are reading code and asking questions only; writing code is forbidden until the read-only phase ends.",
+])
+
 /** The stored rules of a scope plus how many stored entries are corrupt and were skipped. */
 export const inspect = (kv: KV.Interface, scope: string): Effect.Effect<{ rules: ReadonlyArray<Rule>; corrupt: number }> =>
   kv.get(KEY + scope).pipe(
@@ -87,8 +114,10 @@ export const inspect = (kv: KV.Interface, scope: string): Effect.Effect<{ rules:
       const rules: Rule[] = []
       let corrupt = 0
       for (const item of value) {
-        if (isRule(item)) rules.push(toRule(item))
-        else corrupt++
+        if (isRule(item)) {
+          const rule = toRule(item)
+          if (!(rule.by === "operator" && LEGACY_DEFAULTS.has(rule.text))) rules.push(rule)
+        } else corrupt++
       }
       return { rules, corrupt }
     }),
@@ -168,10 +197,8 @@ export type AddResult = { readonly error: string; readonly rule?: undefined } | 
 // the operator can, like any operator rule. A Society that already has its own rules
 // keeps them: seeding only fills an empty society scope, it never rewrites one.
 export const DEFAULT_SOCIETY_RULES: ReadonlyArray<string> = [
-  "Before writing code for a task, first write exactly 3 questions about what is unclear in it, then work from the answers.",
   "A big decision — a library, architecture, or module boundary — needs an ADR in .orchestra/decisions/adr-NNNN.md before the code that implements it.",
   "Before any pause or stop, write .orchestra/sessions/<id>/handoff.md: where you stopped, what works, what does not, and the next step.",
-  "The first 30 minutes of a sprint are reading code and asking questions only; writing code is forbidden until the read-only phase ends.",
   "Do the riskiest, least-known part of a task first, not the easiest part; fail fast and cheap, while the rest is still undone.",
   "When a task is verified DONE or FAILED, record the outcome in the knowledge map, so the next assignment uses facts, not claims.",
 ]
@@ -223,7 +250,7 @@ export const remove = (
         reason: `Rule ${id} was written by the operator; only the operator can remove it.`,
       })
     const next = rules.filter((rule) => rule.id !== id)
-    if (next.length === 0) yield* kv.remove(KEY + scope)
+    if (next.length === 0 && !scope.startsWith("project-defaults:") && !scope.startsWith("society-defaults:")) yield* kv.remove(KEY + scope)
     else yield* kv.set(KEY + scope, next as unknown as KV.Value)
     yield* recordHistory(kv, scope, { action: "remove", id, text: target.text, by: target.by, at: Date.now() })
     return true
@@ -236,6 +263,10 @@ export interface Scopes {
   readonly project?: string
   /** The Societies that project belongs to. */
   readonly societies: ReadonlyArray<string>
+  /** The session being asked about, its agent (role) and whether it is its project's Orchestrator (main session). */
+  readonly session?: string
+  readonly role?: string
+  readonly orchestrator?: boolean
   /** Scopes a sandbox session reads from the project it was copied from: read-only — the
       sandbox follows the source's rules, it never writes them. */
   readonly inherited?: {
@@ -252,6 +283,32 @@ export interface Scopes {
 // A lookup that fails is an error, not an empty answer: scopes that could not be determined
 // must never read as "no rule applies".
 export const scopesOf = (input: {
+  readonly sessionID: string
+  readonly sessions: Session.Interface
+  readonly orchestra: Orchestra.Interface
+  readonly federation: Federation.Interface
+}): Effect.Effect<Scopes, ScopesError> =>
+  Effect.gen(function* () {
+    const base = yield* baseScopes(input)
+    const own = yield* input.sessions.get(input.sessionID as SessionID).pipe(Effect.option)
+    // By the project record, not mainOf: mainOf hides the project while a move is pending (and reconciles on every call),
+    // which dropped the Orchestrator's own rules exactly then.
+    const orchestrator = base.project !== undefined && (yield* input.orchestra.projects()).some((item) => item.main === input.sessionID)
+    return {
+      ...base,
+      session: input.sessionID,
+      ...(Option.isSome(own) && typeof own.value.agent === "string" ? { role: own.value.agent } : {}),
+      orchestrator,
+    } satisfies Scopes
+  }).pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+      const error = failureOf(cause)
+      return Effect.fail(new ScopesError({ reason: `scopes could not be determined: ${error === undefined ? Cause.pretty(cause) : String(error)}` }))
+    }),
+  )
+
+const baseScopes = (input: {
   readonly sessionID: string
   readonly sessions: Session.Interface
   readonly orchestra: Orchestra.Interface
@@ -331,6 +388,23 @@ const inheritedScopes = (
     return { projects, societies }
   })
 
+/** Resolve reach before reading or mutating another session's rule scope. */
+export const sessionReach = (input: {
+  readonly projectID: string
+  readonly sessionID: string
+  readonly sessions: Pick<Session.Interface, "get">
+  readonly orchestra: Pick<Orchestra.Interface, "projects" | "owns">
+}): Effect.Effect<string, ScopesError> => Effect.gen(function* () {
+  const project = (yield* input.orchestra.projects()).find((item) => item.id === input.projectID)
+  const session = yield* input.sessions.get(input.sessionID as SessionID).pipe(Effect.option)
+  if (!project || Option.isNone(session) || !(yield* input.orchestra.owns(project, session.value)))
+    return yield* new ScopesError({ reason: "The target session is not owned by this project. No rule scope was accessed." })
+  return sessionScope(String(session.value.id))
+}).pipe(Effect.catchCause((cause) => {
+  if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause)
+  return Effect.fail(new ScopesError({ reason: "The target session owner could not be verified. No rule scope was accessed." }))
+}))
+
 // --- Priority and conflicts -------------------------------------------------
 //
 // Society > project > global. A rule in a lower scope never overrides a higher one, and a
@@ -387,14 +461,21 @@ const crossScopeConflict = (
 // The system-prompt block for a session. A scope that fails to load, or a contradiction
 // between scopes, fails the whole block: an agent that starts without its rules is worse
 // than one that does not start.
-export const block = (kv: KV.Interface, scopes: Scopes) =>
+/** The block plus the same rules as data, operator rules first, for the enforcement layers. */
+export const load = (kv: KV.Interface, scopes: Scopes) =>
   Effect.gen(function* () {
+    if (scopes.project) yield* snapshotDefaults(kv, scopes.project)
+    else if (scopes.chatOf) yield* snapshotSocietyDefaults(kv, scopes.chatOf)
+
     const wanted = [
       { title: "Society", scope: scopes.societies.map(societyScope) },
       { title: "Society (inherited)", scope: (scopes.inherited?.societies ?? []).map(societyScope) },
       { title: "Project", scope: scopes.project ? [projectScope(scopes.project)] : [] },
       { title: "Project (inherited)", scope: (scopes.inherited?.projects ?? []).map(projectScope) },
-      { title: "Global", scope: [GLOBAL] },
+      { title: "Orchestrator", scope: scopes.orchestrator && scopes.project ? [orchestratorScope(scopes.project)] : [] },
+      { title: "Role", scope: scopes.project && scopes.role ? [roleScope(scopes.project, scopes.role)] : [] },
+      { title: "Session", scope: scopes.session ? [sessionScope(scopes.session)] : [] },
+      { title: "Defaults copy", scope: scopes.project ? [projectDefaultsScope(scopes.project)] : scopes.chatOf ? [societyDefaultsScope(scopes.chatOf)] : [] },
     ]
     const parts = yield* Effect.forEach(wanted, (group) =>
       Effect.forEach(group.scope, (scope) => listStrict(kv, scope)).pipe(
@@ -406,14 +487,28 @@ export const block = (kv: KV.Interface, scopes: Scopes) =>
       return yield* new ConflictError({
         reason:
           `Rule conflict: [${conflict.higher.title}] "${conflict.higher.rule.text}" contradicts ` +
-          `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override global rules; ` +
+          `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override defaults copies; ` +
           `remove or rewrite one of them — the model does not pick a winner.`,
       })
     const lines = parts.flatMap((part) => part.rules.map((rule) => `- [${part.title}] ${rule.text}`))
-    if (lines.length === 0) return ""
-    return [
+    const entries = parts
+      .flatMap((part) => part.rules.map((rule) => ({ title: part.title, text: rule.text, by: rule.by })))
+      .toSorted((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))
+    if (lines.length === 0) return { block: "", entries }
+    const block = [
       "# Rules",
-      "Standing rules of this crew, set by the operator and by teammates. Society rules override project rules, which override global rules; a conflict between scopes is an error, not a judgement call. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
+      "Standing rules of this crew, set by the operator and by teammates. Society rules override project rules, which override defaults copies; a conflict between scopes is an error, not a judgement call. Follow them in every task. When you learn something the whole crew must follow, add it with the rules tool instead of repeating it in briefs; never add a rule that contradicts the operator.",
       ...lines,
     ].join("\n")
+    return { block, entries }
+  })
+
+export const block = (kv: KV.Interface, scopes: Scopes) => load(kv, scopes).pipe(Effect.map((loaded) => loaded.block))
+
+
+/** Shared request-time load used by the context hook, including scheduled turns. */
+export const loadCurrent = (kv: KV.Interface, scopes: Scopes, sessionID: string) =>
+  Effect.suspend(() => {
+    RuleEnforce.loading(sessionID)
+    return load(kv, scopes).pipe(Effect.tap((loaded) => Effect.sync(() => RuleEnforce.remember(sessionID, loaded.entries))))
   })

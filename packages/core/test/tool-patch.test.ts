@@ -11,6 +11,7 @@ import { Location } from "@orchestra/core/location"
 import { FileAccess } from "@orchestra/core/file-access"
 import { Model } from "@orchestra/core/model"
 import { Permission } from "@orchestra/core/permission"
+import { RuleEnforce } from "@orchestra/core/rule-enforce"
 import { Provider } from "@orchestra/core/provider"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
@@ -91,6 +92,7 @@ const formatter = Layer.mock(Formatter.Service, {
 const reset = () => {
   assertions.length = 0
   denyAction = undefined
+  RuleEnforce.remember(String(sessionID), [])
   failRemoveTarget = undefined
   failRemoveErrorTarget = undefined
   failWriteTarget = undefined
@@ -262,7 +264,7 @@ describe("PatchTool", () => {
                     sessionID,
                     action: "edit",
                     resources: ["nested/new.txt", "update.txt", "remove.txt"],
-                    save: ["*"],
+                    save: ["nested/new.txt", "update.txt", "remove.txt"],
                     metadata: {
                       filepath: "nested/new.txt, update.txt, remove.txt",
                       diff: expect.stringContaining("Index:"),
@@ -959,6 +961,24 @@ describe("PatchTool", () => {
           Promise.all([active[Symbol.asyncDispose](), outside[Symbol.asyncDispose]()]).then(() => undefined),
         ),
     ),
+  )
+
+  it.live("standing path rules stop patchText traversal before reading or changing the file", () =>
+    Effect.gen(function* () {
+      reset()
+      const dir = yield* Effect.promise(() => tmpdir())
+      yield* Effect.addFinalizer(() => Effect.promise(() => dir[Symbol.asyncDispose]()))
+      const target = path.join(dir.path, ".env")
+      yield* Effect.promise(() => fs.writeFile(target, "before\n"))
+      RuleEnforce.remember(String(sessionID), [{ title: "Project", by: "operator", text: "deny path **/.env" }])
+      expect(yield* withTool(dir.path, registry => executeTool(registry,
+        call("*** Begin Patch\n*** Update File: safe/../.env\n@@\n-before\n+after\n*** End Patch"),
+      ))).toMatchObject({ status: "error", error: { type: "permission.rejected" } })
+      expect(assertions).toEqual([])
+      expect(readsBeforeEditApproval).toBe(0)
+      expect(yield* Effect.promise(() => fs.readFile(target, "utf8"))).toBe("before\n")
+      RuleEnforce.remember(String(sessionID), [])
+    }),
   )
 
   it.live("preserves edit permission rejection", () =>

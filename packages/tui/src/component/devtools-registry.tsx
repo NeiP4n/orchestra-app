@@ -1,3 +1,9 @@
+import type { ProjectTemplatesKeys } from "./project-templates-simple"
+import { ProjectTemplatesConnected } from "./project-templates-connected"
+import { createHoverFeedback } from "../ui/hover-feedback"
+import { useProjects } from "../context/projects"
+import { useRoute } from "../context/route"
+import { RegistryVault } from "./registry-vault"
 import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
@@ -48,6 +54,7 @@ export function RegistryPanel(props: {
   plugins?: RegistryPluginsAccess
 }) {
   const theme = useTheme().surface("dialog")
+  const closeHover = createHoverFeedback()
   const t = useT()
   const toast = useToast()
   const dimensions = useTerminalDimensions()
@@ -77,7 +84,7 @@ export function RegistryPanel(props: {
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
   const [pluginCount, setPluginCount] = createSignal<string>()
-  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal"] : ["plugins", "programs", "terminal"])
+  const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault", "templates"] : ["plugins", "programs", "terminal", "vault", "templates"])
   const cycle = (delta: number) => {
     setArmed()
     const list = tabs()
@@ -165,9 +172,9 @@ export function RegistryPanel(props: {
     setStale(!result.ok && Hub.HubActions.staleDatabase(result.output))
     // The note pins the command to rerun by hand, while the toast says why it failed.
     const reason = Hub.HubActions.failureReason(result.output)
-    setMessage(result.ok ? `${tool} ${verb}` : `${tool}: ${result.command || reason}`)
+    setMessage(result.ok ? t(verb === "installed" ? "{name} installed" : verb === "removed" ? "{name} removed" : "{name} updated", { name: tool }) : `${tool}: ${result.command || reason}`)
     toast.show({
-      message: result.ok ? `${tool} ${verb}` : `${tool} failed: ${reason}`,
+      message: result.ok ? t(verb === "installed" ? "{name} installed" : verb === "removed" ? "{name} removed" : "{name} updated", { name: tool }) : t("{name} failed: {reason}", { name: tool, reason }),
       variant: result.ok ? "success" : "error",
     })
     setBusy()
@@ -226,26 +233,30 @@ export function RegistryPanel(props: {
   const programs = () => tab() === "programs"
   const ai = () => tab() === "ai"
   const pluginTab = () => tab() === "plugins"
+  let templateKeys: ProjectTemplatesKeys | undefined
   let aiKeys: AiToolsKeys | undefined
   let pluginKeys: PluginToolsKeys | undefined
   Keymap.createLayer(() => ({
     mode: "modal",
     commands: [
-      { bind: "tab", title: "Next tab", group: "Registry", run: () => cycle(1) },
-      { bind: "shift+tab", title: "Previous tab", group: "Registry", run: () => cycle(-1) },
-      { bind: "up", title: "Previous AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.move(-1) },
-      { bind: "down", title: "Next AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.move(1) },
-      { bind: "return", title: "Install or remove AI tool", group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
-      { bind: "up", title: "Previous plugin", group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(-1) },
-      { bind: "down", title: "Next plugin", group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(1) },
-      { bind: "return", title: "Enable or disable plugin", group: "Registry", enabled: pluginTab, run: () => pluginKeys?.activate() },
-      { bind: "up", title: "Previous tool", group: "Registry", enabled: programs, run: () => move(-1) },
-      { bind: "down", title: "Next tool", group: "Registry", enabled: programs, run: () => move(1) },
-      { bind: "left", title: "Previous page", group: "Registry", enabled: programs, run: () => turn(-1) },
-      { bind: "right", title: "Next page", group: "Registry", enabled: programs, run: () => turn(1) },
+      { bind: "tab", title: t("Next tab"), group: "Registry", run: () => cycle(1) },
+      { bind: "shift+tab", title: t("Previous tab"), group: "Registry", run: () => cycle(-1) },
+      { bind: "up", title: t("Previous template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(-1) },
+      { bind: "down", title: t("Next template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.move(1) },
+      { bind: "return", title: t("Activate template action"), group: "Registry", enabled: () => tab() === "templates", run: () => templateKeys?.activate() },
+      { bind: "up", title: t("Previous AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.move(-1) },
+      { bind: "down", title: t("Next AI tool"), group: "Registry", enabled: ai, run: () => aiKeys?.move(1) },
+      { bind: "return", title: t("Install or toggle MCP"), group: "Registry", enabled: ai, run: () => aiKeys?.activate() },
+      { bind: "up", title: t("Previous plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(-1) },
+      { bind: "down", title: t("Next plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.move(1) },
+      { bind: "return", title: t("Enable or disable plugin"), group: "Registry", enabled: pluginTab, run: () => pluginKeys?.activate() },
+      { bind: "up", title: t("Previous tool"), group: "Registry", enabled: programs, run: () => move(-1) },
+      { bind: "down", title: t("Next tool"), group: "Registry", enabled: programs, run: () => move(1) },
+      { bind: "left", title: t("Previous page"), group: "Registry", enabled: programs, run: () => turn(-1) },
+      { bind: "right", title: t("Next page"), group: "Registry", enabled: programs, run: () => turn(1) },
       {
         bind: "return",
-        title: "Install or remove tool",
+        title: t("Install or remove tool"),
         group: "Registry",
         enabled: programs,
         run: () => {
@@ -280,8 +291,8 @@ export function RegistryPanel(props: {
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {t("Registry")}
         </text>
-        <text fg={theme.text.muted} onMouseUp={() => props.onClose?.()}>
-          esc
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={() => props.onClose?.()}>
+          {t("esc")}
         </text>
       </box>
 
@@ -295,7 +306,7 @@ export function RegistryPanel(props: {
                   ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
                   : item === "programs"
                     ? `${t("Programs")} ${counts().programs}`
-                    : `${t("AI terminal")}: ${counts().terminal}`}
+                    : item === "vault" ? "Vault" : item === "templates" ? t("Templates") : `${t("AI terminal")}: ${counts().terminal}`}
             </Button>
           )}
         </For>
@@ -310,6 +321,8 @@ export function RegistryPanel(props: {
         }}
       >
         <Switch>
+          <Match when={tab() === "templates"}><ProjectTemplatesConnected keys={(keys) => { templateKeys = keys }} scrollIntoView={scrollIntoView} /></Match>
+          <Match when={tab() === "vault"}><ProjectRegistryVault /></Match>
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
               <AiTools
@@ -486,17 +499,17 @@ export function RegistryPanel(props: {
         )}
       </Show>
       <text fg={theme.text.muted}>
-        {tab() === "programs"
+        {tab() === "templates" ? t("tab next tab · ↑↓ select · enter action · esc close") : tab() === "programs"
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
           : tab() === "plugins"
             ? t("tab next tab · ↑↓ select · enter enable/disable · esc close")
-            : t("tab next tab · ↑↓ select · enter install/remove · esc close")}
+            : t("tab next tab · ↑↓ select · enter install/enable/disable · esc close")}
       </text>
     </box>
   )
 }
 
-type Tab = "ai" | "plugins" | "programs" | "terminal"
+type Tab = "ai" | "plugins" | "programs" | "terminal" | "vault" | "templates"
 
 type AiToolsKeys = { move: (delta: number) => void; activate: () => void }
 type PluginToolsKeys = { move: (delta: number) => void; activate: () => void }
@@ -551,11 +564,12 @@ const haystack = Hub.all.reduce((map, entry) => {
 
 export type AiToolsAccess = {
   installed: () => readonly string[]
+  disabled?: () => readonly string[]
   set: (id: string, config: McpCatalog.Entry["config"] | null) => Promise<unknown>
 }
 
 // Catalog MCP servers the operator installs for the AI. Installing writes the server into the
-// global config, which connects it; every session is then told how to use it. Each row takes two
+// global config. Runtime readiness and operator OFF remain separate from installation. Each row takes two
 // lines so the description is read in full instead of being cut in the middle.
 function PluginTools(props: {
   plugins: RegistryPluginsAccess
@@ -630,10 +644,10 @@ function PluginTools(props: {
     try {
       const enabled = entry.active ? await props.plugins.deactivate(entry.id) : await props.plugins.activate(entry.id)
       if (!enabled) {
-        toast.show({ message: `Unable to ${entry.active ? "disable" : "enable"} plugin ${entry.id}`, variant: "error" })
+        toast.show({ message: t(entry.active ? "Unable to disable plugin {name}" : "Unable to enable plugin {name}", { name: entry.id }), variant: "error" })
         return
       }
-      toast.show({ message: `${entry.id}: ${entry.active ? "disabled" : "enabled"}`, variant: "success" })
+      toast.show({ message: t(entry.active ? "{name}: disabled" : "{name}: enabled", { name: entry.id }), variant: "success" })
     } catch (error) {
       toast.show({ message: error instanceof Error ? error.message : String(error), variant: "error" })
     } finally {
@@ -676,7 +690,7 @@ function PluginTools(props: {
             }, 1)
           }}
         />
-        <text fg={theme.text.muted} flexShrink={0}>{`${entries().length} plugins`}</text>
+        <text fg={theme.text.muted} flexShrink={0}>{t(entries().length === 1 ? "{count} plugin" : "{count} plugins", { count: entries().length })}</text>
         <Button onClick={() => turn(-1)}>‹</Button>
         <text fg={theme.text.muted} flexShrink={0}>{`${currentPage() + 1}/${pages()}`}</text>
         <Button onClick={() => turn(1)}>›</Button>
@@ -744,10 +758,11 @@ function AiTools(props: {
   const [busy, setBusy] = createSignal<string>()
   const [cursor, setCursor] = createSignal(0)
   const [hovered, setHovered] = createSignal<number>()
-  // Optimistic until the server list catches up with the config change.
+  // Optimistic until the persisted config list catches up. OFF still means installed.
   const [local, setLocal] = createSignal<Record<string, boolean>>({})
   const entries = McpCatalog.forPlatform()
-  const isInstalled = (id: string) => local()[id] ?? props.tools.installed().includes(id)
+  const isInstalled = (id: string) => local()[id] !== undefined || props.tools.installed().includes(id)
+  const isDisabled = (id: string) => local()[id] !== undefined ? !local()[id] : props.tools.disabled?.().includes(id) === true
   const blocked = (entry: McpCatalog.Entry) => entry.runtime !== undefined && !props.present(entry.runtime)
   const runtimeTool = (entry: McpCatalog.Entry) => (entry.runtime === "uvx" ? "uv" : "npx")
   createEffect(() => props.onCount(`${entries.filter((entry) => isInstalled(entry.id)).length}/${entries.length}`))
@@ -755,7 +770,9 @@ function AiTools(props: {
     if (busy() !== undefined || props.pending !== undefined) return
     setBusy(entry.id)
     await props.tools
-      .set(entry.id, install ? entry.config : null)
+      // Disable keeps installation and the operator OFF marker. Enable is an explicit operator action;
+      // neither reconnect failures nor opening this panel clear OFF.
+      .set(entry.id, install ? entry.config : ({ ...entry.config, disabled: true } as typeof entry.config))
       .then(() => {
         setLocal((current) => ({ ...current, [entry.id]: install }))
         if (install && entry.requires)
@@ -767,7 +784,7 @@ function AiTools(props: {
             variant: "warning",
             duration: 12000,
           })
-        toast.show({ message: `${entry.name}: ${install ? t("installed") : t("removed")}`, variant: "success" })
+        toast.show({ message: `${entry.name}: ${install ? t("installed") : t("MCP disabled; installation kept")}`, variant: "success" })
       })
       .catch((error: unknown) =>
         toast.show({ message: error instanceof Error ? error.message : String(error), variant: "error" }),
@@ -776,7 +793,7 @@ function AiTools(props: {
   }
   const activate = (entry: McpCatalog.Entry | undefined) => {
     if (!entry) return
-    if (isInstalled(entry.id)) return void change(entry, false)
+    if (isInstalled(entry.id)) return void change(entry, isDisabled(entry.id))
     if (blocked(entry)) return props.onInstallRuntime(runtimeTool(entry))
     void change(entry, true)
   }
@@ -839,10 +856,10 @@ function AiTools(props: {
                 </Match>
                 <Match when={isInstalled(entry.id)}>
                   <text fg={theme.text.feedback.success.base} flexShrink={0}>
-                    {t("installed")}
+                    {t("installed")}{isDisabled(entry.id) ? " · OFF" : ""}
                   </text>
-                  <Button disabled={busy() !== undefined} onClick={() => void change(entry, false)}>
-                    {t("Remove")}
+                  <Button disabled={busy() !== undefined} onClick={() => void change(entry, isDisabled(entry.id))}>
+                    {t(isDisabled(entry.id) ? "Enable MCP" : "Disable MCP")}
                   </Button>
                 </Match>
                 <Match when={blocked(entry)}>
@@ -1000,3 +1017,6 @@ export function Button(props: {
     </box>
   )
 }
+
+/** Mounted only in the Vault tab, where the operator can bind an existing name to this project. */
+function ProjectRegistryVault(){const route=useRoute(),projects=useProjects();const projectID=()=>route.data.type==="session"?projects.owner(route.data.sessionID):undefined;return <RegistryVault projectID={projectID()} sessionID={route.data.type === "session" ? route.data.sessionID : undefined}/>}

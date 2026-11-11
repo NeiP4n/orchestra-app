@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { createSignal, For, onMount, Show } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -30,6 +31,13 @@ export function DialogProject(props: {
   onCreated?: (project: OrchestraProject) => void | Promise<void>
   onEditTeams?: (draft: Draft) => void
 }) {
+  const closeHover = createHoverFeedback("secondary")
+  const nameHover = createHoverFeedback()
+  const directoryHover = createHoverFeedback()
+  const teamHover = createHoverFeedback()
+  const kindHover = createHoverFeedback()
+  const retryHover = createHoverFeedback()
+  const editTeamsHover = createHoverFeedback()
   const client = useClient()
   const location = useLocation()
   const theme = useTheme().surface("dialog")
@@ -239,18 +247,18 @@ export function DialogProject(props: {
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {t(props.project ? "Edit project" : "New project")}
         </text>
-        <text fg={theme.text.muted} onMouseUp={props.onClose}>
+        <text fg={theme.text.muted} bg={closeHover.background()} onMouseOver={closeHover.onMouseOver} onMouseOut={closeHover.onMouseOut} onMouseUp={props.onClose}>
           esc
         </text>
       </box>
       {/* A click on a field or its label takes focus back from the team list. */}
-      <box flexDirection="row" gap={1} onMouseDown={() => focusField(fields.name)}>
+      <box flexDirection="row" gap={1} backgroundColor={nameHover.background()} onMouseOver={nameHover.onMouseOver} onMouseOut={nameHover.onMouseOut} onMouseDown={() => focusField(fields.name)}>
         <box width={9}>
           <text fg={theme.text.muted}>{t("Name")}</text>
         </box>
         {input("name", t("My project"), props.project?.name ?? props.draft?.name ?? "")}
       </box>
-      <box flexDirection="row" gap={1} onMouseDown={() => focusField(fields.directory)}>
+      <box flexDirection="row" gap={1} backgroundColor={directoryHover.background()} onMouseOver={directoryHover.onMouseOver} onMouseOut={directoryHover.onMouseOut} onMouseDown={() => focusField(fields.directory)}>
         <box width={9}>
           <text fg={theme.text.muted}>{t(kind() === 0 ? "Path" : "Source")}</text>
         </box>
@@ -262,7 +270,7 @@ export function DialogProject(props: {
       </box>
       <Show when={!props.project}>
         <box flexDirection="row" gap={1}>
-          <box width={9} onMouseUp={focusTeam}>
+          <box width={9} backgroundColor={teamHover.background()} onMouseOver={teamHover.onMouseOver} onMouseOut={teamHover.onMouseOut} onMouseUp={focusTeam}>
             <text fg={teamFocused() ? theme.text.formfield.focused : theme.text.muted}>{t("Team")}</text>
           </box>
           <box flexGrow={1} minWidth={0}>
@@ -288,7 +296,7 @@ export function DialogProject(props: {
             <Show when={templatesFailed()}>
               <box flexDirection="row" gap={1} paddingLeft={2}>
                 <text fg={theme.text.feedback.error.base}>{t("Could not load teams")}</text>
-                <text fg={theme.text.action.primary.base} onMouseUp={loadTemplates}>
+                <text fg={theme.text.action.primary.base} bg={retryHover.background()} onMouseOver={retryHover.onMouseOver} onMouseOut={retryHover.onMouseOut} onMouseUp={loadTemplates}>
                   {t("Retry")}
                 </text>
               </box>
@@ -302,7 +310,7 @@ export function DialogProject(props: {
                 </Show>
                 <box flexGrow={1} />
                 <Show when={props.onEditTeams}>
-                  <box onMouseUp={editTeams}>
+                  <box backgroundColor={editTeamsHover.background()} onMouseOver={editTeamsHover.onMouseOver} onMouseOut={editTeamsHover.onMouseOut} onMouseUp={editTeams}>
                     <text fg={theme.text.action.primary.base}>{t("Edit teams and roles…")}</text>
                   </box>
                 </Show>
@@ -311,14 +319,16 @@ export function DialogProject(props: {
           </box>
         </box>
         <box flexDirection="row" gap={1}>
-          <box width={9} onMouseUp={focusKind}>
+          <box width={9} backgroundColor={kindHover.background()} onMouseOver={kindHover.onMouseOver} onMouseOut={kindHover.onMouseOut} onMouseUp={focusKind}>
             <text fg={kindFocused() ? theme.text.formfield.focused : theme.text.muted}>{t("Type")}</text>
           </box>
           <box flexGrow={1} minWidth={0}>
             <box flexDirection="row" gap={2}>
               <For each={kinds()}>
-                {(option, index) => (
-                  <text
+                {(option, index) => {
+                  const hover = createHoverFeedback()
+                  return (
+                  <text bg={hover.background()} onMouseOver={hover.onMouseOver} onMouseOut={hover.onMouseOut}
                     fg={
                       kind() === index()
                         ? kindFocused()
@@ -333,7 +343,7 @@ export function DialogProject(props: {
                   >
                     {kind() === index() ? "●" : "○"} {option.name}
                   </text>
-                )}
+                )}}
               </For>
             </box>
             <box paddingLeft={2}>

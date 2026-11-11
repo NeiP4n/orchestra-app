@@ -7,6 +7,9 @@ import { Database } from "@orchestra/core/database/database"
 import { KV } from "@orchestra/core/kv"
 import { Federation } from "@orchestra/core/federation"
 import { Orchestra } from "@orchestra/core/orchestra"
+import { RuleEnforce } from "@orchestra/core/rule-enforce"
+import { Trigger } from "@orchestra/core/trigger"
+import { readFileSync } from "node:fs"
 import { Rules } from "@orchestra/core/rules"
 import { Session } from "@orchestra/core/session"
 import { tempGlobalLayer } from "./fixture/global"
@@ -15,6 +18,38 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, KV.node]), [Global.node.replace(tempGlobalLayer)]))
 
 describe("rulebook", () => {
+  it.live("global defaults become independent durable project copies, including empty and concurrent initialization", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const original = yield* Rules.add(kv, Rules.GLOBAL, { text: "Original operator instruction.", by: "operator" })
+      yield* Effect.all([Rules.snapshotDefaults(kv, "prj_a"), Rules.snapshotDefaults(kv, "prj_a"), Rules.snapshotDefaults(kv, "prj_b")], { concurrency: "unbounded" })
+      const a = Rules.projectDefaultsScope("prj_a"), b = Rules.projectDefaultsScope("prj_b")
+      expect(yield* Rules.list(kv, a)).toEqual([original.rule!])
+      yield* Rules.add(kv, Rules.GLOBAL, { text: "New projects only.", by: "operator" })
+      yield* Rules.snapshotDefaults(kv, "prj_a")
+      expect(yield* Rules.list(kv, a)).toEqual([original.rule!])
+      expect(yield* Rules.list(kv, b)).toEqual([original.rule!])
+      yield* Rules.remove(kv, a, original.rule!.id, { operator: true })
+      yield* Rules.snapshotDefaults(kv, "prj_a")
+      expect(yield* Rules.list(kv, a)).toEqual([])
+      expect((yield* Rules.list(kv, b)).map(r => r.text)).toEqual(["Original operator instruction."])
+      yield* Rules.snapshotSocietyDefaults(kv, "Society A")
+      yield* Rules.snapshotSocietyDefaults(kv, "Society B")
+      yield* Rules.remove(kv, Rules.societyDefaultsScope("Society A"), original.rule!.id, { operator: true })
+      yield* Rules.snapshotSocietyDefaults(kv, "Society A")
+      expect((yield* Rules.list(kv, Rules.societyDefaultsScope("Society A"))).some(r=>r.id===original.rule!.id)).toBe(false)
+      expect((yield* Rules.list(kv, Rules.societyDefaultsScope("Society B"))).some(r=>r.id===original.rule!.id)).toBe(true)
+      yield* Rules.snapshotDefaults(kv, "prj_new")
+      expect((yield* Rules.list(kv, Rules.projectDefaultsScope("prj_new")))).toHaveLength(2)
+      const block = yield* Rules.block(kv, { project: "prj_b", societies: [] })
+      expect(block).toContain("Original operator instruction.")
+      expect(block).not.toContain("New projects only.")
+      expect(yield* Rules.block(kv, { societies: [] })).not.toContain("Original operator instruction.")
+      yield* Rules.remove(kv, Rules.GLOBAL, original.rule!.id, { operator: true })
+      expect((yield* Rules.list(kv, b)).map(r => r.text)).toEqual(["Original operator instruction."])
+    }),
+  )
+
   it.live("keeps rules per scope, refuses duplicates and empty text, and removes by id", () =>
     Effect.gen(function* () {
       const kv = yield* KV.Service
@@ -172,7 +207,8 @@ describe("rulebook", () => {
           groups: [{ name: "Lead", projects: ["prj_a"], mode: "lead", supervisor: "ses_president" }],
         }),
       )
-      expect(president).toEqual({ chatOf: "Lead", societies: ["Lead"] })
+      // The scopes also name the asking session, its role and whether it is an Orchestrator (session/role/orchestrator rules).
+      expect(president).toMatchObject({ chatOf: "Lead", societies: ["Lead"], orchestrator: false })
     }),
   )
 
@@ -253,4 +289,88 @@ const makeScopes = (options: {
     groups: () =>
       options.groups === undefined ? Effect.fail(new Error("groups unavailable")) : Effect.succeed(options.groups),
   } as unknown as Federation.Interface,
+})
+
+describe("rulebook scopes", () => {
+  it.live("session, role and orchestrator rules ride only on the sessions they are for, and operator ones resist workers", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      yield* Rules.add(kv, Rules.sessionScope("ses_1"), { text: "Keep answers short.", by: "team-orchestrator" })
+      yield* Rules.add(kv, Rules.roleScope("prj_x", "team-tester"), { text: "Run the suite before reporting.", by: "team-orchestrator" })
+      const operator = yield* Rules.add(kv, Rules.orchestratorScope("prj_x"), { text: "Ask before spending money.", by: "operator" })
+      const worker = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_1", role: "team-tester", orchestrator: false })
+      expect(worker).toContain("[Session] Keep answers short.")
+      expect(worker).toContain("[Role] Run the suite before reporting.")
+      expect(worker).not.toContain("Ask before spending money.")
+      const other = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_2", role: "team-developer", orchestrator: false })
+      expect(other).not.toContain("Keep answers short.")
+      expect(other).not.toContain("Run the suite")
+      const boss = yield* Rules.block(kv, { societies: [], project: "prj_x", session: "ses_0", role: "team-orchestrator", orchestrator: true })
+      expect(boss).toContain("[Orchestrator] Ask before spending money.")
+      const id = operator.rule?.id ?? ""
+      const refused = yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id).pipe(Effect.flip)
+      expect(refused._tag).toBe("Rules.ProtectedError")
+      expect(yield* Rules.remove(kv, Rules.orchestratorScope("prj_x"), id, { operator: true })).toBe(true)
+    }),
+  )
+})
+
+
+describe("scheduled request rule lifecycle", () => {
+  it.live("uses rules edited after schedule creation and blocks effects after corrupted reload", () =>
+    Effect.gen(function* () {
+      const kv = yield* KV.Service
+      const project = "prj_scheduled_rules"
+      const scope = Rules.projectScope(project)
+      const session = "scheduled-rule-fixture"
+      const made = Trigger.create({ kind: "interval", spec: "60", prompt: "Run the stored task" }, {
+        id: "rule_schedule", projectID: project, now: 1000, existing: 0,
+      })
+      if (!made.ok) throw new Error(made.error)
+      yield* Rules.loadCurrent(kv, { project, societies: [] }, session)
+      expect(RuleEnforce.unavailableRefusal(session, "shell", {})).toBeUndefined()
+      // The operator edits the rulebook after the schedule was saved.
+      yield* Rules.add(kv, scope, { text: "deny tool shell", by: "operator" })
+      const fired = Trigger.afterFire(made.trigger, 3_601_000)
+      expect(fired.total).toBe(1)
+      yield* Rules.loadCurrent(kv, { project, societies: [] }, session)
+      let effects = 0
+      const runEffect = () => {
+        const gate = RuleEnforce.unavailableRefusal(session, "shell", {})
+        const deny = RuleEnforce.violation(RuleEnforce.recall(session), { tool: "shell", agent: "orchestrator", input: {} })
+        if (!gate && !deny) effects++
+      }
+      runEffect()
+      expect(effects).toBe(0)
+      yield* kv.set(`rules/${scope}`, [{ corrupt: true }])
+      const failed = yield* Rules.loadCurrent(kv, { project, societies: [] }, session).pipe(Effect.flip)
+      expect(failed._tag).toBe("Rules.LoadError")
+      runEffect()
+      expect(effects).toBe(0)
+      expect(RuleEnforce.unavailableRefusal(session, "rules", { action: "list" })).toBeUndefined()
+      yield* kv.set(`rules/${scope}`, [])
+      yield* Rules.loadCurrent(kv, { project, societies: [] }, session)
+      runEffect()
+      expect(effects).toBe(1)
+    }),
+  )
+
+  it.live("the context and pre-execution hooks use the shared gate for every request", () => Effect.sync(() => {
+    const team = readFileSync(new URL("../src/plugin/team.ts", import.meta.url), "utf8")
+    const start = team.indexOf('ctx.session.hook("context"')
+    expect(start).toBeGreaterThan(0)
+    const loading = team.indexOf("RuleEnforce.loading(", start)
+    const scopeLoad = team.indexOf("Rules.scopesOf(", start)
+    const current = team.indexOf("Rules.loadCurrent(", start)
+    expect(loading).toBeGreaterThan(start)
+    expect(loading).toBeLessThan(scopeLoad)
+    expect(scopeLoad).toBeLessThan(current)
+    const tool = readFileSync(new URL("../src/tool/plugin/rules.ts", import.meta.url), "utf8")
+    const hook = tool.indexOf('ctx.tool.hook("execute.before"')
+    const gate = tool.indexOf("RuleEnforce.unavailableRefusal(", hook)
+    const directives = tool.indexOf("RuleEnforce.violation(", gate)
+    expect(hook).toBeGreaterThan(0)
+    expect(gate).toBeGreaterThan(hook)
+    expect(gate).toBeLessThan(directives)
+  }))
 })

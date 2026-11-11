@@ -12,8 +12,9 @@ describe("ToolGuidance instructions", () => {
     expect(text).toContain("Intent-to-Tool Routing:")
     expect(text).toContain("Code search & AST navigation -> symbols, grep, glob")
     expect(text).toContain("Git & VCS operations -> hub")
-    expect(text).toContain("Cross-file code navigation & refactors -> serena_*")
-    expect(text).toContain("Library documentation & external APIs -> context7")
+    expect(text).not.toContain("serena_*")
+    expect(text).toContain("Current information, unfamiliar libraries & APIs -> research, websearch, webfetch")
+    expect(text).not.toContain("context7")
     expect(text).toContain("</tool-routing>")
   })
 
@@ -70,13 +71,13 @@ describe("ToolGuidance availability filtering", () => {
   test("advertises only routes whose tools are actually available", () => {
     const text = ToolGuidance.render(ToolGuidance.defaultRules, ["grep", "read"])
     expect(text).toContain("Code search & AST navigation")
-    expect(text).not.toContain("Library documentation & external APIs")
+    expect(text).not.toContain("Current information, unfamiliar libraries & APIs")
     expect(text).not.toContain("Live pages, web apps & browser flows")
     expect(text).not.toContain("Binary analysis")
   })
 
   test("prefix patterns match installed MCP tool names", () => {
-    const text = ToolGuidance.render(ToolGuidance.defaultRules, ["playwright_chromium_navigate"])
+    const text = ToolGuidance.render([{ intent: "Live pages, web apps & browser flows", tools: ["fixture_*"], guidance: "Fixture prefix matching only." }], ["fixture_navigate"])
     expect(text).toContain("Live pages, web apps & browser flows")
     expect(text).not.toContain("Code search & AST navigation")
   })

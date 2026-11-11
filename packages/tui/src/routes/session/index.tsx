@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import {
   batch,
   createEffect,
@@ -12,9 +13,8 @@ import {
   Switch,
   type Accessor,
 } from "solid-js"
-import path from "node:path"
-import { EOL, tmpdir } from "node:os"
-import { mkdir, writeFile } from "node:fs/promises"
+import { EOL } from "node:os"
+import { writeTranscriptExport } from "../../util/transcript-export"
 import { useRoute, useRouteData } from "../../context/route"
 import { useNeuralActivity } from "../../component/neural-activity"
 import { createStore } from "solid-js/store"
@@ -150,6 +150,7 @@ import { modelErrorText, withModelWarmup } from "../../util/model-error"
 import { OutlineRail } from "./outline-view"
 import { useT } from "../../util/i18n"
 import { rowsAfter, rowsBefore, rowWeight } from "./mount-budget"
+import { completionNoticeRole, toolRowRole } from "./notice-color"
 export { InlineToolRow } from "./message-parts"
 export { toolDisplay } from "./message-parts"
 
@@ -178,10 +179,6 @@ export function Session(props: {
   const setEpilogue = useEpilogue()
   const notes = useNotes()
   const clipboard = useClipboard()
-  const writeExport = async (file: string, content: string) => {
-    await mkdir(path.dirname(file), { recursive: true })
-    await writeFile(file, content)
-  }
   const route = useRouteData("session")
   const sessionID = route.sessionID
   const { navigate } = useRoute()
@@ -1392,11 +1389,7 @@ export function Session(props: {
             return
           }
 
-          const filepath = path.join(
-            tmpdir(),
-            `session-${crypto.randomUUID()}.${options.format === "markdown" ? "md" : "json"}`,
-          )
-          await writeExport(filepath, content)
+          const filepath = await writeTranscriptExport(content, options.format)
           await DialogExportResult.show(dialog, filepath)
         } catch {
           toast.show({ message: "Failed to export session", variant: "error" })
@@ -2163,6 +2156,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   const data = useData()
   const local = useLocal()
   const theme = useTheme()
+  const continueHover = createHoverFeedback()
   const t = useT()
   const toast = useToast()
   const [continuing, setContinuing] = createSignal(false)
@@ -2219,7 +2213,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
       </Show>
       <Show when={ctx.canResumeRateLimited !== false && rateLimitPending() && !retry()}>
         <box paddingLeft={3}>
-          <text fg={theme.text.action.primary.base} selectable={false} onMouseUp={continueWork}>
+          <text fg={theme.text.action.primary.base} selectable={false} bg={continueHover.background()} onMouseOver={continueHover.onMouseOver} onMouseOut={continueHover.onMouseOut} onMouseUp={continueWork}>
             {continuing() ? t("Continuing work…") : `↻ ${t("Continue work")}`}
           </text>
         </box>
@@ -2311,9 +2305,10 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
   const heading = () => `${state() === "completed" ? "↳" : "!"} ${actor()} ${status()}`
   const suffix = () => Locale.truncateWidth(` · ${description()}`, Math.max(0, ctx.width - 3 - stringWidth(heading())))
   const color = () => {
-    if (state() === "error") return theme.text.feedback.error.base
-    if (state() === "cancelled") return theme.text.feedback.warning.base
-    if (hover() && childID()) return theme.text.base
+    const role = completionNoticeRole({ state: state(), hovering: hover() && Boolean(childID()) })
+    if (role === "error") return theme.text.feedback.error.base
+    if (role === "warning") return theme.text.feedback.warning.base
+    if (role === "text") return theme.text.base
     return theme.text.feedback.info.base
   }
   return (
@@ -3030,9 +3025,10 @@ function InlineTool(props: {
   const clickable = createMemo(() => Boolean(props.onClick || failed()))
   const fg = createMemo(() => {
     if (props.color) return props.color
-    if (permission()) return theme.text.feedback.warning.base
-    if (failed()) return theme.text.feedback.error.base
-    if (hover() && props.onClick) return theme.text.base
+    const role = toolRowRole({ permission: Boolean(permission()), failed: failed(), hovering: Boolean(hover() && props.onClick) })
+    if (role === "warning") return theme.text.feedback.warning.base
+    if (role === "error") return theme.text.feedback.error.base
+    if (role === "text") return theme.text.base
     return theme.text.muted
   })
 

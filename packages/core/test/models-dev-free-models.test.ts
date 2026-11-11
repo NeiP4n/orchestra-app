@@ -7,6 +7,7 @@ describe("anonymous FREE model routes", () => {
   test("registers Kilo auto-free and statically documented routes without account credentials", () => {
     const kilo = providers.find((provider) => provider.info.id === "kilo-free")
     expect(kilo).toBeDefined()
+    expect(kilo?.info.activation).toBe("enabled")
     expect(kilo!.info.name).toContain("FREE")
     expect(kilo!.info.settings?.baseURL).toBe("https://ai-gateway.kilo.ai/api/v1")
     expect(kilo!.info.headers).toBeUndefined()

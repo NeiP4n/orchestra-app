@@ -7,6 +7,8 @@ function tool<T extends { description: string; args: any; execute: (args: any, c
 tool.schema = z;
 import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  AntigravityOAuthConfigurationError,
+  requireAntigravityClientSecret,
   ANTIGRAVITY_ENDPOINT,
   ANTIGRAVITY_PROVIDER_ID,
   getAntigravityHeaders,
@@ -44,7 +46,7 @@ import {
 import { EmptyResponseError } from "./plugin/errors";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token";
 import { startOAuthListener, type OAuthListener } from "./plugin/server";
-import { clearAccounts, loadAccounts, saveAccountCredentials, saveAccounts, saveAccountsReplace, updateAccountCredentials, updateAccounts } from "./plugin/storage";
+import { newAccountIdentity, clearAccounts, loadAccounts, saveAccountCredentials, saveAccounts, saveAccountsReplace, updateAccountCredentials, updateAccounts } from "./plugin/storage";
 import { AccountManager, type ModelFamily, parseRateLimitReason, calculateBackoffMs, computeSoftQuotaCacheTtlMs } from "./plugin/accounts";
 import { createAutoUpdateCheckerHook } from "./hooks/auto-update-checker";
 import { loadConfig, initRuntimeConfig, type AntigravityConfig } from "./plugin/config";
@@ -830,6 +832,7 @@ export async function persistAccountPool(
         indexByEmail.set(result.email, newIndex);
       }
       accounts.push({
+        id: newAccountIdentity(stored, parts.refreshToken),
         email: result.email,
         refreshToken: parts.refreshToken,
         projectId: parts.projectId,
@@ -1214,6 +1217,10 @@ let geminiCliDownUntil = 0;
 
 /** Thrown out of the request loop, which would otherwise retry any other error against the next account. */
 class GoogleUnreachableError extends Error {}
+function maxWaitMsForCooldown(waitMs: number, seconds: number | undefined) {
+  const limit = (seconds ?? 300) * 1000;
+  return limit > 0 && waitMs > limit;
+}
 
 /**
  * Sleep for a given number of milliseconds, respecting an abort signal.
@@ -1564,6 +1571,12 @@ export const createAntigravityPlugin = (providerId: string) => async (
           if (!accountManager.getAccounts().some(account => account.enabled !== false && eligible(account))) {
             throw new Error("No enabled Antigravity account has access to this model. Refresh available models from /antigravity.");
           }
+          // Check local application configuration before selection: a prior failed refresh may
+          // already have persisted a cooldown, which must not hide the actionable cause.
+          const eligibleAccounts = accountManager.getAccounts().filter(account => account.enabled !== false && eligible(account));
+          if (eligibleAccounts.every(account => accessTokenExpired(accountManager.toAuthDetails(account)))) {
+            requireAntigravityClientSecret();
+          }
           const debugLines: string[] = [];
           const pushDebug = (line: string) => {
             if (!isDebugEnabled()) return;
@@ -1604,7 +1617,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
             waitedMs += ms;
             if (waitedMs > WAIT_BUDGET_MS) {
               throw new Error(
-                `Antigravity has no free account right now (rate limited or out of quota); the next one frees in about ${formatWaitTime(ms)}. Try again later, add an account, or switch to another model.`,
+                `Antigravity account pool is temporarily unavailable. Cooldowns can follow authentication, project access, network or quota failures. Next pool check in about ${formatWaitTime(ms)}. This message alone does not confirm an exhausted quota.`,
               );
             }
             await sleep(ms, signal);
@@ -1766,6 +1779,11 @@ export const createAntigravityPlugin = (providerId: string) => async (
                 logRateLimitSnapshot(family, accountManager.getAccountsSnapshot());
               }
 
+              const nonQuotaCooldown = accountManager.getAccounts().some(a => a.enabled !== false && eligible(a) && accountManager.isAccountCoolingDown(a));
+              if (nonQuotaCooldown && maxWaitMsForCooldown(waitMs, config.max_rate_limit_wait_seconds)) {
+                throw new Error("Antigravity accounts are temporarily unavailable after authentication, verification, project access or network failures. This is not a confirmed quota reset. Check account status and OAuth configuration.");
+              }
+
               // If wait time exceeds max threshold, return error immediately instead of hanging
               // 0 means disabled (wait indefinitely)
               const maxWaitMs = (config.max_rate_limit_wait_seconds ?? 300) * 1000;
@@ -1850,6 +1868,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                   log.error("Failed to persist refreshed auth", { error: String(error) });
                 }
               } catch (error) {
+                if (error instanceof AntigravityOAuthConfigurationError) throw error;
                 if (error instanceof AntigravityTokenRefreshError && error.code === "invalid_grant") {
                   if (runtimeVersion === 2) {
                     const rejectedToken = parseRefreshParts(authRecord.refresh).refreshToken;
@@ -1920,6 +1939,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
               projectContext = await ensureProjectContext(authRecord);
               resetAccountFailureState(account.index);
             } catch (error) {
+              if (error instanceof AntigravityOAuthConfigurationError) throw error;
               const { failures, shouldCooldown, cooldownMs } = trackAccountFailure(account.index);
               getHealthTracker().recordFailure(account.index);
               lastError = error instanceof Error ? error : new Error(String(error));
@@ -3280,6 +3300,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     const parts = parseRefreshParts(result.refresh);
                     if (parts.refreshToken) {
                       updatedAccounts[refreshAccountIndex] = {
+                        id: updatedAccounts[refreshAccountIndex]?.id ?? newAccountIdentity(currentStorage, parts.refreshToken),
                         email: result.email ?? updatedAccounts[refreshAccountIndex]?.email,
                         refreshToken: parts.refreshToken,
                         projectId: parts.projectId ?? updatedAccounts[refreshAccountIndex]?.projectId,

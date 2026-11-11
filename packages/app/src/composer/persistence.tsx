@@ -76,7 +76,7 @@ export const createTabComposerState = (
 export const { use: useComposerState, provider: ComposerPersistenceProvider } = createSimpleContext({
   name: "ComposerState",
   gate: false,
-  init: () => {
+  init: (props: { draftID?: string } = {}) => {
     const params = useParams<{ serverKey?: string; id?: string }>()
     const sdk = useWorkspaceLocation()
     const [search] = useSearchParams<{ draftId?: string }>()
@@ -108,7 +108,9 @@ export const { use: useComposerState, provider: ComposerPersistenceProvider } = 
       params.serverKey ? requireServerKey(params.serverKey) : ServerConnection.key(serverSDK.server)
 
     const scope = (): PromptScope =>
-      search.draftId ? { draftID: search.draftId } : { dir: base64Encode(sdk().directory), id: params.id }
+      props.draftID || search.draftId
+        ? { draftID: props.draftID ?? search.draftId! }
+        : { dir: base64Encode(sdk().directory), id: params.id }
 
     const load = (scope: PromptScope, target?: { server?: ServerConnection.Key; scope: ServerScope }) => {
       const current = selectPromptTab(tabs.store, scope, target?.server ?? serverKey())

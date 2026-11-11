@@ -1,5 +1,5 @@
 import path from "path"
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from "fs/promises"
+import { appendFile, mkdir, readFile, rename, rm, writeFile, open } from "fs/promises"
 
 export function readText(filePath: string) {
   return readFile(filePath, "utf8")
@@ -44,7 +44,13 @@ async function renameWithRetry(source: string, destination: string) {
 export async function writeJsonAtomic(filePath: string, value: unknown) {
   await mkdir(path.dirname(filePath), { recursive: true })
   const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`
-  await writeFile(temporary, JSON.stringify(value)).catch(async (error) => {
+  await (async () => {
+    const handle = await open(temporary, "w")
+    try {
+      await handle.writeFile(JSON.stringify(value))
+      await handle.sync()
+    } finally { await handle.close() }
+  })().catch(async (error) => {
     await rm(temporary, { force: true }).catch(() => undefined)
     throw error
   })
@@ -52,4 +58,10 @@ export async function writeJsonAtomic(filePath: string, value: unknown) {
     await rm(temporary, { force: true }).catch(() => undefined)
     throw error
   })
+  // Persist the rename on POSIX. Windows does not support opening directories
+  // for fsync; the data file itself was flushed before the atomic replace.
+  if (process.platform !== "win32") {
+    const directory = await open(path.dirname(filePath), "r")
+    try { await directory.sync() } finally { await directory.close() }
+  }
 }

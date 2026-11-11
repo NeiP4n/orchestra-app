@@ -1,5 +1,5 @@
 import path from "node:path"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, writeFile, readFile } from "node:fs/promises"
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
@@ -273,7 +273,7 @@ describe("orchestra.worker policy through workspace_forge", () => {
           mcp: { servers: [], maxCalls: 0 },
         }),
       )
-      const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+      const sessionID = /Created\. VERIFIED: id (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
       expect(sessionID).toBeDefined()
       const worker = yield* sessions.get(Session.ID.make(sessionID!))
       expect(worker.model).toMatchObject({ providerID: "opencode", id: "task-model" })
@@ -293,12 +293,18 @@ describe("orchestra.worker policy through workspace_forge", () => {
           newInstance: true,
           // Explicit MCP assignment is required at dispatch (d9ecc056); this task needs none.
           mcp: { servers: [], maxCalls: 0 },
-        }),
+        }).pipe(Effect.provide(Config.testLayer([new Document({type:"document",info:new Info({model_collections:[{id:"test-enabled",name:"Enabled test models",enabled:true,models:["opencode/other-model"]}]})})]))),
       )
-      const sessionID = /Created (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+      const sessionID = /Created\. VERIFIED: id (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
       expect(sessionID).toBeDefined()
       const worker = yield* sessions.get(Session.ID.make(sessionID!))
       expect(worker.model).toMatchObject({ providerID: "opencode", id: "other-model" })
+      const orchestra = yield* Orchestra.Service
+      expect(yield* orchestra.owns(main, worker)).toBe(true)
+      yield* Effect.promise(() => mkdir(path.join(main.directory,"foreign")))
+      const other = yield* orchestra.create({ name: "Foreign", directory: path.join(main.directory, "foreign") })
+      expect(yield* orchestra.owns(other, worker)).toBe(false)
+
       expect(worker.model).not.toMatchObject(mainModel)
     }),
   )
@@ -348,4 +354,54 @@ describe("orchestra.worker policy without configuration", () => {
       })
     }),
   )
+})
+
+describe("autonomous scoped staffing",()=>{
+ itPolicy.live("creates another busy-role worker only for known disjoint scope, stays project-owned",()=>Effect.gen(function*(){
+  const {main,sessions,orchestra}=yield* setup
+  const tools=yield* Tool.Service
+  const worker=yield* orchestra.createMember({project:main,title:"Busy API",agent:Orchestra.role("developer")})
+  yield* sessions.setMetadata({sessionID:worker.id,metadata:{...worker.metadata,"orchestra.taskScope.v1":["src/api"]}})
+  yield* orchestra.dispatch({project:main,sessionID:worker.id,text:"Build API"})
+  expect(yield* orchestra.pending(worker.id)).toBeDefined()
+  const input={action:"create",role:"developer",text:"Implement separate UI; test it",mcp:{servers:[],maxCalls:0}}
+  const rejected=yield* runTool(tools,main.main!,OrchestraTool.name,"overlap",{...input,workScope:["src/api/handler.ts"]})
+  expect(JSON.stringify(rejected)).toContain("No duplicate session was created")
+  const output=text(yield* runTool(tools,main.main!,OrchestraTool.name,"parallel",{...input,workScope:["src/ui"]}))
+  const id=/Created\. VERIFIED: id (ses_[A-Za-z0-9]+)/.exec(output)?.[1]
+  expect(id).toBeDefined();expect(id).not.toBe(worker.id)
+  const created=yield* sessions.get(Session.ID.make(id!))
+  expect(yield* orchestra.owns(main,created)).toBe(true)
+  expect(created.metadata?.["orchestra.taskScope.v1"]).toEqual(["src/ui"])
+  expect(output).toContain("Dispatch other ready independent work now")
+  expect(yield* orchestra.pending(created.id)).toBeDefined()
+ }))
+})
+
+describe("project file bootstrap",()=>{
+ itPolicy.live("actual create snapshots own defaults into rules mirror and preserves operator-owned files",()=>Effect.gen(function*(){
+  const kv=yield* KV.Service,orchestra=yield* Orchestra.Service
+  yield* kv.set("rules/global",[{id:"r_global",text:"operator-default-fixture",by:"operator",at:1}])
+  const root=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("bootstrap-create-")))
+  const first=yield* orchestra.create({name:"First",directory:root.path})
+  const load=(file:string)=>Effect.promise(()=>readFile(path.join(root.path,".orchestra",file),"utf8"))
+  const rules=yield* load("rules.yaml")
+  expect(rules).toContain("operator-default-fixture");expect(rules).toContain("project-defaults:"+first.id);expect(rules).not.toContain("scope: global")
+  expect(JSON.parse(yield* load("orchestra.json"))).toEqual({})
+  expect(JSON.parse(yield* load("lifecycle.json")).phase).toBe("planning")
+  expect(yield* load("tasks.yaml")).toContain("tasks:");expect(yield* load("decisions.yaml")).toContain("decisions:")
+  expect(yield* load("lessons.md")).toContain("No secrets, page text or copied transcripts")
+  yield* Effect.promise(()=>writeFile(path.join(root.path,".orchestra","lessons.md"),"operator-reviewed-lesson"))
+  yield* Effect.promise(()=>writeFile(path.join(root.path,".orchestra","briefing.md"),"operator-edited"))
+  const {ProjectFilesBootstrap}=yield* Effect.promise(()=>import("../src/project-files/bootstrap"))
+  yield* ProjectFilesBootstrap.initialize(first.directory,first.name,kv)
+  expect(yield* load("briefing.md")).toBe("operator-edited")
+  expect(yield* load("lessons.md")).toBe("operator-reviewed-lesson")
+  yield* kv.set("rules/global",[{id:"r_new",text:"new-template-only",by:"operator",at:2}])
+  const otherDir=path.join(root.path,"second");yield* Effect.promise(()=>mkdir(otherDir))
+  const second=yield* orchestra.create({name:"Second",directory:otherDir})
+  const secondRules=yield* Effect.promise(()=>readFile(path.join(otherDir,".orchestra","rules.yaml"),"utf8"))
+  expect(secondRules).toContain("new-template-only");expect(secondRules).toContain("project-defaults:"+second.id);expect(secondRules).not.toContain(first.id)
+  expect(yield* load("rules.yaml")).not.toContain("new-template-only")
+ }))
 })

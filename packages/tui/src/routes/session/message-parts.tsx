@@ -1,3 +1,4 @@
+import { createHoverFeedback } from "../../ui/hover-feedback"
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
 import { RGBA, TextAttributes } from "@opentui/core"
@@ -55,6 +56,7 @@ export function ReasoningPart(props: {
   message: SessionMessageAssistant
 }) {
   const theme = useTheme()
+  const toggleHover = createHoverFeedback()
   const { currentSyntax: syntax } = useThemes()
   const thinkingSyntax = createSyntaxStyleMemo(() => generateThinkingSyntax(syntax(), theme.text.muted))
   const ctx = use()
@@ -87,7 +89,7 @@ export function ReasoningPart(props: {
           borderColor={theme.decrease(theme.background.base)}
           paddingLeft={!inMinimal() || expanded() ? 1 : 0}
         >
-          <box onMouseUp={toggle}>
+          <box backgroundColor={toggleHover.background()} onMouseOver={toggleHover.onMouseOver} onMouseOut={toggleHover.onMouseOut} onMouseUp={toggle}>
             <ReasoningHeader
               toggleable={inMinimal()}
               open={!inMinimal() || expanded()}

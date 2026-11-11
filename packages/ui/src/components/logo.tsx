@@ -179,6 +179,7 @@ export const Logo = (props: { class?: string }) => {
         <FanPaths />
       </g>
       <text
+        direction="ltr"
         x="152"
         y="86"
         font-family="inherit"

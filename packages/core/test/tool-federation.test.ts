@@ -51,6 +51,7 @@ const pluginNode = makeLocationNode({
   deps: [Tool.node, Federation.node, Orchestra.node, Session.node, Permission.node, Database.node],
 })
 
+const permissionChecks: string[] = []
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
@@ -73,7 +74,7 @@ const it = testEffect(
       Location.node.replace(
         Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make("/project") }))),
       ),
-      Permission.node.replace(permissionLayer({ assert: () => Effect.void })),
+      Permission.node.replace(permissionLayer({ assert: (input) => Effect.sync(() => { permissionChecks.push(...input.resources) }) })),
       offlineModels,
     ],
   ),
@@ -109,6 +110,26 @@ const text = (result: { readonly content?: ReadonlyArray<Tool.Content>; readonly
 }
 
 describe("FederationTool group configuration", () => {
+  it.live("two societies hide foreign metadata and set_group always checks permission", () => Effect.gen(function* () {
+    const {a,b,c} = yield* setup
+    const federation = yield* Federation.Service
+    const tools = yield* Tool.Service
+    yield* federation.setGroup({name:"Own society",projects:[a.id,b.id],mode:"council"})
+    yield* federation.setGroup({name:"Foreign society",projects:[c.id],mode:"council"})
+    const groups = text(yield* run(tools,a.main!,"scoped-groups",{action:"groups"}))
+    expect(groups).toContain("Own society")
+    expect(groups).not.toContain("Foreign society")
+    expect(groups).not.toContain(c.id)
+    const projects = text(yield* run(tools,a.main!,"scoped-projects",{action:"projects"}))
+    expect(projects).toContain(a.id)
+    expect(projects).toContain(b.id)
+    expect(projects).not.toContain(c.id)
+    expect(projects).not.toContain(b.main!)
+    permissionChecks.length=0
+    yield* run(tools,a.main!,"set-group-reviewed",{action:"set_group",name:"Own society",projects:[a.id,b.id]})
+    expect(permissionChecks).toContain("set_group:Own society")
+  }))
+
   it.live("lists projects with their Orchestrator and creates a President chat in the group's own directory", () =>
     Effect.gen(function* () {
       const { a, b } = yield* setup
@@ -116,7 +137,8 @@ describe("FederationTool group configuration", () => {
 
       const listed = text(yield* run(tools, a.main!, "projects", { action: "projects" }))
       expect(listed).toContain(a.id)
-      expect(listed).toContain(b.id)
+      expect(listed).not.toContain(b.id)
+      expect(listed).not.toContain(b.main!)
       expect(listed).toContain(`orchestrator session ${a.main}`)
 
       const created = text(

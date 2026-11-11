@@ -93,7 +93,10 @@ import { PeerTool } from "../tool/plugin/peer.js"
 import { BudgetTool } from "../tool/plugin/budget.js"
 import { MuseChatTool } from "../tool/plugin/muse-chat.js"
 import { CodegraphTool } from "../tool/plugin/codegraph.js"
+import { SelfTool } from "../tool/plugin/self.js"
 import { CheckpointTool } from "../tool/plugin/checkpoint.js"
+import { TriggersTool } from "../tool/plugin/triggers.js"
+import { BrowserTool } from "../tool/plugin/browser.js"
 import { DesktopInspectTool } from "../tool/plugin/desktop-inspect.js"
 import { DesktopActionTool } from "../tool/plugin/desktop-action.js"
 import { DodTool } from "../tool/plugin/dod.js"
@@ -116,6 +119,10 @@ import { Memory } from "../memory/index.js"
 import { Lsp } from "../lsp/index.js"
 import { SymbolsTool } from "../tool/plugin/symbols.js"
 import { NoteTool } from "../tool/plugin/note.js"
+import { VaultTool } from "../tool/plugin/vault.js"
+import { ConsoleTool } from "../tool/plugin/console.js"
+import { PersistentPty } from "../persistent-pty.js"
+import { Pty } from "../pty.js"
 import { NoteStore } from "../note.js"
 import { SkillMarketplace } from "../skill-marketplace/index.js"
 import { SkillTool } from "../tool/plugin/skill.js"
@@ -136,6 +143,7 @@ import BrowserPlugin from "@orchestra/plugin-browser"
 import { AntigravityAuthEffectPlugin } from "@orchestra/plugin-antigravity-auth"
 import { CommandPlugin } from "./command.js"
 import { IdentityPlugin } from "./identity.js"
+import { CapabilityOutcomesPlugin } from "./capability-outcomes.js"
 import { PlanPlugin } from "./plan.js"
 import { JailbreakPlugin } from "./jailbreak.js"
 import { ModelsDevPlugin } from "./models-dev.js"
@@ -200,6 +208,8 @@ const services = [
   ShellSelect.Service,
   Snapshot.Service,
   NoteStore.Service,
+  PersistentPty.Service,
+  Pty.Service,
   Memory.Service,
   Lsp.Service,
   SkillMarketplace.Service,
@@ -263,6 +273,8 @@ export const requirements = LayerNode.group([
   ShellSelect.node,
   Snapshot.node,
   NoteStore.node,
+  PersistentPty.node,
+  Pty.node,
   Memory.node,
   Lsp.node,
   SkillMarketplace.node,
@@ -279,6 +291,7 @@ export const requirements = LayerNode.group([
 export type InternalPlugin = Plugin<Requirements | Scope.Scope>
 
 const pre = [
+  CapabilityOutcomesPlugin.Plugin,
   ToolInputRepairPlugin.Plugin,
   ConfigWorktreePlugin.Plugin,
   ConfigMcpPlugin.Plugin,
@@ -333,7 +346,10 @@ const pre = [
   BudgetTool.Plugin,
   MuseChatTool.Plugin,
   CodegraphTool.Plugin,
+  SelfTool.Plugin,
   CheckpointTool.Plugin,
+  TriggersTool.Plugin,
+  BrowserTool.Plugin,
   DesktopInspectTool.Plugin,
   DesktopActionTool.Plugin,
   PlotTool.Plugin,
@@ -355,6 +371,8 @@ const pre = [
 ] as const satisfies readonly InternalPlugin[]
 
 const post = [
+  VaultTool.Plugin,
+  ConsoleTool.Plugin,
   ConfigInstructionPlugin.Plugin,
   ConfigReferencePlugin.Plugin,
   ConfigAgentPlugin.Plugin,
@@ -397,6 +415,11 @@ export const list = Effect.fn("PluginInternal.list")(function* () {
     )
   return {
     pre: resolve(pre),
-    post: resolve(post),
+    // The browser plugin (browser.tabs.*, its own Chromium on a debugging port) is a second browser next to the
+    // `browser` tool tied to the Browser tab's sessions, and agents reached for it and saw an empty tab list.
+    // It is not offered unless ORCHESTRA_BROWSER_PLUGIN=1.
+    post: resolve(
+      post.filter((plugin) => plugin.id !== BrowserPlugin.id || process.env.ORCHESTRA_BROWSER_PLUGIN === "1"),
+    ),
   }
 })

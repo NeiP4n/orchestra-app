@@ -2785,6 +2785,7 @@ export type ConfigEntry =
             | { repository: string; branch?: string; description?: string; hidden?: boolean }
             | { path: string; description?: string; hidden?: boolean }
         }
+        self_index?: { paths?: Array<string>; docs?: boolean }
         websearch?: false | { provider: "random" | (string & {}) }
         plugins?: Array<string | { package: string; options?: { [x: string]: JsonValue } }>
         worktree?: ConfigWorktree
@@ -2840,6 +2841,7 @@ export type ConfigEntry =
           portable_shell_scanner?: boolean
           context_governor?: boolean
           subagent_depth?: number
+          neural_functional_effects?: boolean
           policies?: Array<{
             action: "provider.use" | "tool.use" | "integration.use"
             resource: string
@@ -14618,6 +14620,181 @@ export type RoomMeshRpcInput = {
 }
 
 export type RoomMeshRpcOutput = RoomMeshRpcResponse
+
+export type OrchestraProjectTemplateListOutput = Array<{ id: string; name: string }>
+
+export type OrchestraProjectTemplatePrepareSaveInput = {
+  readonly projectID: {
+    readonly projectID: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly templateID?: string | undefined
+  }["projectID"]
+  readonly browsers: {
+    readonly projectID: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly templateID?: string | undefined
+  }["browsers"]
+  readonly templateID?: {
+    readonly projectID: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly templateID?: string | undefined
+  }["templateID"]
+}
+
+export type OrchestraProjectTemplatePrepareSaveOutput = {
+  token: string
+  name: string
+  details: string
+  unresolvedRoles?: Array<string> | undefined
+  browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
+  triggerReview?:
+    | Array<{
+        schedule: number
+        browser?: number | undefined
+        reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  omittedLinks?:
+    | Array<{
+        browser: number
+        link: number
+        reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+
+export type OrchestraProjectTemplateConfirmSaveInput = {
+  readonly token: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
+  }["token"]
+  readonly browsers: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
+  }["browsers"]
+  readonly omitUnsafeLinks?: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
+  }["omitUnsafeLinks"]
+  readonly omitInvalidBrowserBindings?: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
+  }["omitInvalidBrowserBindings"]
+  readonly acceptUnresolvedRoles?: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
+  }["acceptUnresolvedRoles"]
+}
+
+export type OrchestraProjectTemplateConfirmSaveOutput = void
+
+export type OrchestraProjectTemplatePrepareCreateInput = {
+  readonly templateID: { readonly templateID: string; readonly settingsDirectory: string }["templateID"]
+  readonly settingsDirectory: { readonly templateID: string; readonly settingsDirectory: string }["settingsDirectory"]
+}
+
+export type OrchestraProjectTemplatePrepareCreateOutput = {
+  token: string
+  name: string
+  details: string
+  unresolvedRoles?: Array<string> | undefined
+  browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
+  triggerReview?:
+    | Array<{
+        schedule: number
+        browser?: number | undefined
+        reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  omittedLinks?:
+    | Array<{
+        browser: number
+        link: number
+        reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+
+export type OrchestraProjectTemplateConfirmCreateInput = { readonly token: { readonly token: string }["token"] }
+
+export type OrchestraProjectTemplateConfirmCreateOutput = {
+  projectID: string
+  mainSessionID: string
+  browsers: {
+    importID: string
+    projectID: string
+    createdAt: number
+    browsers: Array<{ id: string; name: string; chat?: string | undefined; mode: "headless" | "window" | "capture" }>
+  }
+}
+
+export type OrchestraProjectTemplateFinishCreateInput = { readonly token: { readonly token: string }["token"] }
+
+export type OrchestraProjectTemplateFinishCreateOutput = void
+
+export type OrchestraProjectTemplateBrowsersInput = { readonly projectID: { readonly projectID: string }["projectID"] }
+
+export type OrchestraProjectTemplateBrowsersOutput = {
+  importID: string
+  projectID: string
+  createdAt: number
+  browsers: Array<{ id: string; name: string; chat?: string | undefined; mode: "headless" | "window" | "capture" }>
+} | null
 
 export type OrchestraProjectListOutput = Array<OrchestraProject>
 

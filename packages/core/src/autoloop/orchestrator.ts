@@ -98,10 +98,9 @@ export function limitsFromConfig(autoloop: ConfigOrchestra.Autoloop | undefined)
 
 /**
  * The Society's autonomy mode from the operator's `Config.Orchestra`
- * (`orchestra.society.autonomy`). Nothing set means `observe` — the
- * router watches and prepares, but executes nothing until the operator
- * says `auto`. A live autonomous society must set `auto` explicitly;
- * that is the gate, not a silent default.
+ * (`orchestra.society.autonomy`). Nothing set means `auto` — the
+ * Orchestrator's dispatch executes. The operator can set `observe` (the
+ * router only prepares proposals) or `off` explicitly.
  */
 export function autonomyFromConfig(info: ConfigOrchestra.Info | undefined): AutonomyMode {
   return info?.society?.autonomy ?? DEFAULT_AUTONOMY

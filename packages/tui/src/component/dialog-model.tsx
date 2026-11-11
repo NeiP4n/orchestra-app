@@ -372,11 +372,24 @@ export function DialogModel(props: {
 
   const select = (
     <DialogSelect<ReturnType<typeof options>[number]["value"]>
+      compact
+      tall
       options={options()}
       actions={[
         {
+          command: "model.dialog.default",
+          title: "По умолчанию",
+          hidden: !connected(),
+          onTrigger: (option) => {
+            const model = option.value
+            void client.api.config.update({ model: `${model.providerID}/${model.modelID}` })
+              .then(() => toast.show({variant:"success",message:`Default model: ${model.providerID}/${model.modelID}`}))
+              .catch(toast.error)
+          },
+        },
+        {
           command: "model.dialog.provider",
-          title: connected() ? "Connect an integration" : "View all integrations",
+          title: connected() ? "Подключить" : "Интеграции",
           selection: "none",
           onTrigger() {
             dialog.replace(() => (
@@ -390,13 +403,13 @@ export function DialogModel(props: {
         },
         {
           command: "model.dialog.favorite",
-          title: "Favorite",
+          title: "Избранное",
           hidden: !connected(),
           onTrigger: (option) => toggleFavorite(option.value),
         },
         {
           command: "model.dialog.collections",
-          title: "Collections & endpoints",
+          title: "Коллекции",
           selection: "none",
           hidden: !connected(),
           onTrigger() {
@@ -435,13 +448,14 @@ export function DialogModel(props: {
   if (!showExtra()) return select
 
   return (
-    <box flexDirection="row" flexGrow={1}>
+    <box flexDirection="row" width="100%" minWidth={0}>
       <CategoryRail
+        width={20}
         items={categories()}
         selected={activeCategory()?.id ?? CATEGORY_ALL}
         onSelect={setSelectedCategory}
       />
-      {select}
+      <box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>{select}</box>
     </box>
   )
 }
@@ -508,6 +522,6 @@ export function modelFooter(
   // plugins empty `cost` for subscription models (`draft.cost = []` in the OpenAI and
   // ChatGPT plugins). Empty cost alone stays unlabelled because it can also mean the
   // price is unknown, and an account alone can also fund per-token billing.
-  if (model.cost.length === 0 && subscriptions.has(model.providerID)) return "Subscription"
+  if (model.cost.length === 0 && subscriptions.has(model.providerID)) return t("Subscription")
   return undefined
 }

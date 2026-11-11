@@ -45,7 +45,6 @@ import {
   type TuiApp,
 } from "./context/runtime"
 import { DialogProvider, useDialog } from "./ui/dialog"
-import { DialogIntegration } from "./component/dialog-integration"
 import { ErrorComponent } from "./component/error-component"
 import { PluginRouteMissing } from "./component/plugin-route-missing"
 import { EditorContextProvider } from "./context/editor"
@@ -60,9 +59,9 @@ import { SessionTabsProvider, useSessionTabs } from "./context/session-tabs"
 import { LocationProvider, useLocation } from "./context/location"
 import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
+import { DialogIntegration } from "./component/dialog-integration"
 import { DialogModel } from "./component/dialog-model"
 import { DialogMode } from "./component/dialog-mode"
-import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
 import { DialogCompat } from "./component/dialog-compat"
 import { DialogStatus } from "./component/dialog-status"
@@ -79,6 +78,8 @@ import { ProjectTree } from "./component/project-tree"
 import { HomeProjectPanel } from "./component/home-project-panel"
 import { NeuralLine, useNeuralEnergy } from "./component/neural"
 import { DialogKeybinds } from "./component/dialog-keybinds"
+import { UserNameBar } from "./component/user-name-bar"
+import { displayUserName } from "./util/user-name"
 import { applyAiLanguage } from "./util/ai-language"
 import { RoomChat } from "./component/room-chat"
 import { basicSymbolsNeeded, replaceMissingGlyphs } from "./ui/console-glyphs"
@@ -115,7 +116,6 @@ import { Toast, ToastProvider, useToast } from "./ui/toast"
 import { isFallbackTitle } from "@orchestra/util/session-title-fallback"
 import * as Model from "./util/model"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
-import { openUrl } from "@orchestra/util/open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { Config, ConfigProvider, useConfig } from "./config"
 import { newSessionLocation } from "./config/new-session-location"
@@ -187,7 +187,6 @@ const appBindingCommands = [
   "agent.cycle.reverse",
   "variant.cycle",
   "variant.list",
-  "provider.connect",
   "orchestra.settings",
   "orchestra.status",
   "orchestra.update",
@@ -199,7 +198,6 @@ const appBindingCommands = [
   "theme.switch_mode",
   "theme.mode.lock",
   "help.show",
-  "docs.open",
   "diff.open",
   "app.debug",
   "app.console",
@@ -531,8 +529,8 @@ function App() {
   // The AI language lives in the global instructions file; keep it in step with the setting.
   createEffect(
     on(
-      () => config.data.ai_language ?? "auto",
-      (language) => void applyAiLanguage(language).catch((error) => console.error("Failed to apply AI language", error)),
+      () => [config.data.ai_language ?? "auto", displayUserName(config.data.user_name), config.data.user_profile ?? {}] as const,
+      ([language, name, profile]) => void applyAiLanguage(language, name, profile).catch((error) => console.error("Failed to apply AI language", error)),
     ),
   )
   const route = useRoute()
@@ -885,7 +883,6 @@ function App() {
       .catch(toast.error)
   })
 
-  const connected = useConnected()
   const appCommands = createMemo(() =>
     [
       {
@@ -1034,6 +1031,13 @@ function App() {
         run: () => sessionTabs.selectIndex(i),
       })),
       {
+        name: "integration.auth",
+        title: "Connect provider",
+        category: "Agent",
+        slash: { name: "auth" },
+        run: () => dialog.replace(() => <DialogIntegration />),
+      },
+      {
         name: "model.list",
         title: "Switch model",
         suggested: true,
@@ -1051,30 +1055,6 @@ function App() {
         slash: { name: "mode" },
         run: () => {
           dialog.replace(() => <DialogMode />)
-        },
-      },
-      {
-        name: "model.default",
-        title: "Set default model",
-        category: "Agent",
-        slash: { name: "default-model", aliases: ["default"] },
-        run: () => {
-          dialog.replace(() => (
-            <DialogModel
-              title={t("Default model for new sessions")}
-              onPick={(model) =>
-                void client.api.config
-                  .update({ model: `${model.providerID}/${model.modelID}` })
-                  .then(() =>
-                    toast.show({
-                      variant: "success",
-                      message: `Default model: ${model.providerID}/${model.modelID}`,
-                    }),
-                  )
-                  .catch(toast.error)
-              }
-            />
-          ))
         },
       },
       {
@@ -1186,20 +1166,6 @@ function App() {
         run: () => {
           local.agent.move(-1)
         },
-      },
-      {
-        name: "provider.connect",
-        title: "Connect an integration",
-        suggested: !connected(),
-        slash: { name: "connect" },
-        run: () => {
-          dialog.replace(() => (
-            <DialogIntegration
-              onConnected={(providerID) => dialog.replace(() => <DialogModel providerID={providerID} />)}
-            />
-          ))
-        },
-        category: "Integration",
       },
       // The left panel holds these too; the palette keeps them reachable when the terminal is too narrow for it.
       {
@@ -1356,16 +1322,6 @@ function App() {
         category: "System",
       },
       {
-        name: "docs.open",
-        title: "Open docs",
-        slash: { name: "docs" },
-        run: () => {
-          openUrl(process.env.ORCHESTRA_DOCS_URL || "https://github.com/NeiP4n/orchestra-app#readme").catch(() => {})
-          dialog.clear()
-        },
-        category: "System",
-      },
-      {
         name: "app.language",
         title: "Switch language",
         slash: { name: "language", aliases: ["lang"] },
@@ -1373,20 +1329,6 @@ function App() {
           void config
             .update((draft) => {
               draft.language = config.data.language === "ru" ? "en" : "ru"
-            })
-            .catch(toast.error)
-          dialog.clear()
-        },
-        category: "System",
-      },
-      {
-        name: "app.layout.mobile",
-        title: "Toggle mobile layout",
-        slash: { name: "mobile", aliases: ["phone"] },
-        run: () => {
-          void config
-            .update((draft) => {
-              draft.layout = mobile() ? "auto" : "mobile"
             })
             .catch(toast.error)
           dialog.clear()
@@ -1696,6 +1638,7 @@ function App() {
         copyOnSelectEnabled() ? (event) => Selection.copyOnSelectRelease(event, renderer, toast, clipboard) : undefined
       }
     >
+      <UserNameBar />
       <box
         flexGrow={1}
         minHeight={0}

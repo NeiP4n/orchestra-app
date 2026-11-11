@@ -34,6 +34,7 @@ import { DevTools } from "../devtools"
 import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { PanelBox, PanelTitle, Row } from "./devtools-panel"
+import { mcpRegistryState, mcpRegistryToggle } from "../util/mcp-registry"
 import { RegistryPanel } from "./devtools-registry"
 import { openProjectDialog } from "./dialog-project"
 import { openTeamEditor } from "./dialog-teams"
@@ -411,11 +412,9 @@ export function DevToolsBar() {
                 onClose={() => dialog.clear()}
                 onShell={(shell) => void client.api.config.update({ shell }).catch(toast.error)}
                 aiTools={{
-                  installed: () =>
-                    (data.location.mcp.server.list(location.ref ?? data.location.default()) ?? []).map(
-                      (server) => server.name,
-                    ),
-                  set: (id, config) => client.api.config.update({ mcpServers: { [id]: config } }),
+                  installed: () => mcpRegistryState(data.location.config.list(location.ref ?? data.location.default()) ?? []).installed,
+                  disabled: () => mcpRegistryState(data.location.config.list(location.ref ?? data.location.default()) ?? []).disabled,
+                  set: (id, config) => client.api.config.update({ mcpServers: { [id]: mcpRegistryToggle(data.location.config.list(location.ref ?? data.location.default()) ?? [], id, config) } }),
                 }}
                 plugins={plugins}
               />

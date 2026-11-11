@@ -251,6 +251,7 @@ export const Info = Schema.Struct({
       "Panel layout; 'compact' narrows the project panel and docks the session sidebar beside the chat, 'auto' turns it on for narrow terminals, 'mobile' fits a phone: side panels fold to edge rails and open over the screen (default: auto, mobile in Termux)",
   }),
   animations: Schema.optional(Schema.Boolean).annotate({ description: "Enable interface animations" }),
+  stateEffects: Schema.optional(Schema.Boolean).annotate({ description: "Show state pulses and activation flashes (default true, follows animations)" }),
   mascot: Schema.optional(Schema.Boolean).annotate({
     description: "Show the Orchestra mascot in the prompt (default: true)",
   }),
@@ -260,6 +261,8 @@ export const Info = Schema.Struct({
   console_shell: Schema.optional(Schema.String).annotate({
     description: "Shell new consoles start with: pwsh, powershell, bash, nu, zsh, fish or cmd; unset uses the default",
   }),
+  user_profile: Schema.optional(Schema.Struct({ address: Schema.optional(Schema.String), tone: Schema.optional(Schema.String), language: Schema.optional(Schema.String), workStyle: Schema.optional(Schema.String) })).annotate({ description: "Operator-visible communication preferences, never secrets" }),
+  user_name: Schema.optional(Schema.String).annotate({ description: "How agents address the operator (default vibecoder)" }),
   ai_language: Schema.optional(Schema.Literals(["auto", "ru", "en"])).annotate({
     description: "Language the AI thinks and answers in; auto follows the conversation",
   }),

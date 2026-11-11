@@ -14,12 +14,30 @@ for (const theme of ["light", "dark"]) {
       await expect(logo.locator("g[mask]")).toHaveCount(0)
       await expect(shimmer).toHaveCSS("color", "rgb(255, 255, 255)")
       await expect(shimmer).toHaveCSS("mix-blend-mode", "screen")
-      await expect(base.locator("path").nth(1)).toHaveAttribute("fill", "var(--icon-base)")
-      await expect(base.locator("path").nth(9)).toHaveCSS(
-        "fill",
-        await base.locator("path").nth(1).evaluate((element) => getComputedStyle(element).fill),
-      )
-      await expect(base.locator('path[fill="var(--icon-weak-base)"]')).toHaveCount(8)
+      // The Fan mark replaced the old filled-path wordmark. Test its semantic slots,
+      // not path indices that now point to unfilled arcs.
+      const arcs = base.locator('[data-slot="logo-mark-arcs"]')
+      const rays = base.locator('[data-slot="logo-mark-ray"]')
+      const podium = base.locator('[data-slot="logo-mark-podium"]')
+      await expect(arcs).toHaveCount(3)
+      await expect(rays).toHaveCount(5)
+      await expect(podium).toHaveCount(1)
+      await expect(arcs.first()).toHaveAttribute("fill", "none")
+      await expect(arcs.first()).toHaveAttribute("stroke", "var(--icon-spark-base)")
+      await expect(base.locator('path[data-slot="logo-mark-ray"][stroke="var(--icon-weak-base)"]')).toHaveCount(4)
+      await expect(podium).toHaveAttribute("fill", "var(--icon-strong-base)")
+      await expect(base.locator("text")).toHaveText("ORCHESTRA")
+      await expect(base.locator("text")).toHaveAttribute("fill", "currentColor")
+      await expect(base.locator("text")).toHaveAttribute("direction", "ltr")
+
+      const fits = await base.locator("text").evaluate((element) => {
+        if (!(element instanceof SVGGraphicsElement)) throw new Error("Expected SVG wordmark text")
+        const bounds = element.getBBox()
+
+        return bounds.x >= 0 && bounds.x + bounds.width <= 720
+      })
+
+      expect(fits).toBe(true)
 
       await logo.evaluate((element) => {
         element.getAnimations({ subtree: true }).forEach((animation) => {

@@ -1,4 +1,4 @@
-import { createMemo, For, type JSX, onCleanup, Show, splitProps } from "solid-js"
+import { createMemo, For, type JSX, onCleanup, Show, Switch, Match, splitProps } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { createStore } from "solid-js/store"
 import { Popover } from "@kobalte/core/popover"
@@ -252,9 +252,7 @@ function HomeProjectsPanel(props: HomeProjectsViewProps) {
                 <div class={props.dropdown ? "" : "pr-3"}>
                   <Show
                     when={props.projects.length > 0}
-                    fallback={
-                      <HomeProjectsEmptyState {...props} server={server()} items={props.recentlyClosed} />
-                    }
+                    fallback={<HomeProjectsEmptyState {...props} server={server()} items={props.recentlyClosed} />}
                   >
                     <HomeProjectList {...props} {...contextMenuProps} server={server()} items={props.projects} />
                     <Show when={props.dropdown}>
@@ -643,32 +641,31 @@ function HomeProjectsEmptyState(
     items: LocalProject[]
   },
 ) {
-  if (props.projectsLoading)
-    return (
-      <div class="flex min-w-0 flex-col gap-1">
-        <div class="flex h-7 min-w-0 items-center gap-2 pl-1.5 pr-3">
-          <Spinner class="size-3.5" />
-          <span class="text-v2-text-text-muted">{props.language.t("common.loading")}</span>
+  return (
+    <Switch fallback={<HomeProjectEmpty {...props} server={props.server} items={props.items} />}>
+      <Match when={props.projectsLoading}>
+        <div class="flex min-w-0 flex-col gap-1">
+          <div class="flex h-7 min-w-0 items-center gap-2 pl-1.5 pr-3">
+            <Spinner class="size-3.5" />
+            <span class="text-v2-text-text-muted">{props.language.t("common.loading")}</span>
+          </div>
         </div>
-      </div>
-    )
-
-  if (props.projectsError)
-    return (
-      <div class="flex min-w-0 flex-col gap-1">
-        <div class="flex h-7 min-w-0 items-center pl-1.5 pr-3">
-          <span class="truncate text-v2-text-text-muted" title={props.projectsError}>
-            {props.language.t("home.projects.loadFailed")}
-          </span>
+      </Match>
+      <Match when={props.projectsError}>
+        <div class="flex min-w-0 flex-col gap-1">
+          <div class="flex h-7 min-w-0 items-center pl-1.5 pr-3">
+            <span class="truncate text-v2-text-text-muted" title={props.projectsError}>
+              {props.language.t("home.projects.loadFailed")}
+            </span>
+          </div>
+          <HomeProjectNavButton type="button" onClick={() => props.onRetryProjects()}>
+            <Icon name="refresh" size="small" />
+            <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("common.retry")}</span>
+          </HomeProjectNavButton>
         </div>
-        <HomeProjectNavButton type="button" onClick={() => props.onRetryProjects()}>
-          <Icon name="refresh" size="small" />
-          <span class={HOME_PROJECT_NAV_LABEL}>{props.language.t("common.retry")}</span>
-        </HomeProjectNavButton>
-      </div>
-    )
-
-  return <HomeProjectEmpty {...props} server={props.server} items={props.items} />
+      </Match>
+    </Switch>
+  )
 }
 
 function HomeProjectEmpty(

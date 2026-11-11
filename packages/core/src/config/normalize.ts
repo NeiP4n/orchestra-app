@@ -214,6 +214,7 @@ export function normalize(input: unknown): Result {
     enterprise: Info.fields.enterprise,
     username: Info.fields.username,
     snapshots: Info.fields.snapshots,
+    self_index: Info.fields.self_index,
     media: Info.fields.media,
     tool_output: Info.fields.tool_output,
     websearch: Info.fields.websearch,
@@ -476,6 +477,15 @@ function normalizeExperimental(
           diagnostics,
         )
         if (value !== undefined) result.context_governor = value
+      }
+      if (own(experimental, "neural_functional_effects")) {
+        const value = decodeEncoded(
+          ConfigExperimental.Info.fields.neural_functional_effects,
+          experimental.neural_functional_effects,
+          ["experimental", "neural_functional_effects"],
+          diagnostics,
+        )
+        if (value !== undefined) result.neural_functional_effects = value
       }
       if (own(experimental, "subagent_depth")) {
         const value = decodeEncoded(

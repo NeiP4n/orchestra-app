@@ -1,3 +1,4 @@
+import type { ColorInput } from "@opentui/core"
 import { createSignal, type ParentProps } from "solid-js"
 import { useTheme } from "../context/theme"
 import { hoverBackground, type HoverVariant } from "../ui/hover"
@@ -18,6 +19,8 @@ type Props = ParentProps<{
   flexDirection?: "row" | "column"
   justifyContent?: "flex-start" | "flex-end" | "center" | "space-between" | "space-around"
   variant?: HoverVariant
+  /** Resting background (for example a focused button); hover still takes over on mouse-over. */
+  background?: ColorInput
   onHoverChange?: (hovered: boolean) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -47,7 +50,7 @@ export function HoverAction(props: Props) {
       gap={props.gap}
       flexDirection={props.flexDirection ?? "row"}
       justifyContent={props.justifyContent}
-      backgroundColor={hovered() && !props.disabled ? hoverBackground(theme, props.variant) : undefined}
+      backgroundColor={hovered() && !props.disabled ? hoverBackground(theme, props.variant) : props.background}
       onMouseOver={() => {
         setHovered(true)
         props.onHoverChange?.(true)

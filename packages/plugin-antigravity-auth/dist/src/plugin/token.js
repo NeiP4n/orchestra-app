@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET } from "../constants.js";
+import { ANTIGRAVITY_CLIENT_ID, requireAntigravityClientSecret, AntigravityOAuthConfigurationError } from "../constants.js";
 import { formatRefreshParts, parseRefreshParts, calculateTokenExpiry } from "./auth.js";
 import { clearCachedAuth, storeCachedAuth } from "./cache.js";
 import { createLogger } from "./logger.js";
@@ -101,6 +101,8 @@ async function requestAccessToken(auth) {
     if (!parts.refreshToken) {
         return undefined;
     }
+    // Validate before the catch that treats transient transport failures as unavailable tokens.
+    const clientSecret = requireAntigravityClientSecret();
     try {
         const startTime = Date.now();
         const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -112,7 +114,7 @@ async function requestAccessToken(auth) {
                 grant_type: "refresh_token",
                 refresh_token: parts.refreshToken,
                 client_id: ANTIGRAVITY_CLIENT_ID,
-                client_secret: ANTIGRAVITY_CLIENT_SECRET,
+                client_secret: clientSecret,
             }),
         });
         if (!response.ok) {
@@ -124,6 +126,9 @@ async function requestAccessToken(auth) {
                 errorText = undefined;
             }
             const { code, description } = parseOAuthErrorPayload(errorText);
+            if (code === "invalid_client" || code === "unauthorized_client" || (response.status === 401 && code !== "invalid_grant")) {
+                throw new AntigravityOAuthConfigurationError("invalid_oauth_client");
+            }
             const details = [code, description ?? errorText].filter(Boolean).join(": ");
             const baseMessage = `Antigravity token refresh failed (${response.status} ${response.statusText})`;
             const message = details ? `${baseMessage} - ${details}` : baseMessage;
@@ -158,7 +163,7 @@ async function requestAccessToken(auth) {
         return updatedAuth;
     }
     catch (error) {
-        if (error instanceof AntigravityTokenRefreshError) {
+        if (error instanceof AntigravityTokenRefreshError || error instanceof AntigravityOAuthConfigurationError) {
             throw error;
         }
         log.error("Unexpected token refresh error", { error: String(error) });

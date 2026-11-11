@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js"
 import { useOptionalConfig } from "../config"
 import { translate as baseTranslate } from "./i18n-base"
+import { registryRu } from "./i18n-registry"
 import { ruContext } from "./i18n-context"
 
 export type Language = "en" | "ru"
@@ -8,6 +9,29 @@ export type Language = "en" | "ru"
 // LAN Rooms and federation were added after the original locale table. Keep these
 // additions isolated so the upstream translation table can be replaced independently.
 const ruExtra: Record<string, string> = {
+  ...registryRu,
+  "Only this native credential will be removed. The separate Antigravity plugin account pool is kept; manage it separately.": "Будет удалена только эта нативная запись. Отдельный пул плагина Antigravity сохранится; управляй им отдельно.",
+  "Native credential removed. The separate Antigravity plugin account pool was not changed.": "Нативная запись удалена. Отдельный пул плагина Antigravity не изменён.",
+  "Delete refused (HTTP {status}). Try again.": "Удаление отклонено (HTTP {status}). Повтори.",
+  "Delete refused (HTTP {status}): {reason}": "Удаление отклонено (HTTP {status}): {reason}",
+  "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept.": "Менеджер связанного аккаунта недоступен. Включи плагин и повтори. Запись сохранена.",
+  "The linked account could not be removed. Check access to its account store and retry. The credential was kept.": "Не удалось удалить связанный аккаунт. Проверь доступ к хранилищу и повтори. Запись сохранена.",
+  "Could not delete account: {reason}": "Не удалось удалить аккаунт: {reason}",
+  options: "параметров",
+  category: "категории",
+  section: "раздел",
+  modified: "изменено",
+  "Default value": "по умолчанию",
+  "Current value": "Сейчас",
+  Subscription: "Подписка",
+  "waiting for answer": "ждёт ответа",
+  "Project rules": "Правила проекта",
+  "Orchestrator rules": "Правила оркестратора",
+  "Browsers": "Браузеры",
+  "New browser session": "Новая сессия браузера",
+  "Planning": "Планирование",
+  "Quality": "Проверка качества",
+  "General": "Общее",
   Council: "Совет",
   Groups: "Группы",
   Tree: "Дерево",
@@ -464,7 +488,6 @@ const ruExtra: Record<string, string> = {
   "Select up in input": "Выделить вверх",
   "Select word backward in input": "Выделить слово влево",
   "Select word forward in input": "Выделить слово вправо",
-  "Set default model": "Модель по умолчанию",
   "Share current session": "Поделиться текущей сессией",
   "Shell mode": "Режим терминала",
   "Show command palette": "Показать палитру команд",
