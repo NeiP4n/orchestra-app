@@ -394,6 +394,8 @@ export const dict = {
   "notification.session.error.title": "Ошибка сессии",
   "notification.session.error.fallbackDescription": "Произошла ошибка",
 
+  "neural.status.ready": "сеть готова",
+  "neural.status.connecting": "подключение…",
   "home.title": "Главная",
   "home.projects": "Проекты",
   "home.project.add": "Добавить проект",
