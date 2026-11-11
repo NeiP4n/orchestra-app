@@ -278,3 +278,36 @@ describe("query keys", () => {
     expect(result.some((project) => project.id === "test")).toBe(false)
   })
 })
+
+test("projects settle independently while an unrelated location bootstrap is still pending", async () => {
+  let release: () => void = () => {}
+  const waiting = new Promise<void>(resolve => { release = resolve })
+  const api = OpenCode.make({
+    baseUrl: "http://opencode.local",
+    fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(new Request(input, init).url)
+      if (url.pathname === "/api/location") {
+        await waiting
+        return Response.json({ directory: "/repo", project: { id: "project", directory: "/repo", canonical: "/repo" } })
+      }
+      if (url.pathname === "/api/project") return Response.json([{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }])
+      throw new Error(`Unexpected request: ${url.pathname}`)
+    }, { preconnect() {} }),
+  })
+  const [store, setStore] = createStore<ServerSync["data"]>({
+    path: { state: "", config: "", worktree: "", directory: "", home: "" }, project: [], provider_auth: {}, config: {}, reload: undefined,
+  })
+  const queryClient = new QueryClient()
+  let complete = false
+  const bootstrap = bootstrapGlobal({ serverAPI: api, scope: ServerScope.local, setGlobalStore: setStore, queryClient }).then(() => { complete = true })
+  try {
+    for (let attempt = 0; attempt < 100 && !store.projectsReady; attempt++) await Bun.sleep(1)
+    expect(store.projectsReady).toBe(true)
+    expect(store.project.map(project => project.id)).toEqual(["project"])
+    expect(complete).toBe(false)
+  } finally {
+    release()
+    await bootstrap
+    queryClient.clear()
+  }
+})

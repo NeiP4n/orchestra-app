@@ -20,6 +20,7 @@ type GlobalStore = {
   // The last project-list failure, if any: bootstrap swallows per-query failures
   // (allSettled), so without this the home would silently show zero projects.
   projectError?: string
+  projectsReady?: boolean
 }
 
 function waitForPaint() {
@@ -123,7 +124,8 @@ export async function bootstrapGlobal(input: {
             "projectError",
             error instanceof Error ? error.message : String(error),
           )
-        }),
+        })
+        .finally(() => input.setGlobalStore("projectsReady", true)),
   ]
 
   await runAll(slow)
