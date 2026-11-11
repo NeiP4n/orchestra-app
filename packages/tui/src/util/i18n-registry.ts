@@ -1,5 +1,10 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.": "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.",
+  "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.": "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.",
+  "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.": "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.",
+  "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.": "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.",
+
   "Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.": "Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.",
   "A template with this name already exists. Update it or save a separate copy.": "A template with this name already exists. Update it or save a separate copy.",
   "Update existing template": "Update existing template",
@@ -165,6 +170,10 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.": "Сессия проекта использует роль без доступного определения для переноса. Выберите существующую роль проекта или auto и повторите проверку. Роли и правила не удалены.",
+  "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.": "Правило проекта относится к роли, которой нет. Восстановите роль или проверьте правило в правилах проекта. Ни одно правило не удалено.",
+  "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.": "План работы проекта рекомендует недоступную роль. Восстановите роль или проверьте рекомендацию. Настройки процесса не удалены.",
+  "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.": "Навык назначен недоступной роли. Восстановите роль или проверьте назначение навыка. Назначения не удалены.",
   "Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.": "Браузер {browser}: старая привязка к чату недоступна. Сохранить браузер и ссылки без неё? В новом проекте при первом открытии создастся новый BrowserAgent. Исходный проект не меняется.",
   "A template with this name already exists. Update it or save a separate copy.": "Шаблон с таким именем уже есть. Обновите его или сохраните отдельную копию.",
   "Update existing template": "Обновить существующий шаблон",
