@@ -4,6 +4,7 @@ import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Str
 import { and, eq, inArray, notExists } from "drizzle-orm"
 import { SessionTable } from "./session/sql.js"
 import { ProjectTable } from "./project/sql.js"
+import { SessionContinuation } from "./session/continuation.js"
 import { SessionHold } from "./session/hold.js"
 import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
 import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
@@ -422,6 +423,7 @@ const layer: Layer.Layer<
   Service,
   Effect.gen(function* () {
     const database = yield* Database.Service
+    const continuationControl = yield* SessionContinuation.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const sessionStore = yield* SessionStore.Service
@@ -2606,7 +2608,7 @@ const layer: Layer.Layer<
       }
     })
 
-    return Service.of({
+    const service = Service.of({
       projects,
       create: Effect.fn("Orchestra.create")(function* (input) {
         const template = input.template ? (yield* templates()).find((item) => item.id === input.template) : undefined
@@ -3263,6 +3265,7 @@ const layer: Layer.Layer<
         return Option.getOrUndefined(Option.map(decodeTask(yield* kv.get(TASK + sessionID)), (task) => task.sent))
       }),
       recoverPendingTasks: Effect.fn("Orchestra.recoverPendingTasks")(function* () {
+        if (!continuationControl.isEnabled()) return
         const allProjects = yield* projects()
         const byID = new Map(allProjects.map((project) => [project.id, project]))
         const affected = new Set<ProjectID>()
@@ -3401,6 +3404,9 @@ const layer: Layer.Layer<
       reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
       changes: Stream.fromPubSub(changed),
     })
+    const removeContinuationListener = continuationControl.listen((enabled) => enabled ? service.recoverPendingTasks() : Effect.void)
+    yield* Effect.addFinalizer(() => Effect.sync(removeContinuationListener))
+    return service
   }),
 )
 
@@ -4064,5 +4070,5 @@ function finalText(message: SessionMessage.Info) {
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [Database.node, KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
+  deps: [Database.node, KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode, SessionContinuation.node],
 })

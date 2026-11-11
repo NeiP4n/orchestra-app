@@ -7,6 +7,7 @@ import { Job } from "../../job.js"
 import { KV } from "../../kv.js"
 import { Session } from "../../session.js"
 import { SessionEvent } from "../event.js"
+import { SessionContinuation } from "../continuation.js"
 import { SessionHold } from "../hold.js"
 import { SessionInbox } from "../inbox.js"
 import { resumeBlockedKey } from "../restart-state.js"
@@ -94,6 +95,7 @@ export const layer = (options?: Options) =>
   Layer.effect(
     Service,
     Effect.gen(function* () {
+      const continuation = yield* SessionContinuation.Service
       const store = yield* SessionStore.Service
       const kv = yield* KV.Service
       const execution = yield* SessionExecution.Service
@@ -106,6 +108,10 @@ export const layer = (options?: Options) =>
       const prepareResume = Effect.fnUntraced(function* (sessionID: SessionSchema.ID) {
         // Durable before the resume runs, so a crash inside the resumed turn is
         // counted by the next sweep and the budget cannot be dodged.
+        if ((yield* kv.get(SessionContinuation.pausedKey(sessionID))) === true) {
+          yield* kv.remove(SessionContinuation.pausedKey(sessionID))
+          return true
+        }
         const attempts = yield* store.countResume(sessionID)
         if (attempts === undefined) return false
         if (attempts > maxAttempts) {
@@ -225,8 +231,8 @@ export const layer = (options?: Options) =>
         )
       })
 
-      return Service.of({
-        resumeSuspendedSessions: Effect.gen(function* () {
+      const resumeSuspendedSessions = Effect.gen(function* () {
+          if (!(yield* continuation.enabled)) return
           const active = yield* execution.active
           const pending = yield* jobs.pendingBackground
           const children = pending.flatMap((background) =>
@@ -312,7 +318,7 @@ export const layer = (options?: Options) =>
                 const admitted = yield* prepareResume(candidate.sessionID)
                 if (admitted) {
                   suspended.delete(candidate.sessionID)
-                  yield* execution.resume(candidate.sessionID).pipe(Effect.ignore, Effect.forkIn(scope))
+                  yield* execution.resume(candidate.sessionID).pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
                 }
                 return
               }
@@ -350,13 +356,15 @@ export const layer = (options?: Options) =>
           // the sweep wakes it; a session the sweep did not resume stays in the set,
           // so its early notices keep resume: false and do not wake a parked parent.
           // The set is local to this sweep and is dropped with it once the fibers finish.
-        }),
-      })
+        })
+      const removeListener = continuation.listen((enabled) => enabled ? resumeSuspendedSessions : Effect.void)
+      yield* Effect.addFinalizer(() => Effect.sync(removeListener))
+      return Service.of({ resumeSuspendedSessions })
     }),
   )
 
 export const node = makeGlobalNode({
   service: Service,
   layer: layer(),
-  deps: [SessionStore.node, KV.node, SessionExecution.node, Bus.node, Job.node, Session.node],
+  deps: [SessionStore.node, KV.node, SessionExecution.node, Bus.node, Job.node, Session.node, SessionContinuation.node],
 })

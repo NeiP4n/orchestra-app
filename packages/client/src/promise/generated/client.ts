@@ -283,6 +283,9 @@ import type {
   WebsearchProvidersOutput,
   WebsearchQueryInput,
   WebsearchQueryOutput,
+  ConfigContinuationGetOutput,
+  ConfigContinuationSetInput,
+  ConfigContinuationSetOutput,
   ConfigGetInput,
   ConfigGetOutput,
   ConfigShellsOutput,
@@ -2577,6 +2580,31 @@ export function make(options: ClientOptions) {
         ),
     },
     config: {
+      continuation: {
+        get: (requestOptions?: RequestOptions) =>
+          request<ConfigContinuationGetOutput>(
+            {
+              method: "GET",
+              path: `/api/config/continuation`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        set: (input: ConfigContinuationSetInput, requestOptions?: RequestOptions) =>
+          request<ConfigContinuationSetOutput>(
+            {
+              method: "PUT",
+              path: `/api/config/continuation`,
+              body: { enabled: input["enabled"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
       get: (input?: ConfigGetInput, requestOptions?: RequestOptions) =>
         request<ConfigGetOutput>(
           {

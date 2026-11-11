@@ -16,6 +16,7 @@ import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionRestart, orderResumeCandidates } from "@orchestra/core/session/execution/restart"
+import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { SessionHold } from "@orchestra/core/session/hold"
 import { SessionEvent } from "@orchestra/core/session/event"
 import { SessionInbox } from "@orchestra/core/session/inbox"
@@ -33,6 +34,81 @@ const it = testEffect(
     LayerNode.group([Database.node, Bus.node, SessionStore.node, SessionInbox.node, Job.node, KV.node, Session.node]),
   ),
 )
+
+describe("operator continuation switch", () => {
+  it.effect("defaults ON, pauses all active sessions durably, blocks every admission, and resumes without spending crash budget", () => Effect.gen(function* () {
+    const database = yield* Database.Service
+    const store = yield* SessionStore.Service
+    const kv = yield* KV.Service
+    const ids = [Session.ID.make("ses_pause_main"), Session.ID.make("ses_pause_other")]
+    yield* seedSessions(database, ids)
+    const scope = yield* Scope.make()
+    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+    const starts: string[] = []
+    const ready = ids.map(() => Deferred.makeUnsafe<void>())
+    let resumed = false
+    const context = yield* buildExecution(scope, ({ sessionID }) => Effect.gen(function* () {
+      starts.push(sessionID)
+      if (resumed) return
+      yield* Deferred.succeed(ready[ids.indexOf(sessionID)], undefined)
+      yield* Effect.never
+    }))
+    const control = Context.get(context, SessionContinuation.Service)
+    const execution = Context.get(context, SessionExecution.Service)
+    expect(yield* control.enabled).toBe(true)
+    yield* Effect.forEach(ids, (id) => execution.wake(id), { discard: true })
+    yield* Effect.forEach(ready, Deferred.await, { discard: true })
+    yield* control.set(false)
+    expect(yield* control.enabled).toBe(false)
+    expect(yield* execution.active).toEqual(new Set())
+    expect(new Set(yield* store.listSuspended())).toEqual(new Set(ids))
+    for (const id of ids) {
+      expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(true)
+      yield* execution.resume(id)
+      yield* execution.wake(id)
+      yield* execution.interrupt(id, { resume: true })
+    }
+    yield* Context.get(context, SessionRestart.Service).resumeSuspendedSessions
+    expect(starts).toEqual(ids)
+    resumed = true
+    yield* control.set(true)
+    yield* Effect.forEach(ids, execution.awaitIdle, { discard: true })
+    expect(starts.length).toBe(4)
+    expect(yield* store.listSuspended()).toEqual([])
+    for (const id of ids) expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBeUndefined()
+  }))
+
+  it.effect("OFF survives a new runtime and keeps queued work until ON without deleting input", () => Effect.gen(function* () {
+    const database = yield* Database.Service
+    const kv = yield* KV.Service
+    const admission = yield* SessionInbox.Service
+    const id = Session.ID.make("ses_pause_reboot")
+    yield* seedSessions(database, [id])
+    yield* kv.set(SessionContinuation.KEY, false)
+    yield* admission.admit({ id: SessionMessage.ID.create(), sessionID: id, item: {
+      type: "user", payload: SessionInbox.UserPayload.make({ text: "Preserve this", resumeOnStart: true }), delivery: "queue",
+    } })
+    const scope = yield* Scope.make()
+    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+    let runs = 0
+    const context = yield* buildExecution(scope, ({ sessionID }) => Effect.gen(function* () {
+      runs++
+      yield* SessionInbox.promote(database.db, yield* Bus.Service, sessionID, "input")
+    }))
+    const control = Context.get(context, SessionContinuation.Service)
+    const execution = Context.get(context, SessionExecution.Service)
+    expect(yield* control.enabled).toBe(false)
+    yield* Context.get(context, SessionRestart.Service).resumeSuspendedSessions
+    yield* execution.wake(id)
+    expect(runs).toBe(0)
+    expect(yield* SessionInbox.list(database.db, id)).toHaveLength(1)
+    yield* control.set(true)
+    yield* execution.awaitIdle(id)
+    expect(runs).toBe(1)
+    expect(yield* SessionInbox.list(database.db, id)).toHaveLength(0)
+    expect(yield* kv.get(SessionContinuation.KEY)).toBe(true)
+  }))
+})
 
 describe("SessionExecution lifecycle", () => {
   it.effect("resumes an idle top-level session with durable wake-intended Inbox work", () =>
@@ -1617,6 +1693,7 @@ function buildExecution(
       SessionRestart.layer(options).pipe(
         Layer.provideMerge(sessionLayer),
         Layer.provideMerge(Layer.fresh(SessionExecution.layer)),
+        Layer.provideMerge(Layer.fresh(SessionContinuation.layer)),
         Layer.provide(Layer.succeed(Database.Service, database)),
         Layer.provide(Layer.succeed(Bus.Service, bus)),
         Layer.provide(Layer.succeed(SessionStore.Service, store)),

@@ -1,3 +1,6 @@
+import { Bus } from "@orchestra/core/bus"
+import { Config as ConfigSchema } from "@orchestra/schema/config"
+import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { Config } from "@orchestra/core/config"
 import { ShellSelect } from "@orchestra/core/shell/select"
 import { Effect } from "effect"
@@ -6,6 +9,15 @@ import { Api } from "../api"
 
 export const ConfigHandler = HttpApiBuilder.group(Api, "server.config", (handlers) =>
   handlers
+    .handle("config.continuation.get", () => SessionContinuation.Service.use((control) => control.enabled.pipe(Effect.map((enabled) => ({ enabled })))))
+    .handle("config.continuation.set", Effect.fn(function* (ctx) {
+      const control = yield* SessionContinuation.Service
+      yield* control.set(ctx.payload.enabled)
+      const enabled = yield* control.enabled
+      const bus = yield* Bus.Service
+      yield* bus.publish(ConfigSchema.Event.ContinuationUpdated, { enabled })
+      return { enabled }
+    }))
     .handle("config.get", () => Config.Service.use((config) => config.entries()))
     .handle(
       "config.update",

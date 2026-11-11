@@ -9,6 +9,8 @@ import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { SessionEvent } from "./event.js"
 import { SessionHandoff } from "./handoff.js"
 import { SessionMemory } from "../memory/session.js"
+import { SessionContinuation } from "./continuation.js"
+import { KV } from "../kv.js"
 import { SessionHold } from "./hold.js"
 import { SessionRunCoordinator } from "./run-coordinator.js"
 import { SessionRunner } from "./runner/index.js"
@@ -49,7 +51,7 @@ export interface Interface {
 /** Routes execution from a Session ID to its selected instance's runner. */
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SessionExecution") {}
 
-type InterruptReason = "user" | "shutdown" | "inactivity"
+type InterruptReason = "user" | "shutdown" | "inactivity" | "pause"
 
 export type TerminalOutcome =
   | { readonly type: "succeeded" }
@@ -67,6 +69,8 @@ export function terminal(exit: Exit.Exit<void, SessionRunner.RunError>, reason?:
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const continuationControl = yield* SessionContinuation.Service
+    const kv = yield* KV.Service
     const store = yield* SessionStore.Service
     const instances = yield* Instance.Service
     const bus = yield* Bus.Service
@@ -107,6 +111,7 @@ export const layer = Layer.effect(
       promotable: SessionInbox.Promotable = "input",
       hops = 0,
     ): Effect.fn.Return<void, SessionRunner.RunError> {
+      if (!continuationControl.isEnabled()) return yield* Effect.interrupt
       const session = yield* store.get(sessionID)
       if (!session) return yield* new NotFoundError({ sessionID })
       const result = yield* SessionRunner.Service.use((runner) =>
@@ -156,11 +161,11 @@ export const layer = Layer.effect(
             }
             if (outcome.type === "interrupted") {
               // Deliberate stops release the claim; shutdown keeps it for restart continuity.
-              if (outcome.reason !== "shutdown") yield* jobs.cancel(sessionID)
+              if (outcome.reason !== "shutdown" && outcome.reason !== "pause") yield* jobs.cancel(sessionID)
               yield* bus.publish(
                 SessionEvent.Execution.Interrupted,
                 { sessionID, reason: outcome.reason },
-                outcome.reason === "shutdown" ? undefined : releaseOnCommit(sessionID),
+                outcome.reason === "shutdown" || outcome.reason === "pause" ? undefined : releaseOnCommit(sessionID),
               )
               // A stopped session leaves a handoff stub behind, so a resumed session or a
               // replacement agent finds where it stopped even when the agent never wrote
@@ -183,6 +188,15 @@ export const layer = Layer.effect(
           }),
         ),
     })
+
+    const removePauseListener = continuationControl.listen((enabled) => enabled ? Effect.void : Effect.gen(function* () {
+      const active = yield* coordinator.active
+      yield* Effect.forEach([...active], (id) => Effect.gen(function* () {
+        yield* kv.set(SessionContinuation.pausedKey(id), true)
+        yield* coordinator.interrupt(id, "pause", { awaitSettlement: true })
+      }), { concurrency: 4, discard: true })
+    }))
+    yield* Effect.addFinalizer(() => Effect.sync(removePauseListener))
 
     // Best-effort L3 finalization (Б17): on every terminal outcome, writes
     // `memory.md` (≤ 8 KiB) and guarantees `handoff.md` exists. The summary
@@ -237,7 +251,7 @@ export const layer = Layer.effect(
         Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             const interrupted = yield* coordinator.interrupt(sessionID, options?.reason ?? "user", options)
-            if (!options?.resume) return interrupted
+            if (!options?.resume || !continuationControl.isEnabled()) return interrupted
             // Resume steering input and between-turn control work from the interrupted
             // intent. Queued next-turn prompts stay parked: a steer-scoped drain never
             // promotes them, and a control item behind a queued prompt waits its turn.
@@ -258,13 +272,13 @@ export const layer = Layer.effect(
       resume: (sessionID) =>
         Effect.uninterruptibleMask((restore) =>
           SessionHold.held(sessionID).pipe(
-            Effect.flatMap((held) => (held ? Effect.void : restore(coordinator.run(sessionID)))),
+            Effect.flatMap((held) => (held || !continuationControl.isEnabled() ? Effect.void : restore(coordinator.run(sessionID)))),
           ),
         ),
       wake: (sessionID) =>
         Effect.uninterruptibleMask((restore) =>
           SessionHold.held(sessionID).pipe(
-            Effect.flatMap((held) => (held ? Effect.void : coordinator.wake(sessionID))),
+            Effect.flatMap((held) => (held || !continuationControl.isEnabled() ? Effect.void : coordinator.wake(sessionID))),
           ),
         ),
       awaitIdle: coordinator.awaitIdle,
@@ -275,7 +289,7 @@ export const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [SessionStore.node, Instance.node, Bus.node, Database.node, Job.node],
+  deps: [SessionStore.node, Instance.node, Bus.node, Database.node, Job.node, KV.node, SessionContinuation.node],
 })
 
 /** Low-level compatibility layer for callers that only need durable Session recording. */

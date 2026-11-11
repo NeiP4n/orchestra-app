@@ -285,6 +285,9 @@ import type {
   WebsearchProvidersOutput,
   WebsearchQueryInput,
   WebsearchQueryOutput,
+  ConfigContinuationGetOutput,
+  ConfigContinuationSetInput,
+  ConfigContinuationSetOutput,
   ConfigGetInput,
   ConfigGetOutput,
   ConfigShellsOutput,
@@ -1901,6 +1904,16 @@ const adaptGroupWebsearch = (raw: RawClient["server.websearch"]) => ({
   query: EndpointWebsearchQuery(raw),
 })
 
+const EndpointConfigContinuationGet = (raw: RawClient["server.config"]) => () =>
+  preserveEffect<ConfigContinuationGetOutput>()(
+    raw["config.continuation.get"]({}).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointConfigContinuationSet = (raw: RawClient["server.config"]) => (input: ConfigContinuationSetInput) =>
+  preserveEffect<ConfigContinuationSetOutput>()(
+    raw["config.continuation.set"]({ payload: { enabled: input["enabled"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const EndpointConfigGet = (raw: RawClient["server.config"]) => (input?: ConfigGetInput) =>
   preserveEffect<ConfigGetOutput>()(
     raw["config.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
@@ -1955,6 +1968,7 @@ const EndpointConfigCompatibilityUpdate =
     )
 
 const adaptGroupConfig = (raw: RawClient["server.config"]) => ({
+  continuation: { get: EndpointConfigContinuationGet(raw), set: EndpointConfigContinuationSet(raw) },
   get: EndpointConfigGet(raw),
   shells: EndpointConfigShells(raw),
   update: EndpointConfigUpdate(raw),
