@@ -123,6 +123,7 @@ if (import.meta.main) {
     new URL("../packages/ui/src/theme/themes/sculk.json", import.meta.url),
     JSON.stringify(buildSculkWebTheme(), null, 2) + "\n",
   )
+
   const preload = new URL("../packages/app/public/orchestra-theme-preload.js", import.meta.url)
   const text = await Bun.file(preload).text()
   await Bun.write(
