@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { realpath, lstat, mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -47,6 +48,32 @@ async function temporary(body: (root: string) => Promise<void>) {
   }
 }
 
+async function expectPrivatePermissions(target: string, mode: number) {
+  if (process.platform !== "win32") {
+    expect((await lstat(target)).mode & 0o777).toBe(mode)
+    return
+  }
+  // Windows stat mode reflects the read-only attribute, not NTFS access. Inspect
+  // the actual DACL and resolve identities to stable SIDs, independent of locale.
+  const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `
+    $ErrorActionPreference = 'Stop'
+    $acl = Get-Acl -LiteralPath $env:ORCHESTRA_TEST_ACL_TARGET
+    $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $rules = @($acl.Access | ForEach-Object {
+      @{ sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;
+         allow = $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow }
+    })
+    @{ user = $user; rules = $rules } | ConvertTo-Json -Depth 4 -Compress
+  `], { env: { ...process.env, ORCHESTRA_TEST_ACL_TARGET: target }, encoding: "utf8" })
+  const acl = JSON.parse(output) as { user: string; rules: { sid: string; allow: boolean }[] }
+  const allowed = new Set([acl.user, "S-1-5-18", "S-1-5-32-544"])
+  const grants = acl.rules.filter((rule) => rule.allow)
+  expect(grants.some((rule) => rule.sid === acl.user)).toBe(true)
+  expect(grants.every((rule) => allowed.has(rule.sid))).toBe(true)
+  // Also validate that Windows' own ACL utility can read this exact object.
+  expect(execFileSync("icacls.exe", [target], { encoding: "utf8" }).length).toBeGreaterThan(0)
+}
+
 test("materializes only reviewed exact text with private non-executable file modes and refuses overwrite", () =>
   temporary(async (root) => {
     const plan = Files.preview(root, registry, skills)
@@ -57,9 +84,9 @@ test("materializes only reviewed exact text with private non-executable file mod
     for (const file of skills[0].files) {
       const target = path.join(result.definitions[0].root, file.path)
       expect(await readFile(target, "utf8")).toBe(file.content)
-      expect((await lstat(target)).mode & 0o777).toBe(0o600)
+      await expectPrivatePermissions(target, 0o600)
     }
-    expect((await lstat(result.directory)).mode & 0o777).toBe(0o700)
+    await expectPrivatePermissions(result.directory, 0o700)
     await expect(Files.materialize(root, registry, skills, plan.digest)).rejects.toThrow()
     expect(await readFile(path.join(result.definitions[0].root, "SKILL.md"), "utf8")).toBe(skills[0].files[0].content)
   }))
