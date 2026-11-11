@@ -33,6 +33,7 @@ for (const mode of ["missing", "offline", "foreign", "child", "valid"] as const)
    view:()=> <ProjectsProvider><NotesProvider><Probe/></NotesProvider></ProjectsProvider>,
   })
   function Probe(){notes=useNotes();return <box/>}
+  expect(app.data).toBeDefined()
   await notes.importBrowserDefinitions({importID:"pti_stale",projectID:"prj_test2",createdAt:1,browsers:[{id:"brw_second",name:"Browser 2",chat:"ses_old",mode:"window"}]})
   if(mode==="offline"||mode==="foreign"||mode==="child"){
    await expect(notes.ensureBrowserAgent("prj_test2","brw_second",directory)).rejects.toBeDefined()
