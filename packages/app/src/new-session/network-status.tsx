@@ -9,6 +9,7 @@ export function NewSessionNetworkStatus() {
   const server = useServer()
   const language = useLanguage()
   const connected = () => server.ctx.sdk.connection.status() === "connected"
+
   const running = createMemo(() =>
     data.session.list().filter((session) => !session.parentID && data.session.status(session.id) === "running"),
   )

@@ -14,10 +14,12 @@ for (const viewport of [
     page.on("request", (request) => {
       if (request.method() === "POST" && new URL(request.url()).pathname === "/api/session") creates.push(request.url())
     })
+
     const draft = await openDraft(page, {
       name: "TUI stage",
       seed: { settings: { appearance: { animations: false } } },
     })
+
     const logo = page.locator('[data-component="new-session-wordmark"]')
     const status = page.locator('[data-component="new-session-network-status"]')
     const composer = page.locator('[data-component="composer"]')
@@ -26,6 +28,7 @@ for (const viewport of [
     await expect(composer).toBeVisible()
     const boxes = await Promise.all([logo.boundingBox(), status.boundingBox(), composer.boundingBox()])
     const [l, s, c] = boxes
+
     if (!l || !s || !c) throw new Error("Prompt stage bounds are unavailable")
     expect(l.y + l.height).toBeLessThanOrEqual(s.y + 1)
     expect(s.y + s.height).toBeLessThanOrEqual(c.y)
@@ -43,6 +46,7 @@ for (const viewport of [
     const promptBounds = await page.locator('[data-slot="new-session-prompt"]').boundingBox()
     const footerBounds = await page.locator('[data-slot="new-session-tip-footer"]').boundingBox()
     const submitBounds = await submit.boundingBox()
+
     if (!promptBounds || !footerBounds || !submitBounds) throw new Error("Prompt controls bounds are unavailable")
     expect(promptBounds.y).toBeGreaterThanOrEqual(0)
     expect(promptBounds.y + promptBounds.height).toBeLessThanOrEqual(footerBounds.y + 1)
@@ -67,6 +71,7 @@ for (const viewport of [
                   db.close()
                   reject(read.error)
                 }
+
                 read.onsuccess = () => {
                   db.close()
                   resolve(JSON.stringify(read.result).includes("Keep this draft while arranging the stage"))
