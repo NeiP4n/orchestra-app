@@ -50,10 +50,10 @@ export declare function registerAccountManagement(ctx: Plugin.Context, client: P
             readonly input: import("zod").ZodObject<{
                 id: import("zod").ZodString;
                 action: import("zod").ZodEnum<{
-                    disable: "disable";
                     delete: "delete";
-                    select: "select";
+                    disable: "disable";
                     enable: "enable";
+                    select: "select";
                 }>;
             }, import("zod/v4/core").$strip>;
             readonly output: import("zod").ZodObject<{

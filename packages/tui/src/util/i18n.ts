@@ -11,6 +11,9 @@ export type Language = "en" | "ru"
 const ruExtra: Record<string, string> = {
   ...registryRu,
   "Delete refused (HTTP {status}). Try again.": "Удаление отклонено (HTTP {status}). Повтори.",
+  "Delete refused (HTTP {status}): {reason}": "Удаление отклонено (HTTP {status}): {reason}",
+  "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept.": "Менеджер связанного аккаунта недоступен. Включи плагин и повтори. Запись сохранена.",
+  "The linked account could not be removed. Check access to its account store and retry. The credential was kept.": "Не удалось удалить связанный аккаунт. Проверь доступ к хранилищу и повтори. Запись сохранена.",
   "Could not delete account: {reason}": "Не удалось удалить аккаунт: {reason}",
   options: "параметров",
   category: "категории",

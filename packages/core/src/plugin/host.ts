@@ -708,6 +708,7 @@ function methodImplementation(input: IntegrationMethodRegistration): Integration
         ),
       ...(refresh ? { refresh: (value: Credential.OAuth) => refresh(value).pipe(Effect.map(credential)) } : {}),
       ...(input.label ? { label: input.label } : {}),
+      ...(input.remove ? { remove: input.remove } : {}),
     }
   }
   if (input.method.type === "env") {

@@ -78,6 +78,7 @@ export interface OAuthImplementation {
   readonly authorize: (answer: Form.Answer) => Effect.Effect<OAuthAuthorization, unknown, Scope.Scope>
   readonly refresh?: (credential: Credential.OAuth) => Effect.Effect<Credential.OAuth, unknown>
   readonly label?: (credential: Credential.OAuth) => string | undefined
+  readonly remove?: (credential: Credential.OAuth, credentialID: Credential.ID) => Effect.Effect<void, unknown>
 }
 
 export interface KeyImplementation {
@@ -212,7 +213,7 @@ export interface Interface extends State.Transformable<Editor> {
       updates: Partial<Pick<Credential.Info, "label">>,
     ) => Effect.Effect<void>
     /** Removes a stored credential connection. */
-    readonly remove: (credentialID: Credential.ID) => Effect.Effect<void>
+    readonly remove: (credentialID: Credential.ID) => Effect.Effect<void, Credential.RemovalError>
     /** Reports or clears a runtime problem with a connection; `get` and `list` project it onto the connection. */
     readonly status: (input: {
       readonly integrationID: ID
@@ -382,6 +383,15 @@ const layer = Layer.effect(
       notify: () => bus.publish(Integration.Event.Updated, {}).pipe(Effect.asVoid),
     })
 
+    const detachRemovalOwner = Credential.registerRemovalOwner(credentials, credential => {
+      if (credential.value.type !== "oauth") return []
+      const value = credential.value
+      return Array.from(state.get().integrations.get(credential.integrationID)?.implementations.values() ?? [])
+        .filter(implementation => implementation.remove)
+        .map(implementation => ({ methodID: implementation.method.id, remove: Effect.suspend(() => implementation.remove!(value, credential.id)) }))
+    })
+    yield* Effect.addFinalizer(() => Effect.sync(detachRemovalOwner))
+
     const createCredential = Effect.fnUntraced(function* (input: Parameters<Credential.Interface["create"]>[0]) {
       if (input.label !== undefined) return yield* credentials.create(input)
       const name = state.get().integrations.get(input.integrationID)?.ref.name ?? input.integrationID
@@ -463,7 +473,7 @@ const layer = Layer.effect(
           return createCredential({
             integrationID: attempt.integrationID,
             label: attempt.label ?? implementation?.label?.(exit.value),
-            value: exit.value,
+            value: implementation?.remove ? Credential.OAuth.make({ ...exit.value, metadata: { ...exit.value.metadata, removalOwner: implementation.method.id } }) : exit.value,
           })
         }).pipe(Effect.asVoid, Effect.exit)
         const settledAt = yield* Clock.currentTimeMillis
