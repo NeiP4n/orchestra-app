@@ -21,19 +21,24 @@ async function child(parent: string, name: string) {
   return target
 }
 
-/** Source folders contain exactly one configuration file. Never recursively copy a project. */
-export async function load(directory: string) {
+export interface Codec<T extends { text: string; digest: string }> {
+  MAX_BYTES: number
+  preview: (serialized: string) => ProjectTemplate.Result<T>
+}
+/** Source folders contain exactly one configuration file. Never recursively copy a project.
+ * The codec is selected by application code, never by imported content. */
+export async function loadWithCodec<T extends { text: string; digest: string }>(directory: string, codec: Codec<T>) {
   const source = await root(directory), files = await readdir(source)
   if (files.length !== 1 || files[0] !== FILE) throw Error("A template folder must contain only template.json. Nothing was imported.")
   const target = path.join(source, FILE), before = await lstat(target)
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > ProjectTemplate.MAX_BYTES) throw Error("Template must be a bounded regular file, not a link.")
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > codec.MAX_BYTES) throw Error("Template must be a bounded regular file, not a link.")
   const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
   try {
     const actual = await handle.stat()
-    if (!actual.isFile() || actual.ino !== before.ino || actual.dev !== before.dev || actual.size > ProjectTemplate.MAX_BYTES) throw Error("Template changed while being opened.")
-    const buffer = Buffer.alloc(ProjectTemplate.MAX_BYTES + 1), result = await handle.read(buffer, 0, buffer.length, 0)
-    if (result.bytesRead > ProjectTemplate.MAX_BYTES) throw Error("Template exceeds the size limit.")
-    const preview = ProjectTemplate.preview(buffer.subarray(0, result.bytesRead).toString('utf8'))
+    if (!actual.isFile() || actual.ino !== before.ino || actual.dev !== before.dev || actual.size > codec.MAX_BYTES) throw Error("Template changed while being opened.")
+    const buffer = Buffer.alloc(codec.MAX_BYTES + 1), result = await handle.read(buffer, 0, buffer.length, 0)
+    if (result.bytesRead > codec.MAX_BYTES) throw Error("Template exceeds the size limit.")
+    const preview = codec.preview(buffer.subarray(0, result.bytesRead).toString('utf8'))
     if (!preview.ok) throw Error(preview.error)
     if (await realpath(source) !== source || (await readdir(source)).length !== 1) throw Error("Template folder changed during review.")
     return preview.value
@@ -41,8 +46,8 @@ export async function load(directory: string) {
 }
 
 /** Atomic create-if-absent for the manifest. A pre-existing folder is never reused or replaced. */
-export async function save(directory: string, name: string, serialized: string, reviewedDigest: string) {
-  const preview = ProjectTemplate.preview(serialized)
+export async function saveWithCodec<T extends { text: string; digest: string }>(directory: string, name: string, serialized: string, reviewedDigest: string, codec: Codec<T>) {
+  const preview = codec.preview(serialized)
   if (!preview.ok) throw Error(preview.error)
   if (reviewedDigest !== preview.value.digest) throw Error("Template changed after preview. Review the current bytes again.")
   const parent = await root(directory), destination = path.join(parent, leaf(name))
@@ -52,7 +57,7 @@ export async function save(directory: string, name: string, serialized: string, 
   try {
     const handle = await open(path.join(destination, FILE), 'wx', 0o600)
     try { await handle.writeFile(preview.value.text, 'utf8'); await handle.sync() } finally { await handle.close() }
-    const verified = await load(destination)
+    const verified = await loadWithCodec(destination, codec)
     if (verified.digest !== reviewedDigest) throw Error("Template failed verification after writing.")
     return { directory: destination, digest: verified.digest }
   } catch (error) {
@@ -61,6 +66,11 @@ export async function save(directory: string, name: string, serialized: string, 
     throw error
   }
 }
+// Keep the v1 API and return types intact. v2 must opt into its own closed codec explicitly.
+export const load = (directory: string) => loadWithCodec(directory, ProjectTemplate)
+export const save = (directory: string, name: string, serialized: string, reviewedDigest: string) =>
+  saveWithCodec(directory, name, serialized, reviewedDigest, ProjectTemplate)
+
 function releaseVersion(value: string) {
   // Prerelease compatibility needs product policy, so it fails closed here rather than guessing ordering.
   if (!/^\d+\.\d+\.\d+(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$/.test(value)) throw Error("A stable Orchestra version is required for compatibility review.")
