@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { eq } from "drizzle-orm"
 import { Deferred, Effect, Fiber, Exit } from "effect"
 import { Bus } from "@orchestra/core/bus"
@@ -291,4 +291,12 @@ describe("Credential", () => {
       ])
     }),
   )
+})
+
+test("linked removal diagnostics allow only fixed safe reasons", () => {
+  expect(Credential.removalFailureReason(new Error("Ambiguous account identity; reopen the account manager"))).toBe("Ambiguous account identity")
+  expect(Credential.removalFailureReason(new Error("Conflicting account identity bindings; reopen the account manager"))).toBe("Conflicting account identity bindings")
+  for (const error of [new Error("private-token-canary"), { message: "private-token-canary" }, undefined]) {
+    expect(Credential.removalFailureReason(error)).toBe("Account manager removal failed")
+  }
 })

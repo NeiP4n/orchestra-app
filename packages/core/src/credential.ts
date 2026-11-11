@@ -45,6 +45,17 @@ export class RemovalError extends Schema.TaggedError<RemovalError>()("Credential
   message: Schema.String,
 }) {}
 
+/** Keep plugin refusal diagnostics useful without logging arbitrary plugin strings. */
+export function removalFailureReason(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : undefined
+  if (message === "Ambiguous account identity; reopen the account manager") return "Ambiguous account identity"
+  if (message === "Conflicting account identity bindings; reopen the account manager") return "Conflicting account identity bindings"
+  if (message === "Invalid account store format") return "Invalid account store format"
+  if (message === "Unsupported account store version") return "Unsupported account store version"
+  if (message === "Cannot read the account store") return "Cannot read the account store"
+  return "Account manager removal failed"
+}
+
 export type RemovalOwner = (credential: Info) => ReadonlyArray<{
   readonly methodID: string
   readonly remove: Effect.Effect<void, unknown>
@@ -414,7 +425,13 @@ const layer = Layer.effect(
           if (required && !owners.some(owner => owner.methodID === required))
             return yield* new RemovalError({ reason: "owner_unavailable", message: "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept." })
           for (const owner of owners) {
-            yield* owner.remove.pipe(Effect.catchCause(() => Effect.fail(new RemovalError({ reason: "owner_failed", message: "The linked account could not be removed. Check access to its account store and retry. The credential was kept." }))))
+            yield* owner.remove.pipe(Effect.catchCause(cause => Effect.gen(function* () {
+              yield* Effect.logWarning("credential linked removal refused", {
+                credentialID: id, integrationID: credential.integrationID,
+                reason: removalFailureReason(Cause.squash(cause)),
+              })
+              return yield* new RemovalError({ reason: "owner_failed", message: "The linked account could not be removed. Check access to its account store and retry. The credential was kept." })
+            })))
           }
         }
         const removed = yield* db
