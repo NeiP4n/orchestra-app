@@ -19,7 +19,8 @@ for (const width of [1440, 390]) {
     const writes: boolean[] = []
     await page.route("**/api/config/continuation", async (route) => {
       if (route.request().method() === "PUT") {
-        const value = route.request().postDataJSON() as { enabled: boolean }
+        const value = route.request().postDataJSON()
+        expect(typeof value.enabled).toBe("boolean")
         writes.push(value.enabled)
         await new Promise<void>((resolve) => {
           finish = resolve
