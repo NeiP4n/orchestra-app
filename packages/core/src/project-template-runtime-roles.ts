@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from "node:util"
 import type { Agent } from "@orchestra/schema/agent"
 import type { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 
-/** Exact-runtime reuse evidence, not an installable replacement. Full permissions,
+/** Complete runtime reuse snapshot, not a Team-role replacement. Full permissions,
  * system, request settings and model are preserved. Only source-owned plan directory
  * rules use exact placeholders for the destination equivalents.
  * Destination equality is mandatory, including checks at its actual new directory. */
@@ -34,3 +34,4 @@ export function merge(catalogs: readonly (readonly Agent.Info[])[], roots?: { co
   }
   return [...definitions.values()]
 }
+

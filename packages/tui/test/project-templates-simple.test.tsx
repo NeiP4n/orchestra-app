@@ -208,6 +208,7 @@ for(const width of [80,120]) test(`unavailable role save uses one visible warnin
   await click("project-templates.details")
   expect(app.captureCharFrame()).toContain("Недоступная роль: team_deleted")
   expect(app.captureCharFrame()).toContain("Сессия Old worker: роль team_deleted")
+  if(process.env.CAPTURE_ROLE_REVIEW)await Bun.write(`/tmp/template-role-details-${width}.spans.json`,JSON.stringify(app.captureSpans()))
   await click("project-templates.confirm")
   await app.waitForFrame(f=>f.includes("Проект сохранён как шаблон"))
   expect(calls).toEqual([["missing-role",false,false,true]])
