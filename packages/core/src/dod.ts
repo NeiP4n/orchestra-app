@@ -1089,7 +1089,7 @@ export async function replaceFile(
       error?.code !== "EPERM" &&
       error?.code !== "EEXIST" &&
       error?.code !== "EBUSY" &&
-      process.platform !== "win32"
+      !(process.platform === "win32" && error?.code === "EACCES")
     ) {
       await fs.unlink(temporary).catch(() => {})
       throw error
