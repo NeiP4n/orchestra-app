@@ -27,6 +27,17 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 
 if (Test-Path (Join-Path $dir ".git")) {
   Write-Host "Updating $dir..."
+  # Downloading this script via irm does not make its sibling functions local.
+  # Use an inline lockfile-only preservation step before updating the checkout.
+  $lockStatus = @(git -C $dir status --porcelain -- bun.lock)
+  if ($LASTEXITCODE -ne 0) { throw "Cannot inspect bun.lock; checkout was not changed" }
+  if ($lockStatus.Count -gt 0) {
+    git -C $dir stash push -m "Orchestra installer: preserve local bun.lock before update" -- bun.lock
+    if ($LASTEXITCODE -ne 0) { throw "Cannot preserve bun.lock; update stopped without resetting files" }
+    $saved = git -C $dir rev-parse refs/stash
+    Write-Host "Saved local bun.lock in git stash $saved. It is not reapplied over the updated lockfile."
+    Write-Host "To inspect it later: git -C `"$dir`" stash show -p $saved"
+  }
   git -C $dir pull --ff-only
 } else {
   Write-Host "Downloading Orchestra to $dir..."
@@ -37,7 +48,7 @@ if ($LASTEXITCODE -ne 0) { throw "git failed" }
 Write-Host "Installing dependencies (a few minutes the first time)..."
 Push-Location $dir
 try {
-  bun install
+  bun install --frozen-lockfile
   if ($LASTEXITCODE -ne 0) { throw "bun install failed" }
 } finally {
   Pop-Location
