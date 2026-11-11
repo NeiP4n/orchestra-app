@@ -132,3 +132,21 @@ for (const bound of [false, true]) test(`browser watcher/interval survives omitt
   expect(plan.browsers[0]).toMatchObject({ id: "brw_new", savedLinks: [], login: "required", profile: "new", state: "not-opened" })
   expect(plan.started).toBe(false)
 })
+
+test("ordinary auto role stays unpinned, but cannot replace required main or BrowserAgent roles", () => {
+  const f = fixture()
+  f.input.sessions.push({ slot: "auto", title: "Приветствие auto", role: null, model: null })
+  f.input.mainSession = "main"
+  f.destination.sessions.auto = "ses_auto_new"
+  const prepare = () => {
+    const preview = ProjectTemplate.preview(JSON.stringify(f.input))
+    if (!preview.ok) throw Error(preview.error)
+    return ProjectTemplateImport.prepare(preview.value.text, { ...f.destination, reviewedDigest: preview.value.digest })
+  }
+  expect(prepare().sessions.find(row => row.id === "ses_auto_new")?.role).toBeNull()
+  f.input.mainSession = "auto"
+  expect(prepare).toThrow("Orchestrator")
+  f.input.mainSession = "main"
+  f.input.browsers[0].session = "auto"
+  expect(prepare).toThrow("BrowserAgent")
+})
