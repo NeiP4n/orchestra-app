@@ -120,7 +120,7 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
     }
   })
   const roleIDs = new Set(unique(roles.map((r) => r.agent)))
-  if (base.sessions.some((r) => !roleIDs.has(r.role)) || base.rules.some((r) => r.scope === "role" && !roleIDs.has(r.role!))) invalid()
+  if (base.sessions.some((r) => r.role !== null && !roleIDs.has(r.role)) || base.rules.some((r) => r.scope === "role" && !roleIDs.has(r.role!))) invalid()
   const recommendedRoles = ids(p.recommendedRoles)
   if (recommendedRoles.some((r) => !roleIDs.has(r))) invalid()
   const skills = parseSkills(p.skills)

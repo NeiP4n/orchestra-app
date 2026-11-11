@@ -23,7 +23,7 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
     const base = V1Source.capture(source, metadata)
     if (!base.ok) throw Error()
     const sessions = new Map(source.sessions.map((s, i) => [s.id, `session_${i + 1}`]))
-    const roleIDs = new Set([...source.sessions.map((s) => s.agent!), ...source.rules.filter((r) => r.scope === "role").map((r) => r.role!), ...process.recommendedRoles, ...process.skillAssignments.flatMap((a) => a.target.kind === "role" ? [a.target.role] : [])])
+    const roleIDs = new Set([...source.sessions.flatMap((s) => s.agent === undefined ? [] : [s.agent]), ...source.rules.filter((r) => r.scope === "role").map((r) => r.role!), ...process.recommendedRoles, ...process.skillAssignments.flatMap((a) => a.target.kind === "role" ? [a.target.role] : [])])
     const roles = new Map(process.roles.map((r) => [r.agent, r]))
     const skills = new Map(process.skills.map((s) => [s.id, s]))
     if (roles.size !== process.roles.length || skills.size !== process.skills.length || [...roleIDs].some((id) => !roles.has(id))) throw Error()

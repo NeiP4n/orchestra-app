@@ -14,7 +14,8 @@ export interface Bundle {
   variables: { projectName: string; folder: "${projectFolder}" }
   mainSession?: string
   vault: { local: { name: string; type: "login" | "api-key" | "password"; label: string }[]; globalRequirements: string[] }
-  sessions: { slot: string; title: string; role: string; model: { provider: string; id: string; variant: string | null } | null }[]
+  /** null preserves the runtime auto/default agent instead of pinning an explicit role. */
+  sessions: { slot: string; title: string; role: string | null; model: { provider: string; id: string; variant: string | null } | null }[]
   browsers: { slot: string; name: string; mode: "headless" | "window" | "capture"; links: string[]; session?: string }[]
   rules: { session: string | null; text: string; scope?: "project" | "project-defaults" | "orchestrator" | "session" | "role"; role?: string }[]
   schedules: {
@@ -84,7 +85,7 @@ export function parse(serialized: string): Result<Bundle> {
     if (globalRequirements.some((name) => local.some((row) => row.name === name))) invalid()
     const sessions = array(data.sessions, 100).map((v) => {
       const row = object(v, ['slot', 'title', 'role', 'model']), model = row.model === null ? null : object(row.model, ['provider', 'id', 'variant'])
-      return { slot: slot(row.slot), title: text(row.title, 160), role: id(row.role), model: model === null ? null : { provider: id(model.provider), id: id(model.id), variant: model.variant === null ? null : id(model.variant) } }
+      return { slot: slot(row.slot), title: text(row.title, 160), role: row.role === null ? null : id(row.role), model: model === null ? null : { provider: id(model.provider), id: id(model.id), variant: model.variant === null ? null : id(model.variant) } }
     }); unique(sessions.map((row) => row.slot))
     const browsers = array(data.browsers, 50).map((v) => { const linked = !!v && typeof v === 'object' && Object.hasOwn(v, 'session'); const row = object(v, ['slot', 'name', 'mode', 'links', ...(linked ? ['session'] : [])]), links = array(row.links, 100).map(url); unique(links); return { slot: slot(row.slot), name: text(row.name, 160), mode: choice(row.mode, ['headless', 'window', 'capture']), links, ...(linked ? { session: slot(row.session) } : {}) } }); unique(browsers.map((row) => row.slot))
     const sessionNames = new Set(sessions.map((row) => row.slot)), browserNames = new Set(browsers.map((row) => row.slot))

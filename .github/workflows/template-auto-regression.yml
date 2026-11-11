@@ -1,0 +1,54 @@
+name: template-auto-regression
+
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/project-template*'
+      - 'packages/core/test/project-template*'
+      - 'packages/server/src/handlers/orchestra.ts'
+      - 'packages/server/test/project-templates.test.ts'
+      - 'packages/tui/src/component/project-templates*'
+      - 'packages/tui/test/project-template*'
+      - '.github/workflows/template-auto-regression.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'packages/core/src/project-template*'
+      - 'packages/core/test/project-template*'
+      - 'packages/server/test/project-templates.test.ts'
+      - 'packages/tui/test/project-template*'
+      - '.github/workflows/template-auto-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  template:
+    name: real template roundtrip (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Core template regression and crash safety
+        working-directory: packages/core
+        run: bun test test/project-template*.test.ts
+      - name: Real HTTP save and create with ordinary auto chat and orchestrator rules
+        run: bun test packages/server/test/project-templates.test.ts
+      - name: Mounted Templates screen with real backend and browser persistence
+        working-directory: packages/tui
+        run: bun test test/project-template*.test.*

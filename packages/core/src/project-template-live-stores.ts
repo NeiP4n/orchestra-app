@@ -143,7 +143,7 @@ export function make(deps: Dependencies) {
   }
   const sessionExpected = (r: Materialize.Receipt, s: Materialize.Plan["sessions"][number]) => ({
     title: s.title,
-    agent: s.role,
+    agent: s.role ?? undefined,
     location: { directory: r.directory },
     permissions: [],
     model: ProjectTemplateImport.sessionModelRef(s.model),
@@ -232,7 +232,7 @@ export function make(deps: Dependencies) {
         deps.sessions.create({
           id,
           title: s.title,
-          agent: Agent.ID.make(s.role),
+          agent: s.role === null ? undefined : Agent.ID.make(s.role),
           location: { directory: AbsolutePath.make(r.directory) },
           permissions: [],
           metadata: {
