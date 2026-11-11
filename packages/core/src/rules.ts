@@ -490,7 +490,15 @@ export const load = (kv: KV.Interface, scopes: Scopes) =>
           `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override defaults copies; ` +
           `remove or rewrite one of them — the model does not pick a winner.`,
       })
-    const lines = parts.flatMap((part) => part.rules.map((rule) => `- [${part.title}] ${rule.text}`))
+    // Prompt-only byte-exact deduplication. Keep all source titles visible and leave
+    // the full entries, stored scopes, conflict checks and enforcement untouched.
+    const texts = new Map<string, Set<string>>()
+    for (const part of parts) for (const rule of part.rules) {
+      const titles = texts.get(rule.text) ?? new Set<string>()
+      titles.add(part.title)
+      texts.set(rule.text, titles)
+    }
+    const lines = Array.from(texts, ([text, titles]) => `- [${Array.from(titles).join(", ")}] ${text}`)
     const entries = parts
       .flatMap((part) => part.rules.map((rule) => ({ title: part.title, text: rule.text, by: rule.by })))
       .toSorted((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))

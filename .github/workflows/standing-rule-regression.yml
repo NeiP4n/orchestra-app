@@ -3,6 +3,7 @@ name: standing-rule-regression
 on:
   pull_request:
     paths:
+      - 'packages/core/src/rules.ts'
       - 'packages/core/src/rule-enforce.ts'
       - 'packages/core/src/permission.ts'
       - 'packages/core/src/tool/plugin/patch.ts'
@@ -14,6 +15,7 @@ on:
   push:
     branches: [dev]
     paths:
+      - 'packages/core/src/rules.ts'
       - 'packages/core/src/rule-enforce.ts'
       - 'packages/core/src/permission.ts'
       - 'packages/core/src/tool/plugin/patch.ts'
