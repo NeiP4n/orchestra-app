@@ -3,6 +3,8 @@ name: template-auto-regression
 on:
   pull_request:
     paths:
+      - 'packages/app/src/shell/template-files.tsx'
+      - 'packages/app/e2e/regression/template-files.spec.ts'
       - 'packages/core/src/project-template*'
       - 'packages/core/test/project-template*'
       - 'packages/server/src/handlers/orchestra.ts'
@@ -35,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     defaults:
@@ -60,3 +62,92 @@ jobs:
         run: |
           bun test test/project-template*.test.* test/browser-chat*.test.* test/browser-sessions*.test.ts
           bun test test/project-tree.test.tsx --test-name-pattern "actual Browser 2"
+      - name: Setup browser runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.15"
+      - name: Install focused browser
+        working-directory: packages/app
+        run: bun x playwright install --with-deps chromium
+      - name: Connected desktop, tablet and mobile template file flow
+        working-directory: packages/app
+        run: bun run test:e2e:built e2e/regression/template-files.spec.ts
+        env:
+          CI: true
+          PLAYWRIGHT_WORKERS: "1"
+      - name: Preserve template file UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: template-file-${{ matrix.os }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report
+
+  template_linux:
+    name: real template roundtrip (ubuntu-latest)
+    runs-on: ubuntu-latest
+    # Official Playwright 1.59.1 noble amd64 image, matching bun.lock.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:eac9b0a5312cdab40ee8c2429df5bf19bffdccf8f3bf3c42268e173f97541645
+      options: --ipc=host
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Setup locked Bun without a ZIP extractor
+        run: |
+          version=$(node -p "require('./package.json').packageManager.split('@')[1]")
+          npm install --global "@oven/bun-linux-x64-baseline@$version"
+          ln -s "$(npm root -g)/@oven/bun-linux-x64-baseline/bin/bun" /usr/local/bin/bun
+          ln -s /usr/local/bin/bun /usr/local/bin/bunx
+          bun --version
+          bun install --frozen-lockfile
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Core template regression and crash safety
+        working-directory: packages/core
+        run: bun test test/project-template*.test.ts
+      - name: Real HTTP save and create with ordinary auto chat and orchestrator rules
+        run: bun test packages/server/test/project-templates.test.ts packages/server/test/template-operation.test.ts
+      - name: Mounted Templates screen with real backend and browser persistence
+        working-directory: packages/tui
+        run: |
+          bun test test/project-template*.test.* test/browser-chat*.test.* test/browser-sessions*.test.ts
+          bun test test/project-tree.test.tsx --test-name-pattern "actual Browser 2"
+      - name: Setup browser runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.15"
+      - name: Install focused browser
+        working-directory: packages/app
+        run: |
+          test "$(node -p "require('./node_modules/@playwright/test/package.json').version")" = "1.59.1"
+          # The pinned official image includes the matching browsers and all
+          # OS dependencies. Assert the binary exists before the same E2E.
+          node -e "const fs = require('node:fs'); const p = require('@playwright/test'); if (!fs.existsSync(p.chromium.executablePath())) throw Error('Pinned browser missing')"
+          bun x playwright install chromium
+      - name: Connected desktop, tablet and mobile template file flow
+        working-directory: packages/app
+        run: bun run test:e2e:built e2e/regression/template-files.spec.ts
+        env:
+          CI: true
+          PLAYWRIGHT_WORKERS: "1"
+      - name: Preserve template file UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: template-file-ubuntu-latest
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report

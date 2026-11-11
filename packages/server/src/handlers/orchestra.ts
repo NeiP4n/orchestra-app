@@ -121,6 +121,9 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       }),
     })
     return handlers
+      .handle("orchestra.projectTemplate.exportFile",ctx=>templateOperation("exportFile",()=>operator.exportFile(ctx.payload.templateID,ctx.payload.projectID)))
+      .handle("orchestra.projectTemplate.prepareImport",ctx=>templateOperation("prepareImport",()=>operator.prepareImport(ctx.payload.path)))
+      .handle("orchestra.projectTemplate.confirmImport",ctx=>templateOperation("confirmImport",()=>operator.confirmImport(ctx.payload.token)))
       .handle("orchestra.projectTemplate.list",()=>templateOperation("list",()=>operator.list()))
       .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation("prepareSave",()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
       .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation("confirmSave",()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks,ctx.payload.omitInvalidBrowserBindings,ctx.payload.acceptUnresolvedRoles)).pipe(Effect.as(HttpApiSchema.NoContent.make())))

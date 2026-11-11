@@ -396,6 +396,12 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectTemplateExportFileInput,
+  OrchestraProjectTemplateExportFileOutput,
+  OrchestraProjectTemplatePrepareImportInput,
+  OrchestraProjectTemplatePrepareImportOutput,
+  OrchestraProjectTemplateConfirmImportInput,
+  OrchestraProjectTemplateConfirmImportOutput,
   OrchestraProjectTemplateListOutput,
   OrchestraProjectTemplatePrepareSaveInput,
   OrchestraProjectTemplatePrepareSaveOutput,
@@ -3370,6 +3376,42 @@ export function make(options: ClientOptions) {
     },
     orchestra: {
       projectTemplate: {
+        exportFile: (input: OrchestraProjectTemplateExportFileInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateExportFileOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/export-file`,
+              body: { templateID: input["templateID"], projectID: input["projectID"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        prepareImport: (input: OrchestraProjectTemplatePrepareImportInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplatePrepareImportOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/prepare-import`,
+              body: { path: input["path"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        confirmImport: (input: OrchestraProjectTemplateConfirmImportInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateConfirmImportOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/confirm-import`,
+              body: { token: input["token"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
         list: (requestOptions?: RequestOptions) =>
           request<OrchestraProjectTemplateListOutput>(
             {

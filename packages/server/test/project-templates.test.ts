@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { mkdir } from "node:fs/promises"
+import { readFile, writeFile, mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { Global } from "@orchestra/util/global"
@@ -108,6 +108,24 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       const library = (yield* call("/api/orchestra/project-template")).body
       expect(library).toHaveLength(1)
       expect(library[0].name).toBe("Factory")
+      const exported = yield* call("/api/orchestra/project-template/export-file", "POST", { templateID: library[0].id, projectID: project.id })
+      expect(exported.status).toBe(200)
+      expect(path.dirname(exported.body.path)).toBe(source)
+      expect(exported.body.path.endsWith(".orchestra-template")).toBe(true)
+      expect(exported.body.warning).toContain("git")
+      const exportedBytes=yield* Effect.promise(()=>readFile(exported.body.path,"utf8"))
+      expect(exportedBytes).toBe(prepared.body.details)
+      const imported=yield* call("/api/orchestra/project-template/prepare-import","POST",{path:exported.body.path})
+      expect(imported.status).toBe(200)
+      expect(imported.body.details).toBe(exportedBytes)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
+      expect((yield* call("/api/orchestra/project-template/confirm-import","POST",{token:imported.body.token})).status).toBe(200)
+      expect((yield* call("/api/orchestra/project-template/confirm-import","POST",{token:imported.body.token})).status).toBe(200)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(2)
+      const importedAgain=yield* call("/api/orchestra/project-template/prepare-import","POST",{path:exported.body.path})
+      yield* Effect.promise(()=>writeFile(exported.body.path,exportedBytes.replace('"name": "Factory"','"name": "Different"')))
+      expect((yield* call("/api/orchestra/project-template/confirm-import","POST",{token:importedAgain.body.token})).status).toBe(400)
+      yield* Effect.promise(()=>writeFile(exported.body.path,exportedBytes))
       const create = yield* call("/api/orchestra/project-template/prepare-create", "POST", {
         templateID: library[0].id,
         settingsDirectory: source,
@@ -187,7 +205,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect(changed.body.kind).toBe("TEMPLATE_CHANGED")
       expect(JSON.stringify(changed.body)).not.toContain(source)
       expect(JSON.stringify(changed.body)).not.toContain(project.id)
-      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(2)
       // Foreign binding is now a reviewed, explicit omission in the copy, never
       // an owner adoption. The server still refuses saving it without consent.
       const foreignBrowsers = [{ ...browsers[0], chat: created.body.mainSessionID }]
@@ -201,7 +219,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect((yield* call("/api/orchestra/project-template/confirm-save", "POST", {
         token: foreign.body.token, browsers: foreignBrowsers,
       })).status).toBe(400)
-      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(2)
       expect(
         (yield* call("/api/orchestra/project-template/confirm-create", "POST", { token: "../foreign" })).status,
       ).toBe(400)
@@ -227,7 +245,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       const refused = yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: review.body.token, browsers })
       expect(refused.status).toBe(400)
       expect(refused.body.kind).toBe("TEMPLATE_LINKS")
-      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(2)
       // Changing even an excluded URL invalidates confirmation; no implicit acceptance of a new list.
       privateTabs.tabs[1].url = "https://example.com/search?q=CHANGED_PRIVATE_CANARY"
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, "data/browser-profiles/brw_source.tabs.json"), JSON.stringify(privateTabs)))
@@ -236,7 +254,7 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect(replaced.body.kind).toBe("TEMPLATE_CHANGED")
       const reviewedAgain = yield* call("/api/orchestra/project-template/prepare-save", "POST", { projectID: project.id, browsers })
       expect((yield* call("/api/orchestra/project-template/confirm-save", "POST", { token: reviewedAgain.body.token, browsers, omitUnsafeLinks: true })).status).toBe(204)
-      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(2)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(3)
       const diskTabs = yield* Effect.promise(() => Bun.file(path.join(tmp.path, "data/browser-profiles/brw_source.tabs.json")).json())
       expect(diskTabs).toEqual(privateTabs)
 
