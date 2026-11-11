@@ -5,12 +5,38 @@ import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { Integration } from "@orchestra/core/integration"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Cause, Deferred, Effect, Exit, Fiber, Scope } from "effect"
+import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionSchema } from "@orchestra/core/session/schema"
 import { testEffect } from "./lib/effect"
 
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Job.node, KV.node])))
 
 describe("Job", () => {
+  it.live("operator pause cancels background shells but preserves their durable outcomes", () =>
+    Effect.gen(function* () {
+      const jobs = yield* Job.Service
+      const notificationID = SessionMessage.ID.create()
+      yield* jobs.start({
+        id: "pause-shell",
+        type: "shell",
+        notificationID,
+        recovery: {
+          kind: "shell",
+          sessionID: SessionSchema.ID.make("ses_owner"),
+          shellID: "shell_pause",
+          command: "sleep",
+        },
+        run: Effect.never,
+      })
+      yield* jobs.background("pause-shell")
+      yield* jobs.start({ id: "unrelated", type: "test", run: Effect.never })
+      yield* jobs.cancelShells
+      expect(yield* jobs.get("pause-shell")).toMatchObject({ status: "cancelled" })
+      expect(yield* jobs.pendingBackground).toMatchObject([{ id: "pause-shell", status: "cancelled", notificationID }])
+      expect(yield* jobs.get("unrelated")).toMatchObject({ status: "running" })
+    }),
+  )
+
   it.live("tracks process-local work through explicit observation", () =>
     Effect.gen(function* () {
       const jobs = yield* Job.Service

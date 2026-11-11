@@ -913,7 +913,7 @@ export type SessionExecutionInterrupted = {
   type: "session.execution.interrupted"
   durable: { aggregateID: string; seq: number; version: 1 }
   location?: LocationRef
-  data: { sessionID: string; reason: "user" | "shutdown" | "superseded" | "inactivity" }
+  data: { sessionID: string; reason: "user" | "shutdown" | "superseded" | "inactivity" | "pause" }
 }
 
 export type SessionInstructionsUpdated = {
@@ -1258,6 +1258,15 @@ export type ConfigUpdated = {
   type: "config.updated"
   location?: LocationRef
   data: {}
+}
+
+export type ConfigContinuationUpdated = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "config.continuation.updated"
+  location?: LocationRef
+  data: { enabled: boolean }
 }
 
 export type SkillUpdated = {
@@ -3086,6 +3095,7 @@ export type V2Event =
   | WorktreeResolved
   | CommandUpdated
   | ConfigUpdated
+  | ConfigContinuationUpdated
   | SkillUpdated
   | PtyCreated
   | PtyUpdated
@@ -7621,6 +7631,12 @@ export type WebsearchQueryOutput = {
   location: LocationPublicRef
   data: { providerID: string; results: Array<WebSearchResult> }
 }
+
+export type ConfigContinuationGetOutput = { enabled: boolean }
+
+export type ConfigContinuationSetInput = { readonly enabled: { readonly enabled: boolean }["enabled"] }
+
+export type ConfigContinuationSetOutput = { enabled: boolean }
 
 export type ConfigGetInput = {
   readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]

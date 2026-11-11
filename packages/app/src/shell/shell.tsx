@@ -1,3 +1,4 @@
+import { ContinuationSwitchConnected } from "./continuation-switch"
 import { TemplateFilesConnected } from "./template-files"
 import { Show, Suspense, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -49,6 +50,7 @@ export default function Layout(props: ParentProps) {
       >
         <NeuralFeed />
         <Titlebar verticalTabs={verticalTabs() ? { mount: state.tabsMount } : undefined} />
+        <ContinuationSwitchConnected />
         <TemplateFilesConnected />
         <div class="flex flex-1 min-h-0 min-w-0 flex-row">
           <Show when={verticalTabs()}>

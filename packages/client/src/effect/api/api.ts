@@ -763,7 +763,7 @@ export type SessionLogOutput =
             | undefined
           readonly data: {
             readonly sessionID: Session.ID
-            readonly reason: "user" | "shutdown" | "superseded" | "inactivity"
+            readonly reason: "user" | "shutdown" | "superseded" | "inactivity" | "pause"
           }
         }
       | {
@@ -2522,6 +2522,15 @@ export interface WebsearchApi<E = never> {
   readonly query: WebsearchQueryOperation<E>
 }
 
+export type ConfigContinuationGetOutput = { readonly enabled: boolean }
+export type ConfigContinuationGetOperation<E = never> = () => Effect.Effect<ConfigContinuationGetOutput, E>
+
+export type ConfigContinuationSetInput = { readonly enabled: boolean }
+export type ConfigContinuationSetOutput = { readonly enabled: boolean }
+export type ConfigContinuationSetOperation<E = never> = (
+  input: ConfigContinuationSetInput,
+) => Effect.Effect<ConfigContinuationSetOutput, E>
+
 export type ConfigGetInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
 export type ConfigGetOutput = ReadonlyArray<Config.Entry>
 export type ConfigGetOperation<E = never> = (input?: ConfigGetInput) => Effect.Effect<ConfigGetOutput, E>
@@ -2834,6 +2843,10 @@ export type ConfigCompatibilityUpdateOperation<E = never> = (
 ) => Effect.Effect<ConfigCompatibilityUpdateOutput, E>
 
 export interface ConfigApi<E = never> {
+  readonly continuation: {
+    readonly get: ConfigContinuationGetOperation<E>
+    readonly set: ConfigContinuationSetOperation<E>
+  }
   readonly get: ConfigGetOperation<E>
   readonly shells: ConfigShellsOperation<E>
   readonly update: ConfigUpdateOperation<E>
@@ -3491,7 +3504,7 @@ export type RoomGuestLogOutput =
             | undefined
           readonly data: {
             readonly sessionID: Session.ID
-            readonly reason: "user" | "shutdown" | "superseded" | "inactivity"
+            readonly reason: "user" | "shutdown" | "superseded" | "inactivity" | "pause"
           }
         }
       | {

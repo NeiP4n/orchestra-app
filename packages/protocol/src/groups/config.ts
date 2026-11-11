@@ -6,6 +6,13 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/un
 import { LocationQuery, locationQueryOpenApi } from "./location.js"
 
 export const ConfigGroup = HttpApiGroup.make("server.config")
+  .add(HttpApiEndpoint.get("config.continuation.get", "/api/config/continuation", {
+    success: Schema.Struct({ enabled: Schema.Boolean }),
+  }))
+  .add(HttpApiEndpoint.put("config.continuation.set", "/api/config/continuation", {
+    payload: Schema.Struct({ enabled: Schema.Boolean }),
+    success: Schema.Struct({ enabled: Schema.Boolean }),
+  }))
   .add(
     HttpApiEndpoint.get("config.get", "/api/config", {
       query: LocationQuery,

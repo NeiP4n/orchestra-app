@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Cause, Context, Deferred, Duration, Effect, Layer, Option, PubSub, Ref, Schema, Scope, Semaphore, Stream } from "effect"
 import { Bus } from "../bus.js"
+import { SessionContinuation } from "../session/continuation.js"
 import { Config } from "../config.js"
 import { Database } from "../database/database.js"
 import type { Entry } from "@orchestra/schema/config"
@@ -146,6 +147,8 @@ export interface Options {
 }
 
 interface State {
+  readonly isEnabled: () => boolean
+  readonly isClockReady: () => boolean
   /** Set at build, replaced by `configure` at server boot. */
   readonly rules: Ref.Ref<Rules | undefined>
   /** Set at build, replaced by `configure` at server boot. */
@@ -230,7 +233,7 @@ const drainDelivery = (state: State): Effect.Effect<void> =>
       state.tokenSecret,
       yield* Ref.get(state.autonomy),
     )
-    while (true) {
+    while (state.isClockReady()) {
       const handed = yield* AutoloopCards.nextCard("web", env).pipe(Effect.exit)
       if (handed._tag === "Failure") {
         yield* Effect.logError("autoloop: не удалось взять карточку для доставки", { cause: handed.cause })
@@ -270,48 +273,59 @@ const drainDelivery = (state: State): Effect.Effect<void> =>
 
 /** One decide input, serialised so two executes never decide on the same view. */
 const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
-  state.semaphore.withPermit(
-    Effect.gen(function* () {
-      const opened = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
-      const stored = AutoloopCards.storedRules(opened.view)
-      const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
-      const configuredLimits = yield* Ref.get(state.limits)
-      const limits = runtimeLimits(configuredLimits)
-      const autonomy = yield* Ref.get(state.autonomy)
-      const decided = yield* Effect.try({
-        try: () =>
-          decide(opened.view, input, now, {
-            rules,
-            limits,
-            autonomy,
-            tokenSecret: state.tokenSecret,
-            seq: opened.lastSeq + 1,
-            rulesVersion: stored?.version ?? 1,
-          }),
-        catch: (cause) => decideFailure(cause),
-      })
-      const beforeSeq = opened.lastSeq
-      if (decided.facts.length > 0) {
-        yield* AutoloopStore.commitLatest(decided.facts).pipe(Effect.mapError(storeFailure))
-      }
-      // State changes that are not a first delivery go out here; a card's
-      // first publication is its delivery, in the drain below.
-      const committed = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
-      const changes = AutoloopCards.cardChanges(opened.view, committed.view).filter(
-        (change) => change.type !== "created",
-      )
-      if (changes.length > 0) yield* AutoloopCards.publish(state.bus, changes)
-      yield* drainDelivery(state)
-      const final = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
-      if (final.lastSeq !== beforeSeq) yield* PubSub.publish(state.changes, final.view)
-      yield* signal(state)
-      return decided.value
-    }),
-  ).pipe(Effect.provideService(Database.Service, state.database))
+  state.semaphore
+    .withPermit(
+      Effect.gen(function* () {
+        // Apply admission inside the journal lock as well as at the timer boundary.
+        // Configuration, incoming events and factual receipts can still persist,
+        // but callers cannot claim, sweep or deliver work around operator OFF.
+        if (
+          (!state.isEnabled() && ["claimNext", "started", "nextCard"].includes(input.type)) ||
+          (!state.isClockReady() && ["tick", "sweep"].includes(input.type))
+        )
+          return yield* new ServiceFailure({ code: "conflict", message: "Work is paused by the operator" })
+        const opened = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
+        const stored = AutoloopCards.storedRules(opened.view)
+        const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
+        const configuredLimits = yield* Ref.get(state.limits)
+        const limits = runtimeLimits(configuredLimits)
+        const autonomy = yield* Ref.get(state.autonomy)
+        const decided = yield* Effect.try({
+          try: () =>
+            decide(opened.view, input, now, {
+              rules,
+              limits,
+              autonomy,
+              tokenSecret: state.tokenSecret,
+              seq: opened.lastSeq + 1,
+              rulesVersion: stored?.version ?? 1,
+            }),
+          catch: (cause) => decideFailure(cause),
+        })
+        const beforeSeq = opened.lastSeq
+        if (decided.facts.length > 0) {
+          yield* AutoloopStore.commitLatest(decided.facts).pipe(Effect.mapError(storeFailure))
+        }
+        // State changes that are not a first delivery go out here; a card's
+        // first publication is its delivery, in the drain below.
+        const committed = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
+        const changes = AutoloopCards.cardChanges(opened.view, committed.view).filter(
+          (change) => change.type !== "created",
+        )
+        if (changes.length > 0) yield* AutoloopCards.publish(state.bus, changes)
+        yield* drainDelivery(state)
+        const final = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
+        if (final.lastSeq !== beforeSeq) yield* PubSub.publish(state.changes, final.view)
+        yield* signal(state)
+        return decided.value
+      }),
+    )
+    .pipe(Effect.provideService(Database.Service, state.database))
 
 /** One tick from the clock: run `decide(tick)` and count it. */
 const tickOnce = (state: State) =>
   Effect.gen(function* () {
+    if (!state.isClockReady()) return
     yield* executeInner(state, { type: "tick", args: [] })
     yield* Ref.update(state.stats, (stats) => ({ ticks: stats.ticks + 1, lastTickAt: Date.now() }))
   })
@@ -327,6 +341,10 @@ const tickOnce = (state: State) =>
 const loopStep = (state: State): Effect.Effect<"tick" | "wakeup", unknown, never> =>
   Effect.gen(function* () {
     const wakeup = yield* Ref.get(state.wakeup)
+    if (!state.isClockReady()) {
+      yield* Deferred.await(wakeup)
+      return "wakeup" as const
+    }
     const opened = yield* AutoloopStore.openView()
     const stored = AutoloopCards.storedRules(opened.view)
     const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
@@ -390,6 +408,7 @@ const make = (options: Options = {}) =>
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const database = yield* Database.Service
+    const continuation = yield* Effect.serviceOption(SessionContinuation.Service)
     // State is restored from the journal at start, never from memory: the
     // runs are in the journal, so a restart loses none of them. A format
     // change rebuilds the projections from the journal instead of trusting
@@ -398,7 +417,13 @@ const make = (options: Options = {}) =>
     if (opened.format !== null && opened.format !== FORMAT) {
       yield* AutoloopStore.rebuildProjections()
     }
+    // On resume, admission and task recovery run before the clock is rearmed.
+    // A heartbeat during recovery signals this loop too, but cannot race the
+    // recovery pass and expire a deliberately paused, still-owned run.
+    let clockReady = Option.isNone(continuation) || continuation.value.isEnabled()
     const state: State = {
+      isEnabled: () => Option.isNone(continuation) || continuation.value.isEnabled(),
+      isClockReady: () => clockReady && (Option.isNone(continuation) || continuation.value.isEnabled()),
       rules: yield* Ref.make(options.rules),
       limits: yield* Ref.make(options.limits),
       autonomy: yield* Ref.make<AutonomyMode>(options.autonomy ?? "auto"),
@@ -413,6 +438,16 @@ const make = (options: Options = {}) =>
       started: yield* Ref.make(false),
       semaphore: Semaphore.makeUnsafe(1),
       stats: yield* Ref.make<Stats>({ ticks: 0, lastTickAt: null }),
+    }
+    if (Option.isSome(continuation)) {
+      const remove = continuation.value.listen(
+        (enabled) =>
+          Effect.sync(() => {
+            clockReady = enabled
+          }).pipe(Effect.andThen(signal(state))),
+        100,
+      )
+      yield* Effect.addFinalizer(() => Effect.sync(remove))
     }
     /**
      * Apply the operator config once, on first use in a context that carries it.
@@ -558,5 +593,5 @@ const make = (options: Options = {}) =>
 export const node = makeGlobalNode({
   service: Service,
   layer: layer(),
-  deps: [Database.node, Bus.node],
+  deps: [Database.node, Bus.node, SessionContinuation.node],
 })

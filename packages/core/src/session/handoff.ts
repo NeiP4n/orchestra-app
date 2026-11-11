@@ -29,7 +29,7 @@ export class HandoffError extends Schema.TaggedError<HandoffError>()("SessionHan
   message: Schema.String,
 }) {}
 
-export type Reason = "user" | "inactivity" | "shutdown" | "failed"
+export type Reason = "user" | "inactivity" | "shutdown" | "pause" | "failed"
 
 /** A file that starts with this line was written by the execution layer, not by an agent. */
 export const STUB_MARKER = "<!-- orchestra-handoff-stub -->"

@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test"
 import path from "path"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
-import { Effect, Fiber, Layer, Ref, Scope, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Ref, Scope, Stream } from "effect"
 import { AutoloopCard } from "@orchestra/schema/autoloop-card"
+import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { Bus } from "@orchestra/core/bus"
 import { Database } from "@orchestra/core/database/database"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
@@ -54,7 +55,9 @@ const cronRules: Rules = {
   ],
 }
 
-const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, Autoloop.node])))
+const it = testEffect(
+  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, Autoloop.node, SessionContinuation.node])),
+)
 
 const runRow = (view: Record<string, Record<string, unknown>>, id: number) =>
   view["runs"]?.[String(id)] as RunRow | undefined
@@ -123,16 +126,13 @@ const setRules = (svc: Autoloop.Interface, given: Rules) => svc.execute({ type: 
 
 /** A bus that records what the service publishes, or fails every publish. */
 const stubBus = (events: Array<{ type: string; data: unknown }>, fail: boolean) =>
-  Layer.succeed(
-    Bus.Service,
-    {
-      publish: ((definition: { type: string }, data: unknown) => {
-        if (fail) return Effect.fail(new Error("bus down"))
-        events.push({ type: definition.type, data })
-        return Effect.succeed(undefined as never)
-      }) as unknown as Bus.Interface["publish"],
-    } as unknown as Bus.Interface,
-  )
+  Layer.succeed(Bus.Service, {
+    publish: ((definition: { type: string }, data: unknown) => {
+      if (fail) return Effect.fail(new Error("bus down"))
+      events.push({ type: definition.type, data })
+      return Effect.succeed(undefined as never)
+    }) as unknown as Bus.Interface["publish"],
+  } as unknown as Bus.Interface)
 
 const runManual = <A, E>(
   effect: Effect.Effect<A, E, Autoloop.Service | Scope.Scope>,
@@ -150,6 +150,116 @@ const runManual = <A, E>(
   )
 
 describe("AutoloopService tick", () => {
+  it.live("holds the clock until resume recovery refreshes a still-owned lease", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service,
+        control = yield* SessionContinuation.Service
+      yield* setRules(svc, rules)
+      yield* svc.execute({
+        type: "ingest",
+        args: ["user", { id: "pause-lease", type: "task.created", subject: "lease" }],
+      })
+      const job = (yield* svc.execute({ type: "claimNext", args: ["worker-1", "paused-claim"] })) as {
+        run: number
+        token: string
+      }
+      yield* control.set(false)
+      yield* AutoloopStore.commitLatest([
+        putRow("runs", String(job.run), {
+          ...runRow(yield* svc.getView(), job.run)!,
+          seen_at: iso(Date.now() - 30 * MINUTE),
+        }),
+      ])
+      const ready = yield* Deferred.make<void>(),
+        allow = yield* Deferred.make<void>()
+      const remove = control.listen(
+        (enabled) =>
+          !enabled
+            ? Effect.void
+            : Effect.gen(function* () {
+                yield* Deferred.succeed(ready, undefined)
+                yield* Deferred.await(allow)
+                yield* svc.heartbeat("worker-1", [job.run]).pipe(Effect.orDie)
+              }),
+        20,
+      )
+      yield* Effect.addFinalizer(() => Effect.sync(remove))
+      yield* svc.start()
+      const resume = yield* control.set(true).pipe(Effect.forkChild)
+      yield* Deferred.await(ready)
+      yield* Effect.sleep(100)
+      expect(runRow(yield* svc.getView(), job.run)?.state).toBe("claimed")
+      expect((yield* svc.stats()).ticks).toBe(0)
+      yield* Deferred.succeed(allow, undefined)
+      yield* Fiber.join(resume)
+      yield* Effect.sleep(100)
+      const after = runRow(yield* svc.getView(), job.run)
+      expect(after?.state).toBe("claimed")
+      expect(after?.claim).toBe("paused-claim")
+      expect(Date.parse(after!.seen_at!)).toBeGreaterThan(Date.now() - 5000)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("rejects direct work admission while OFF but retains incoming events", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service,
+        control = yield* SessionContinuation.Service
+      yield* setRules(svc, rules)
+      yield* control.set(false)
+      yield* svc.execute({
+        type: "ingest",
+        args: ["user", { id: "paused-incoming", type: "task.created", subject: "retained" }],
+      })
+      for (const input of [
+        { type: "tick", args: [] },
+        { type: "claimNext", args: ["worker-1", "bypass"] },
+        { type: "sweep", args: [] },
+      ] as const) {
+        const result = yield* svc.execute({ ...input, args: [...input.args] }).pipe(Effect.result)
+        expect(result._tag).toBe("Failure")
+      }
+      expect(runRow(yield* svc.getView(), 1)?.state).toBe("queued")
+      yield* control.set(true)
+      expect(yield* svc.execute({ type: "claimNext", args: ["worker-1", "now-allowed"] })).toMatchObject({ run: 1 })
+    }),
+  )
+
+  it.live("does not fire due timers while operator-paused and wakes the clock on ON", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service,
+        control = yield* SessionContinuation.Service
+      yield* control.set(false)
+      yield* svc.start()
+      yield* setRules(svc, rules)
+      yield* AutoloopStore.commitLatest([
+        putRow("timers", "1", {
+          id: 1,
+          rule: "build",
+          lane: "",
+          key: "paused",
+          source: "user",
+          at: iso(Date.now() - 100),
+          about: "retained",
+          session: null,
+          hops: 0,
+          event_id: null,
+          created_at: iso(Date.now()),
+        }),
+      ])
+      yield* svc.heartbeat("worker-1", [])
+      yield* Effect.sleep(100)
+      expect(timerRow(yield* svc.getView(), 1)?.event_id).toBeNull()
+      expect((yield* svc.stats()).ticks).toBe(0)
+      yield* control.set(true)
+      yield* until(
+        Effect.gen(function* () {
+          return timerRow(yield* svc.getView(), 1)?.event_id ? true : null
+        }),
+      )
+      expect(runRow(yield* svc.getView(), 1)).toMatchObject({ rule: "build", state: "queued" })
+    }),
+  )
+
   it.live("wakes a due later timer and queues its run", () =>
     Effect.gen(function* () {
       const svc = yield* Autoloop.Service
@@ -219,9 +329,7 @@ describe("AutoloopService tick", () => {
       const svc = yield* Autoloop.Service
       yield* svc.start()
       yield* setRules(svc, rules)
-      yield* AutoloopStore.commitLatest([
-        putRow("runs", "1", fullRun({ not_before: iso(Date.now() + 200) })),
-      ])
+      yield* AutoloopStore.commitLatest([putRow("runs", "1", fullRun({ not_before: iso(Date.now() + 200) }))])
       yield* svc.heartbeat("worker-1", [])
 
       const stats = yield* until(
@@ -291,9 +399,7 @@ describe("AutoloopService tick", () => {
       const view = yield* until(
         Effect.gen(function* () {
           const seen = yield* svc.getView()
-          return cardRows(seen).some((card) => String(card["key"]).startsWith("worker:worker-1:offline:"))
-            ? seen
-            : null
+          return cardRows(seen).some((card) => String(card["key"]).startsWith("worker:worker-1:offline:")) ? seen : null
         }),
       )
       const card = cardRows(view).find((candidate) => String(candidate["key"]).startsWith("worker:worker-1:offline:"))
@@ -345,9 +451,7 @@ describe("AutoloopService execute", () => {
     Effect.gen(function* () {
       const svc = yield* Autoloop.Service
       yield* setRules(svc, rules)
-      const received = yield* svc
-        .subscribe()
-        .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
+      const received = yield* svc.subscribe().pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
       yield* Effect.yieldNow
       yield* svc.execute({
         type: "ingest",
@@ -393,9 +497,10 @@ describe("AutoloopService delivery", () => {
       const bus = yield* Bus.Service
       yield* svc.start()
       const delivered = yield* Ref.make(0)
-      yield* bus
-        .subscribe(AutoloopCard.Event.Created)
-        .pipe(Stream.runForEach(() => Ref.update(delivered, (count) => count + 1)), Effect.forkScoped)
+      yield* bus.subscribe(AutoloopCard.Event.Created).pipe(
+        Stream.runForEach(() => Ref.update(delivered, (count) => count + 1)),
+        Effect.forkScoped,
+      )
       yield* Effect.yieldNow
       yield* svc.execute({ type: "createCard", args: [{ key: "hello", title: "hi", text: "hello" }] })
       yield* Effect.sleep("300 millis")
