@@ -1,0 +1,29 @@
+name: mcp-auto-survey-regression
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/tool/plugin/mcp-manager.ts'
+      - 'packages/core/src/mcp/survey.ts'
+      - 'packages/core/test/mcp-auto-survey*.test.ts'
+      - 'packages/core/test/mcp-survey.test.ts'
+      - 'packages/core/test/mcp-assignment.test.ts'
+      - '.github/workflows/mcp-auto-survey-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: read-only survey (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Actual context hook, inspect failure, TTL and explicit assignment
+        run: bun test packages/core/test/mcp-auto-survey.test.ts packages/core/test/mcp-auto-survey-context.test.ts packages/core/test/mcp-survey.test.ts packages/core/test/mcp-assignment.test.ts packages/core/test/tool-mcp-manager-disabled.test.ts
