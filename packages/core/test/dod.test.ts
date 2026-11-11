@@ -651,11 +651,13 @@ describe("Dod", () => {
     await Bun.write(temporary, "after\n")
     await expect(
       Dod.replaceFile(temporary, file, {
-        rename: () => Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" })),
+        // EACCES is a Windows replace fallback, not an unrelated failure.
+        // EIO takes the non-fallback branch on every OS.
+        rename: () => Promise.reject(Object.assign(new Error("disk I/O failure"), { code: "EIO" })),
         copyFile,
         unlink,
       }),
-    ).rejects.toThrow("permission denied")
+    ).rejects.toThrow("disk I/O failure")
     expect(await Bun.file(file).text()).toBe("before\n")
     expect(await Bun.file(temporary).exists()).toBe(false)
   })
