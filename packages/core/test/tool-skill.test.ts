@@ -7,6 +7,8 @@ import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Permission } from "@orchestra/core/permission"
 import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
+import { KV } from "@orchestra/core/kv"
+import { ProcessSkills } from "@orchestra/core/process-skills"
 import { Skill } from "@orchestra/core/skill"
 import { Config } from "@orchestra/core/config"
 import { ManagedPolicy } from "@orchestra/core/managed-policy"
@@ -31,6 +33,67 @@ const skillToolNode = makeLocationNode({
 const sessionID = Session.ID.make("ses_skill_tool_test")
 
 describe("SkillTool", () => {
+  it.effect(
+    "checks project assignment before authorization and retains permission checks for an assigned skill",
+    () => {
+      const assertions: Permission.AssertInput[] = []
+      return Effect.gen(function* () {
+        const skills = yield* Skill.Service
+        const kv = yield* KV.Service
+        const tools = yield* Tool.Service
+        const projectID = "prj_skill_tool"
+        const id = Skill.ID.make(ProcessSkills.namespace(projectID) + "1")
+        yield* kv.set("orchestra/project/" + projectID, {
+          id: projectID,
+          name: "Process",
+          directory: "/shared",
+          created: 1,
+          main: sessionID,
+        })
+        yield* ProcessSkills.install(kv, {
+          version: 1,
+          projectID,
+          skills: [{ id, dependencies: [], targets: [{ kind: "project" }] }],
+        })
+        yield* skills.transform((editor) =>
+          editor.add({
+            id,
+            name: Skill.Name.make("Local"),
+            path: AbsolutePath.make("/unavailable/local/entry.md"),
+            content: "Local instructions",
+          }),
+        )
+        const run = () =>
+          executeTool(tools, {
+            sessionID,
+            ...toolIdentity,
+            call: { type: "tool-call", id: "call-project-skill", name: "skill", input: { id } },
+          })
+        expect(yield* run()).toMatchObject({ status: "completed", output: { name: "Local" } })
+        expect(assertions).toMatchObject([{ sessionID, action: "skill", resources: [id] }])
+        yield* kv.set("orchestra/owner/" + sessionID, "prj_missing")
+        expect(yield* run()).toEqual({
+          status: "error",
+          error: { type: "tool.execution", message: `Unable to load skill ${id}` },
+        })
+        expect(assertions).toHaveLength(1)
+      }).pipe(
+        Effect.provide(
+          AppNodeBuilder.build(LayerNode.group([Tool.node, skillToolNode, Skill.node, KV.node]), [
+            Permission.node.replace(
+              permissionLayer({
+                assert: (input) =>
+                  Effect.sync(() => {
+                    assertions.push(input)
+                  }),
+              }),
+            ),
+            Image.node.replace(imagePassthrough),
+          ]),
+        ),
+      )
+    },
+  )
   it.effect("refuses a policy-blocked skill before authorization or content preparation", () =>
     Effect.gen(function* () {
       const skills = yield* Skill.Service

@@ -3,6 +3,7 @@ export * as ProjectTemplateLibrary from "./project-template-library.js"
 import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
+import { ProjectTemplate } from "./project-template.js"
 import { ProjectTemplateFiles } from "./project-template-files.js"
 
 export interface Entry {
@@ -64,7 +65,7 @@ export function local(parentDirectory = Global.Path.data) {
     saveSerialized: async (serialized: string, name: string, reviewedDigest: string) =>
       ProjectTemplateFiles.save(await folder(), simple(name), serialized, reviewedDigest),
     replaceSerialized: async (serialized: string, name: string, previousDigest: string, reviewedDigest: string) =>
-      ProjectTemplateFiles.replace(await source(name), serialized, previousDigest, reviewedDigest),
+      ProjectTemplateFiles.replaceWithCodec(await source(name), serialized, previousDigest, reviewedDigest, ProjectTemplate),
     remember: async (sourceDirectory: string, name: string, reviewedDigest: string) => {
       const preview = await ProjectTemplateFiles.load(sourceDirectory)
       if (preview.digest !== reviewedDigest) throw Error("Template changed after preview. Review it again.")

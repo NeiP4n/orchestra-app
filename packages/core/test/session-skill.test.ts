@@ -24,6 +24,9 @@ import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionProjector } from "@orchestra/core/session/projector"
 import { SessionStore } from "@orchestra/core/session/store"
 import { SessionInbox } from "@orchestra/core/session/inbox"
+import { Agent } from "@orchestra/core/agent"
+import { KV } from "@orchestra/core/kv"
+import { ProcessSkills } from "@orchestra/core/process-skills"
 import { Skill } from "@orchestra/core/skill"
 import { Event } from "@orchestra/schema/event"
 import { testEffect } from "./lib/effect"
@@ -38,12 +41,15 @@ const info = Skill.Info.make({
   path: AbsolutePath.make(path.resolve("/skills/effect.md")),
   content: "  Use Effect\n",
 })
+const localID = Skill.ID.make(ProcessSkills.namespace("prj_session_skills") + "1")
+const localInfo = { ...info, id: localID, content: "Project-only instructions" }
 const locations = makeGlobalNode({
   service: LocationServiceMap.Service,
   layer: Layer.effect(
     LocationServiceMap.Service,
     Effect.gen(function* () {
       const managed = yield* ManagedPolicy.Service
+      const kv = yield* KV.Service
       return yield* LayerMap.make(
         (_ref: Location.Ref) =>
           // These tests need skill activation and prompt preparation from the same location services.
@@ -52,17 +58,28 @@ const locations = makeGlobalNode({
             Layer.effectDiscard(
               Effect.gen(function* () {
                 const skills = yield* Skill.Service
-                yield* skills.transform((editor) => editor.add(info))
+                yield* skills.transform((editor) => {
+                  editor.add(info)
+                  editor.add(localInfo)
+                })
                 yield* registerIntegrationPolicy({ skill: skills })
               }),
             ).pipe(
               Layer.provideMerge(
                 LayerNode.compile(
-                  LayerNode.group([PluginHooks.node, Image.node, Skill.node, Config.node, ManagedPolicy.node]),
+                  LayerNode.group([
+                    PluginHooks.node,
+                    Image.node,
+                    Skill.node,
+                    Agent.node,
+                    Config.node,
+                    ManagedPolicy.node,
+                  ]),
                   {
                     replacements: [
                       Config.node.replace(Config.testLayer()),
                       ManagedPolicy.node.replace(Layer.succeed(ManagedPolicy.Service, managed)),
+                      KV.node.replace(Layer.succeed(KV.Service, kv)),
                     ],
                   },
                 ),
@@ -74,12 +91,13 @@ const locations = makeGlobalNode({
       )
     }),
   ),
-  deps: [ManagedPolicy.node],
+  deps: [ManagedPolicy.node, KV.node],
 })
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
       Database.node,
+      KV.node,
       Bus.node,
       SessionProjector.node,
       SessionStore.node,
@@ -96,6 +114,46 @@ const it = testEffect(
 )
 
 describe("Session.skill", () => {
+  it.effect("enforces project assignments for both standalone activation and explicit prompt attachments", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const kv = yield* KV.Service
+      const session = yield* sessions.create({ location })
+      const projectID = "prj_session_skills"
+      const locationServices = yield* LocationServiceMap.Service
+      const agents = yield* Agent.Service.pipe(Effect.provide(locationServices.get(session.location)))
+      yield* agents.transform((editor) => {
+        editor.update(Agent.ID.make("process-default"), () => {})
+        editor.default(Agent.ID.make("process-default"))
+      })
+      yield* kv.set("orchestra/project/" + projectID, {
+        id: projectID,
+        name: "Process",
+        directory: "/project",
+        created: 1,
+        main: session.id,
+      })
+      yield* ProcessSkills.install(kv, {
+        version: 1,
+        projectID,
+        skills: [{ id: localID, dependencies: [], targets: [{ kind: "role", role: "process-default" }] }],
+      })
+      yield* sessions.skill({ sessionID: session.id, skill: localID, resume: false })
+      yield* sessions.prompt({ sessionID: session.id, text: "local", skills: [{ id: localID }], resume: false })
+      const before = yield* sessions.messages({ sessionID: session.id })
+      expect(JSON.stringify(before)).toContain("Project-only instructions")
+      yield* kv.set("orchestra/owner/" + session.id, "prj_other")
+      expect(
+        yield* sessions.skill({ sessionID: session.id, skill: localID, resume: false }).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "Session.SkillNotFoundError", skill: localID })
+      expect(
+        yield* sessions
+          .prompt({ sessionID: session.id, text: "foreign", skills: [{ id: localID }], resume: false })
+          .pipe(Effect.flip),
+      ).toMatchObject({ _tag: "Session.SkillNotFoundError", skill: localID })
+      expect(yield* sessions.messages({ sessionID: session.id })).toEqual(before)
+    }),
+  )
   it.effect("refuses blocked skill mentions and standalone activation without writing their content", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service

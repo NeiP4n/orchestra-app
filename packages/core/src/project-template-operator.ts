@@ -6,6 +6,8 @@ import { Effect, Schema } from "effect"
 import { Flock } from "@orchestra/util/flock"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionID } from "@orchestra/schema/session-id"
+import { ProjectTemplateV2Reader } from "./project-template-v2-reader.js"
+import { ProjectTemplateV2Library } from "./project-template-v2-library.js"
 import { ProjectTemplateReader } from "./project-template-reader.js"
 import { ProjectTemplateBrowser } from "./project-template-browser.js"
 import { ProjectTemplateLibrary } from "./project-template-library.js"
@@ -42,13 +44,38 @@ interface Deps {
   store: SessionStore.Interface
   dataDirectory: string
   installedVersion: string
+  processStores?: (projectID: string) => ProjectTemplateV2Reader.Stores
   live: (settingsDirectory: string) => ReturnType<typeof Live.make>
 }
 const json = (v: unknown): KV.Value => JSON.parse(JSON.stringify(v))
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v)
 export function make(deps: Deps) {
-  const library = ProjectTemplateLibrary.local(deps.dataDirectory),
-    run = <A, E>(e: Effect.Effect<A, E>) => Effect.runPromise(e)
+  const legacy = ProjectTemplateLibrary.local(deps.dataDirectory)
+  const processes = ProjectTemplateV2Library.local(deps.dataDirectory)
+  const processID = (id: string) => (id.startsWith("process:") ? id.slice(8) : undefined)
+  const library = {
+    list: async () => [
+      ...(await legacy.list()),
+      ...(deps.processStores
+        ? (await processes.list()).map((row) => ({
+            name: "process:" + row.id,
+            title: row.name,
+            state: row.state,
+            digest: row.digest,
+          }))
+        : []),
+    ],
+    preview: (id: string) => (processID(id) !== undefined ? processes.preview(processID(id)!) : legacy.preview(id)),
+    replaceSerialized: (text: string, id: string, previous: string, digest: string) =>
+      processID(id) !== undefined
+        ? processes.replaceSerialized(text, processID(id)!, previous, digest)
+        : legacy.replaceSerialized(text, id, previous, digest),
+    saveSerialized: (text: string, id: string, digest: string) =>
+      processID(id) !== undefined
+        ? processes.saveSerialized(text, processID(id)!, digest)
+        : legacy.saveSerialized(text, id, digest),
+  }
+  const run = <A, E>(e: Effect.Effect<A, E>) => Effect.runPromise(e)
   const ready = async (projectID: string) => {
     const project = Schema.decodeUnknownSync(Orchestra.Project)(
       await run(deps.kv.get("orchestra/project/" + projectID)),
@@ -61,7 +88,7 @@ export function make(deps: Deps) {
     if (!record(receipt) || receipt.phase !== "published" || receipt.projectID !== projectID || receipt.id !== marker)
       throw Error("Project import is not complete.")
   }
-  const capture = async (projectID: string, browsers: readonly BrowserInput[]) => {
+  const capture = async (projectID: string, browsers: readonly BrowserInput[], process = !!deps.processStores) => {
     const linkReview: ProjectTemplateBrowser.Review = { issues: [], fingerprint: "" }
     await ready(projectID)
     const project = Schema.decodeUnknownSync(Orchestra.Project)(
@@ -100,34 +127,39 @@ export function make(deps: Deps) {
         selected.add(id)
       } else selected.add(matches[0].id)
     }
-    const preview = await run(
-      ProjectTemplateReader.capture(
-        {
-          kv: deps.kv,
-          getSession: (id) => deps.store.get(SessionID.make(id)),
-          listSessionsInTree: (directory) =>
-            deps.store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }),
-        },
+    const linked = {
+      browsers: await ProjectTemplateBrowser.capture(
+        deps.dataDirectory,
         projectID,
-        {
-          name: project.name,
-          description: "Настройки проекта без чатов, данных и секретов.",
-          minOrchestraVersion: deps.installedVersion,
-        },
-        {
-          browsers: await ProjectTemplateBrowser.capture(
-            deps.dataDirectory,
-            projectID,
-            browsers.map((row) => ({ ...row, projectID })),
-            linkReview,
-          ),
-          vault,
-          selectedGlobalSlotIDs: selected,
-          providers,
-          mcp,
-        },
+        browsers.map((row) => ({ ...row, projectID })),
+        linkReview,
       ),
-    )
+      vault,
+      selectedGlobalSlotIDs: selected,
+      providers,
+      mcp,
+    }
+    const metadata = {
+      name: project.name,
+      description: "Настройки проекта без чатов, данных и секретов.",
+      minOrchestraVersion: deps.installedVersion,
+    }
+    if (process && !deps.processStores) throw Error("Process template export is unavailable in this build.")
+    const preview = process
+      ? await ProjectTemplateV2Reader.capture(deps.processStores!(projectID), projectID, metadata, linked)
+      : await run(
+          ProjectTemplateReader.capture(
+            {
+              kv: deps.kv,
+              getSession: (id) => deps.store.get(SessionID.make(id)),
+              listSessionsInTree: (directory) =>
+                deps.store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }),
+            },
+            projectID,
+            metadata,
+            linked,
+          ),
+        )
     return { ...preview, linkReview }
   }
   const prepared = async (token: string) => {
@@ -143,14 +175,15 @@ export function make(deps: Deps) {
         .map((row) => ({ id: row.name, name: row.title ?? row.name })),
     prepareSave: async (projectID: string, browsers: readonly BrowserInput[], templateID?: string) => {
       const prior = templateID === undefined ? undefined : await library.preview(templateID)
-      const preview = await capture(projectID, browsers),
+      // Updating an existing v1 entry stays v1. Format upgrades are a separate explicit choice.
+      const preview = await capture(projectID, browsers, prior ? prior.bundle.version === 2 : !!deps.processStores),
         suffix = randomUUID().replaceAll("-", ""),
         token = "pts_" + suffix
       const value: Save = {
         kind: "save",
         phase: "prepared",
         projectID,
-        libraryID: templateID ?? "template_" + suffix,
+        libraryID: templateID ?? (deps.processStores ? "process:" : "") + "template_" + suffix,
         ...(prior ? { previousDigest: prior.digest } : {}),
         digest: preview.digest,
         text: preview.text,
@@ -163,13 +196,23 @@ export function make(deps: Deps) {
           return json(value)
         }),
       )
-      return { token, name: prior?.bundle.name ?? value.name, details: preview.text, omittedLinks: preview.linkReview.issues, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle, preview.linkReview.issues) }
+      return {
+        token,
+        name: prior?.bundle.name ?? value.name,
+        details: preview.text,
+        omittedLinks: preview.linkReview.issues,
+        triggerReview: ProjectTemplateTriggerReview.review(
+          { ...preview.bundle, version: 1 },
+          preview.linkReview.issues,
+        ),
+      }
     },
     confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false) =>
       Flock.withLock(token, async () => {
         const pending = await prepared(token)
         if (pending.kind !== "save") throw Error("Wrong operation kind.")
-        if (pending.linkReview?.issues.length && !omitUnsafeLinks) throw Error("Saved links contain nonportable parameters. Review before saving.")
+        if (pending.linkReview?.issues.length && !omitUnsafeLinks)
+          throw Error("Saved links contain nonportable parameters. Review before saving.")
         if (pending.previousDigest !== undefined) {
           const existing = await library.preview(pending.libraryID)
           if (existing.digest === pending.digest) {
@@ -178,7 +221,7 @@ export function make(deps: Deps) {
           }
           if (pending.phase === "saved" || existing.digest !== pending.previousDigest)
             throw Error("Template changed after preview. Review it again.")
-          const current = await capture(pending.projectID, browsers)
+          const current = await capture(pending.projectID, browsers, processID(pending.libraryID) !== undefined)
           if (current.digest !== pending.digest || (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)))
             throw Error("Project changed after confirmation preview. Review it again.")
           await library.replaceSerialized(pending.text, pending.libraryID, pending.previousDigest, pending.digest)
@@ -196,7 +239,10 @@ export function make(deps: Deps) {
         if (!exists) {
           if (pending.phase === "saved") throw Error("Saved template is missing.")
           const current = await capture(pending.projectID, browsers)
-          if (current.digest !== pending.digest || pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview))
+          if (
+            current.digest !== pending.digest ||
+            (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview))
+          )
             throw Error("Project changed after confirmation preview. Review it again.")
           await library.saveSerialized(pending.text, pending.libraryID, pending.digest)
         }
@@ -224,7 +270,12 @@ export function make(deps: Deps) {
           if (!pending.done) {
             const receipt = await deps.live(settingsDirectory).readReceipt(previous)
             if (!receipt) throw Error("Pending import receipt is missing.")
-            return { token: receipt.id, name: receipt.name, details: receipt.template, triggerReview: ProjectTemplateTriggerReview.fromText(receipt.template) }
+            return {
+              token: receipt.id,
+              name: receipt.name,
+              details: receipt.process?.template ?? receipt.template,
+              triggerReview: ProjectTemplateTriggerReview.fromText(receipt.template),
+            }
           }
         } else if (previous !== undefined) throw Error("Pending import index is damaged.")
         const receipt = await deps.live(settingsDirectory).reserve(preview.text, preview.digest)
@@ -235,14 +286,19 @@ export function make(deps: Deps) {
           }),
         )
         await run(deps.kv.set(key, receipt.id))
-        return { token: receipt.id, name: receipt.name, details: preview.text, triggerReview: ProjectTemplateTriggerReview.review(preview.bundle) }
+        return {
+          token: receipt.id,
+          name: receipt.name,
+          details: preview.text,
+          triggerReview: ProjectTemplateTriggerReview.review({ ...preview.bundle, version: 1 }),
+        }
       })
     },
     finishCreate: async (token: string) => {
       const pending = await prepared(token)
       if (pending.kind !== "create") throw Error("Wrong operation kind.")
       const receipt = await deps.live(pending.settingsDirectory).readReceipt(token)
-      if (!receipt || receipt.phase !== "published" || receipt.digest !== pending.digest)
+      if (!receipt || receipt.phase !== "published" || (receipt.process?.digest ?? receipt.digest) !== pending.digest)
         throw Error("Import has not finished.")
       await run(deps.kv.set(PREPARED + token, json({ ...pending, done: true })))
     },
@@ -251,7 +307,8 @@ export function make(deps: Deps) {
       if (pending.kind !== "create") throw Error("Wrong operation kind.")
       const live = deps.live(pending.settingsDirectory),
         receipt = await live.readReceipt(token)
-      if (!receipt || receipt.digest !== pending.digest) throw Error("Create reservation differs.")
+      if (!receipt || (receipt.process?.digest ?? receipt.digest) !== pending.digest)
+        throw Error("Create reservation differs.")
       if (receipt.phase === "reserved") {
         const current = await library.preview(pending.libraryID)
         if (current.digest !== pending.digest) throw Error("Template changed after preview.")

@@ -31,6 +31,9 @@ export function orchestraLayer(overrides: Partial<Orchestra.Interface> = {}) {
     pending: () => Effect.succeed(undefined),
     recoverPendingTasks: () => Effect.void,
     roles: () => Effect.succeed([]),
+    scopedRoles: () => Effect.succeed([]),
+    saveProjectRole: () => unused,
+    projectRoleAllowed: () => Effect.succeed(false),
     saveRole: () => unused,
     removeRole: () => Effect.void,
     templates: () => Effect.succeed([]),
@@ -38,6 +41,7 @@ export function orchestraLayer(overrides: Partial<Orchestra.Interface> = {}) {
     removeTemplate: () => Effect.void,
     playbook: () => Effect.succeed(undefined),
     outcomes: () => Effect.succeed({}),
+    reload: () => Effect.void,
     changes: Stream.empty,
   }
   return Layer.succeed(Orchestra.Service, Orchestra.Service.of({ ...base, ...overrides }))

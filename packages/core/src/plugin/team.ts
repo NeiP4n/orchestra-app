@@ -8,6 +8,7 @@ import { modeOf } from "@orchestra/schema/federation"
 import { Mode } from "@orchestra/schema/mode"
 import { Model } from "@orchestra/schema/model"
 import type { SessionID } from "@orchestra/schema/session-id"
+import { PromptInput } from "@orchestra/schema/prompt-input"
 import { Tool } from "@orchestra/schema/tool"
 import { Cause, Effect, Option, Stream } from "effect"
 import { Agent } from "../agent.js"
@@ -182,7 +183,8 @@ export const Plugin = define({
     const federation = yield* Federation.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
-    const team ={ roles: yield* orchestra.roles() }
+    const agents = yield* Agent.Service
+    const team = { roles: yield* orchestra.scopedRoles() }
     yield* warnUnlistedRoles(team.roles)
     // A session's stored mode wins; without one, the role's default applies. `auto` is an
     // explicit cancellation of the default, not a missing value to replace.
@@ -202,7 +204,7 @@ export const Plugin = define({
     })
     yield* orchestra.changes.pipe(
       Stream.runForEach(() =>
-        orchestra.roles().pipe(
+        orchestra.scopedRoles().pipe(
           Effect.tap((roles) => Effect.sync(() => (team.roles = roles))),
           Effect.tap((roles) => warnUnlistedRoles(roles)),
           Effect.andThen(ctx.agent.reload()),
@@ -217,6 +219,7 @@ export const Plugin = define({
           item.description = role.description
           item.system = role.id === "browser-agent" ? `${BROWSER_TEAM}\n\n${role.rules}` : role.rules ? `${TEAM}\n\n${role.rules}` : TEAM
           item.mode = "primary"
+          if (role.projectID) item.hidden = true
           if (role.model) item.model = Model.Ref.parse(role.model)
           // A role limited to some tools sees only those; the evaluate hook below keeps the
           // limit even where the operator's config allows a tool for every agent. A role
@@ -236,6 +239,8 @@ export const Plugin = define({
     // so what one worker learned (how to build, test and run it, decisions made) reaches the next.
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, event.agent)))
+          return yield* Effect.die(new Error("This process role belongs to another project or its project was removed."))
         // The crew's standing rules ride on every request of its sessions, the Society's chat included.
         // A load failure is never silent: an agent that starts without its rules is worse than one
         // that does not start, so the failure is handed to the model as an explicit stop.
@@ -376,7 +381,10 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     // Sessions whose last worker report was a provider limit. Cleared by the operator's next message.
     const limited = new Set<SessionID>()
     yield* ctx.session.hook("prompt", (event) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
+        if (Option.isSome(current) && !(yield* orchestra.projectRoleAllowed(event.sessionID, (yield* agents.select(current.value.agent)).id)))
+          return yield* new PromptInput.Rejected({ reason: "This process role belongs to another project or its project was removed.", source: "project-role" })
         exploring.delete(event.sessionID)
         if (isLimitReport(event.prompt.text ?? "")) limited.add(event.sessionID)
         else if (!(event.prompt.text ?? "").includes("<team-report")) limited.delete(event.sessionID)
@@ -386,6 +394,8 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     const hubSeen = new Set<SessionID>()
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, event.agent)))
+          return yield* new Tool.Error({ message: "This process role belongs to another project or its project was removed." })
         if (event.tool === "hub") return void hubSeen.add(event.sessionID)
         const member = team.roles.find((role) => role.agent === event.agent)
         if (
@@ -437,6 +447,13 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     // Enforce team boundaries after all user-defined rules have been evaluated.
     yield* ctx.permission.hook("evaluate", (event) =>
       Effect.gen(function* () {
+        const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
+        const selected = yield* agents.select(event.agent ?? Option.getOrUndefined(current)?.agent)
+        if (!(yield* orchestra.projectRoleAllowed(event.sessionID, selected.id))) {
+          event.effect = "deny"
+          event.message = "This process role belongs to another project or its project was removed."
+          return
+        }
         if (event.action === "subagent") {
           if (event.agent !== Orchestra.agent && !team.roles.some((role) => role.agent === event.agent)) return
           event.effect = "deny"
@@ -450,7 +467,7 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
         if (
           event.action === "external_directory" &&
           event.effect === "ask" &&
-          (event.agent === Orchestra.agent || team.roles.some((role) => role.agent === event.agent))
+          (event.agent === Orchestra.agent || team.roles.some((role) => !role.projectID && role.agent === event.agent))
         ) {
           event.effect = "allow"
           return

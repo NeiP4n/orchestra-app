@@ -85,23 +85,9 @@ function model(value: unknown): Model {
   const r = object(value, ["provider", "id", "variant"])
   return { provider: id(r.provider), id: id(r.id), variant: r.variant === null ? null : id(r.variant) }
 }
-function parseProcess(raw: unknown, base: V1.Bundle): Process {
-  const p = object(raw, ["playbook", "recommendedRoles", "roles", "skills", "skillAssignments", "sessionModels", "programs"])
-  const roles = list(p.roles, 100).map((value): Role => {
-    const r = object(value, ["agent", "name", "description", "rules", "category", "readOnly"], ["mode", "model", "models", "variant", "tools", "autoTools", "hub", "registry"])
-    return {
-      agent: id(r.agent), name: text(r.name, 160), description: text(r.description, 4096, true), rules: text(r.rules, 65536, true), category: text(r.category, 160), readOnly: bool(r.readOnly),
-      ...(has(r, "mode") ? { mode: id(r.mode) } : {}), ...(has(r, "model") ? { model: modelReference(r.model) } : {}),
-      ...(has(r, "models") ? { models: unique(list(r.models, 30).map(modelReference)) } : {}), ...(has(r, "variant") ? { variant: id(r.variant) } : {}),
-      ...(has(r, "tools") ? { tools: unique(list(r.tools, 200).map((v) => text(v, 120))) } : {}),
-      ...(has(r, "autoTools") ? { autoTools: bool(r.autoTools) } : {}), ...(has(r, "hub") ? { hub: ids(r.hub) } : {}), ...(has(r, "registry") ? { registry: ids(r.registry) } : {}),
-    }
-  })
-  const roleIDs = new Set(unique(roles.map((r) => r.agent)))
-  if (base.sessions.some((r) => !roleIDs.has(r.role)) || base.rules.some((r) => r.scope === "role" && !roleIDs.has(r.role!))) invalid()
-  const recommendedRoles = ids(p.recommendedRoles)
-  if (recommendedRoles.some((r) => !roleIDs.has(r))) invalid()
-  const skills = list(p.skills, 100).map((value): Skill => {
+/** Closed portable skill definitions, shared by the template codec and persistent owner store. */
+export function parseSkills(value: unknown): Skill[] {
+  const skills = list(value, 100).map((value): Skill => {
     const r = object(value, ["id", "name", "entry", "files", "dependencies"], ["description", "autoinvoke"])
     const files = list(r.files, MAX_FILES).map((file) => {
       const f = object(file, ["path", "content", "sha256"]), content = text(f.content, 65536, true)
@@ -119,6 +105,26 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
   const visiting = new Set<string>(), visited = new Set<string>(), byID = new Map(skills.map((s) => [s.id, s]))
   const visit = (key: string) => { if (visiting.has(key)) invalid(); if (visited.has(key)) return; visiting.add(key); byID.get(key)!.dependencies.forEach(visit); visiting.delete(key); visited.add(key) }
   skills.forEach((s) => visit(s.id))
+  return skills
+}
+function parseProcess(raw: unknown, base: V1.Bundle): Process {
+  const p = object(raw, ["playbook", "recommendedRoles", "roles", "skills", "skillAssignments", "sessionModels", "programs"])
+  const roles = list(p.roles, 100).map((value): Role => {
+    const r = object(value, ["agent", "name", "description", "rules", "category", "readOnly"], ["mode", "model", "models", "variant", "tools", "autoTools", "hub", "registry"])
+    return {
+      agent: id(r.agent), name: text(r.name, 160), description: text(r.description, 4096, true), rules: text(r.rules, 65536, true), category: text(r.category, 160), readOnly: bool(r.readOnly),
+      ...(has(r, "mode") ? { mode: id(r.mode) } : {}), ...(has(r, "model") ? { model: modelReference(r.model) } : {}),
+      ...(has(r, "models") ? { models: unique(list(r.models, 30).map(modelReference)) } : {}), ...(has(r, "variant") ? { variant: id(r.variant) } : {}),
+      ...(has(r, "tools") ? { tools: unique(list(r.tools, 200).map((v) => text(v, 120))) } : {}),
+      ...(has(r, "autoTools") ? { autoTools: bool(r.autoTools) } : {}), ...(has(r, "hub") ? { hub: ids(r.hub) } : {}), ...(has(r, "registry") ? { registry: ids(r.registry) } : {}),
+    }
+  })
+  const roleIDs = new Set(unique(roles.map((r) => r.agent)))
+  if (base.sessions.some((r) => !roleIDs.has(r.role)) || base.rules.some((r) => r.scope === "role" && !roleIDs.has(r.role!))) invalid()
+  const recommendedRoles = ids(p.recommendedRoles)
+  if (recommendedRoles.some((r) => !roleIDs.has(r))) invalid()
+  const skills = parseSkills(p.skills)
+  const skillIDs = new Set(skills.map((r) => r.id))
   const sessions = new Set(base.sessions.map((s) => s.slot))
   const targets = new Set<string>()
   const skillAssignments = list(p.skillAssignments, 300).map((value): Process["skillAssignments"][number] => {

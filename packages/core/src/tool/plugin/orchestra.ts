@@ -1000,7 +1000,7 @@ export const Plugin = {
       )
       const access = yield* orchestra.accessMany(members.map((session) => session.id))
       const categories = yield* orchestra.categories(members.map((session) => session.id))
-      const roles = yield* orchestra.roles()
+      const roles = yield* orchestra.roles(project.id)
       return members
         .filter((session) => access[session.id] !== "hidden" && !BrowserLifecycle.retired(String(session.id)))
         .map((session) => {
@@ -1248,7 +1248,7 @@ export const Plugin = {
                 }).pipe(
                   Effect.mapError((error) => new ToolFailure({ message: `Could not send task: ${error.message}`, error })),
                 )
-              const roles = yield* orchestra.roles()
+              const roles = yield* orchestra.roles(project.id)
               // A mode changes how a session works, not what its role allows. `auto` clears the
               // stored override so the role's default applies again.
               const requireMode = Effect.fnUntraced(function* (id: string | undefined) {
@@ -1820,7 +1820,7 @@ export const Plugin = {
         const project = yield* orchestra.mainOf(event.sessionID)
         if (!project) return
         const rows = yield* team(project).pipe(Effect.orElseSucceed(() => []))
-        const roles = yield* orchestra.roles()
+        const roles = yield* orchestra.roles(project.id)
         const playbook = yield* orchestra.playbook(project.id)
         const outcomes = yield* orchestra.outcomes(project.id)
         event.system.push({

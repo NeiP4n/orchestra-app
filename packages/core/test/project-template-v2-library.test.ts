@@ -1,5 +1,6 @@
+import { Flock } from "@orchestra/util/flock"
 import { expect, test } from "bun:test"
-import { realpath, mkdtemp, rm, mkdir, writeFile, readFile, symlink, link } from "node:fs/promises"
+import { realpath, mkdtemp, rm, mkdir, writeFile, readFile, readdir, symlink, link } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { ProjectTemplateV2Library as L } from "../src/project-template-v2-library"
@@ -47,5 +48,76 @@ test("process library rejects Windows device directory names before writing", as
   try {
     const p = V2.preview(JSON.stringify(processFixture())); if (!p.ok) throw Error(p.error)
     for (const name of ["con", "nul", "prn", "aux", "com1", "lpt9"]) await expect(L.local(root).saveSerialized(p.value.text, name, p.value.digest)).rejects.toThrow()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+
+test("process library transfers only reviewed self-contained bytes between separate installations", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-transfer-")))
+  try {
+    const source = path.join(root, "laptop-a"), destination = path.join(root, "laptop-b"), transfer = path.join(root, "transfer")
+    for (const directory of [source, destination, transfer]) await mkdir(directory)
+    // Unrelated application state must never be discovered or copied by an export.
+    for (const name of ["cookies.json", "chats.db", "vault.enc", "accounts.json"])
+      await writeFile(path.join(source, name), "PRIVATE_MACHINE_STATE_CANARY")
+    const value = V2.preview(JSON.stringify(processFixture()))
+    if (!value.ok) throw Error(value.error)
+    await L.local(source).saveSerialized(value.value.text, "factory", value.value.digest)
+    const portable = await L.local(source).export("factory", transfer, "portable", value.value.digest)
+    expect(await readdir(portable.directory)).toEqual(["template.json"])
+    const bytes = await readFile(path.join(portable.directory, "template.json"), "utf8")
+    expect(bytes).not.toContain("PRIVATE_MACHINE_STATE_CANARY")
+    expect(bytes).not.toContain(source)
+    expect(bytes).not.toContain(destination)
+    await L.local(destination).remember(portable.directory, "factory", value.value.digest)
+    // Remove the first installation and transport medium. The second is independently readable.
+    await rm(source, { recursive: true })
+    await rm(transfer, { recursive: true })
+    const restarted = await L.local(destination).preview("factory")
+    expect(restarted).toEqual(value.value)
+    expect(restarted.bundle.process.skills[0]?.files).toEqual(processFixture().process.skills[0]?.files)
+    expect(await readdir(destination)).toEqual(["process-templates"])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("reviewed update preserves one template identity, refuses stale review, and survives retry", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-update-")))
+  Flock.setGlobal({ state: path.join(root, "state") })
+  try {
+    const library = L.local(root), source = V2.preview(JSON.stringify(processFixture()))
+    if (!source.ok) throw Error(source.error)
+    await library.saveSerialized(source.value.text, "factory", source.value.digest)
+    const changed = processFixture(); changed.process.playbook = "Updated process, reviewed explicitly."
+    const next = V2.preview(JSON.stringify(changed)); if (!next.ok) throw Error(next.error)
+    await expect(library.replaceSerialized(next.value.text, "factory", "stale-digest", next.value.digest)).rejects.toThrow("changed after preview")
+    expect((await library.preview("factory")).digest).toBe(source.value.digest)
+    await library.replaceSerialized(next.value.text, "factory", source.value.digest, next.value.digest)
+    expect((await library.preview("factory")).bundle.process.playbook).toBe(changed.process.playbook)
+    await library.replaceSerialized(next.value.text, "factory", source.value.digest, next.value.digest)
+    expect(await library.list()).toHaveLength(1)
+    expect((await readdir(root)).sort()).toEqual(["process-templates", "state"])
+    expect(await readdir(path.join(root, "process-templates"))).toEqual(["factory"])
+    expect(await readdir(path.join(root, "process-templates", "factory"))).toEqual(["template.json"])
+    await expect(library.replaceSerialized(source.value.text, "missing", source.value.digest, source.value.digest)).rejects.toThrow()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test("two different updates from the same reviewed base cannot both replace the template", async () => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-update-race-")))
+  Flock.setGlobal({ state: path.join(root, "state") })
+  try {
+    const library = L.local(root), source = V2.preview(JSON.stringify(processFixture()))
+    if (!source.ok) throw Error(source.error)
+    await library.saveSerialized(source.value.text, "factory", source.value.digest)
+    const previews = ["First process", "Second process"].map(playbook => {
+      const bundle = processFixture(); bundle.process.playbook = playbook
+      const result = V2.preview(JSON.stringify(bundle)); if (!result.ok) throw Error(result.error)
+      return result.value
+    })
+    const results = await Promise.allSettled(previews.map(next => library.replaceSerialized(next.text, "factory", source.value.digest, next.digest)))
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
+    expect(previews.map(value => value.digest)).toContain((await library.preview("factory")).digest)
+    expect(await library.list()).toHaveLength(1)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

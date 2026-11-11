@@ -7,19 +7,19 @@ import { ThemeProvider } from "../src/context/theme"
 import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import { emptyThemeSource } from "./fixture/fixture"
 import { TestTuiContexts } from "./fixture/tui-environment"
-for (const width of [80, 120])
-  test(`simple template flow at ${width} columns: one confirm, no path fields, details optional`, async () => {
+for (const width of [80, 120]) for (const version of [1, 2])
+  test(`simple template flow v${version} at ${width} columns: one confirm, no path fields, details optional`, async () => {
     const calls: string[] = []
     const access: ProjectTemplatesAccess = {
       list: async () => [{ id: "factory", name: "Фабрика" }],
       prepareSave: async () => ({
         token: "save-token",
         name: "Мой проект",
-        details: "Точный JSON и проверенные настройки.",
+        details: version === 2 ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: { skills: [] } }) : "Точный JSON и проверенные настройки.",
       }),
       prepareCreate: async (id) => {
         expect(id).toBe("factory")
-        return { token: "create-token", name: "Фабрика", details: "Детали нового проекта." }
+        return { token: "create-token", name: "Фабрика", details: version === 2 ? JSON.stringify({ format: "orchestra.project-template", version: 2, process: { skills: [] } }) : "Детали нового проекта." }
       },
       confirmSave: async (token) => {
         calls.push(token)
@@ -55,20 +55,25 @@ for (const width of [80, 120])
       expect(calls).toEqual([])
       expect(app.captureCharFrame()).not.toContain("Точный JSON")
       await click("project-templates.details")
-      expect(app.captureCharFrame()).toContain("Точный JSON")
+      expect(app.captureCharFrame()).toContain(version === 2 ? '"version":2' : "Точный JSON")
       await click("project-templates.confirm")
       await app.waitForFrame((f) => f.includes("Проект сохранён как шаблон"))
       expect(calls).toEqual(["save-token"])
       await click("project-templates.update-factory")
       await app.waitForFrame(frame => frame.includes("Обновить «Мой проект»"))
       expect(calls).toEqual(["save-token"])
-      if (process.env.CAPTURE_SIMPLE_UPDATE)
+      if (process.env.CAPTURE_SIMPLE_UPDATE && version === 2)
         await Bun.write(process.env.CAPTURE_SIMPLE_UPDATE + width, JSON.stringify(app.captureSpans()))
       await click("project-templates.cancel")
       await click("project-templates.create-factory")
       await app.waitForFrame((f) => f.includes("Создать «Фабрика»?"))
+      if (version === 2) {
+        expect(app.captureCharFrame()).toContain("Роли, процесс и запасные модели включены.")
+        expect(app.captureCharFrame().replace(/\s+/g, " ")).toContain("Навыки старых проектов могут перенестись не полностью")
+        expect(app.captureCharFrame()).not.toContain("определения ролей, запасные модели")
+      } else expect(app.captureCharFrame()).toContain("не копируются")
       if (process.env.CAPTURE_SIMPLE_FRAME)
-        await Bun.write(process.env.CAPTURE_SIMPLE_FRAME + width, JSON.stringify(app.captureSpans()))
+        await Bun.write(process.env.CAPTURE_SIMPLE_FRAME + width + (version === 2 ? "-v2" : ""), JSON.stringify(app.captureSpans()))
       await click("project-templates.cancel")
       expect(calls).toEqual(["save-token"])
       await click("project-templates.create-factory")

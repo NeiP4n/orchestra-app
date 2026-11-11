@@ -2,9 +2,11 @@ export * as Orchestra from "./orchestra.js"
 
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
 import { SessionHold } from "./session/hold.js"
+import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
 import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
 import { KeyedMutex } from "./effect/keyed-mutex.js"
 import path from "node:path"
+import { createHash } from "node:crypto"
 import { appendLog } from "@orchestra/util/append-log"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { FSUtil } from "@orchestra/util/fs-util"
@@ -216,7 +218,11 @@ export interface Interface {
   readonly recoverPendingTasks: () => Effect.Effect<void>
   // Team roles and templates: the built-in ones, with the operator's edits
   // applied, followed by the operator's own in the order they were created.
-  readonly roles: () => Effect.Effect<ReadonlyArray<Role>>
+  readonly roles: (projectID?: ProjectID) => Effect.Effect<ReadonlyArray<Role>>
+  /** Internal registrations only, never the global reusable role inventory. */
+  readonly scopedRoles: () => Effect.Effect<ReadonlyArray<Role & { projectID?: ProjectID }>>
+  readonly saveProjectRole: (projectID: ProjectID, id: string, spec: RoleSpec) => Effect.Effect<Role, TeamError | ProjectNotFoundError>
+  readonly projectRoleAllowed: (sessionID: SessionID, agent: string) => Effect.Effect<boolean>
   // Without an id creates a custom role; with one replaces that role.
   readonly saveRole: (id: string | undefined, spec: RoleSpec) => Effect.Effect<Role, TeamError>
   // Deletes a custom role, or restores a built-in one to its default.
@@ -230,6 +236,7 @@ export interface Interface {
   // The list is the full history: collapsing it to the latest report loses earlier outcomes.
   readonly outcomes: (id: ProjectID) => Effect.Effect<Record<string, ReadonlyArray<{ outcome: TaskReportInfo["outcome"]; created: number }>>>
   // Emits after every saved or removed role or template, so agents can be rebuilt.
+  readonly reload: () => Effect.Effect<void>
   readonly changes: Stream.Stream<void>
 }
 
@@ -252,6 +259,8 @@ const STALE_CLAIM_MS = 10 * 60 * 1000
 // invariant the dispatcher keeps, and recovery must never wait behind a run that is already in flight.
 export const dispatchLocks = KeyedMutex.makeUnsafe<SessionID>()
 const REPORT = "orchestra/report/"
+const PROJECT_ROLE = "orchestra/project-role/"
+const processRolePrefix = (projectID: string) => `process-${createHash("sha256").update(projectID).digest("hex").slice(0, 16)}-`
 const ROLE = "orchestra/role/"
 const TEMPLATE = "orchestra/template/"
 // The template a project was opened from, so its Orchestrator follows that team's playbook.
@@ -1282,7 +1291,7 @@ const layer: Layer.Layer<
                 : outcomeOf(answer)
           // DONE from a role that changes files is evidence only with a check it actually ran and
           // none that failed; otherwise the task stays open as partial, whatever the worker says.
-          const editor = (yield* roles()).some((role) => role.agent === session?.agent && !role.readOnly)
+          const editor = (yield* roles(task.value.projectID)).some((role) => role.agent === session?.agent && !role.readOnly)
           const checks = checksOf(answer)
           const evidence = evidenceOf(taskMessages)
           const unproven =
@@ -2243,12 +2252,36 @@ const layer: Layer.Layer<
       )
     })
 
-    const roles = Effect.fn("Orchestra.roles")(function* () {
+    const localRoles: (projectID: ProjectID) => Effect.Effect<Array<Role & { projectID: ProjectID }>> = Effect.fnUntraced(function* (projectID: ProjectID) {
+      const project = decodeProject(yield* kv.get(PROJECT + projectID))
+      if (Option.isNone(project) || !(yield* importReady(projectID))) return []
+      const prefix = PROJECT_ROLE + projectID + "/"
+      return (yield* stored(prefix, decodeRole))
+        .filter(item => item.id.startsWith(processRolePrefix(projectID)))
+        .map(({ created: _, ...item }) => ({ ...item, agent: Orchestra.role(item.id), origin: "custom" as const, projectID }))
+    })
+    const roles: Interface["roles"] = Effect.fn("Orchestra.roles")(function* (projectID?: ProjectID) {
       const saved = yield* stored(ROLE, decodeRole)
-      return merge(Orchestra.roles, saved).map(({ created: _, ...item }) => ({
-        ...item,
-        agent: Orchestra.role(item.id),
-      }))
+      const global = merge(Orchestra.roles, saved).map(({ created: _, ...item }) => ({ ...item, agent: Orchestra.role(item.id) }))
+      return projectID ? [...global, ...yield* localRoles(projectID)] : global
+    })
+    const scopedRoles: Interface["scopedRoles"] = Effect.fn("Orchestra.scopedRoles")(function* () {
+      const global = yield* roles()
+      const projects = (yield* scanAll(PROJECT)).flatMap(entry => Option.toArray(decodeProject(entry.value)))
+      const locals = yield* Effect.forEach(projects, project => localRoles(project.id))
+      return [...global, ...locals.flat()]
+    })
+    const projectRoleAllowed: Interface["projectRoleAllowed"] = Effect.fn("Orchestra.projectRoleAllowed")(function* (sessionID: SessionID, agent: string) {
+      if (!agent.startsWith("team-process-")) return true
+      // Only explicit ownership counts. A shared directory is never a grant.
+      const owner = yield* kv.get(OWNER + sessionID)
+      const project = typeof owner === "string" ? decodeProject(yield* kv.get(PROJECT + owner)) : Option.none()
+      if (typeof owner === "string" && Option.isNone(project)) return false
+      const main = Option.isSome(project) ? project : (yield* scanAll(PROJECT))
+        .map(entry => decodeProject(entry.value))
+        .find(item => Option.isSome(item) && item.value.main === sessionID) ?? Option.none()
+      if (Option.isNone(main)) return false
+      return (yield* localRoles(main.value.id)).some(role => role.agent === agent)
     })
 
     const templates = Effect.fn("Orchestra.templates")(function* () {
@@ -2715,6 +2748,11 @@ const layer: Layer.Layer<
                 yield* kv.remove(PROJECT + id)
                 yield* kv.remove(TEAM_PLAN + id)
                 yield* kv.remove(PROJECT_TEMPLATE + id)
+                yield* kv.remove("orchestra/process-skills/" + id)
+                yield* kv.remove("orchestra/process-skill-definitions/" + id)
+                yield* kv.remove(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)
+                yield* Effect.forEach(yield* scanAll(PROJECT_ROLE + id + "/"), entry => kv.remove(entry.key), { discard: true })
+                yield* PubSub.publish(changed, undefined)
                 yield* kv.remove(MOVE_PLAN + id)
                 const reports = yield* scanAll(reportPrefix(id))
                 yield* Effect.forEach(reports, (entry) => kv.remove(entry.key), { discard: true })
@@ -2850,7 +2888,7 @@ const layer: Layer.Layer<
 
             // Finish any interrupted roster before creating a second plan for this project.
             yield* reconcileTeamUnlocked(project)
-            const role = (yield* roles()).find((item) => item.agent === input.agent)
+            const role = (yield* roles(project.id)).find((item) => item.agent === input.agent)
             if (!role)
               return yield* new DispatchError({
                 message: `No configured project role owns agent "${input.agent}". Choose a role from the current roster.`,
@@ -3157,9 +3195,29 @@ const layer: Layer.Layer<
         )
       }),
       roles,
+      scopedRoles,
+      projectRoleAllowed,
+      saveProjectRole: Effect.fn("Orchestra.saveProjectRole")(function* (projectID, id, input) {
+        return yield* mainLocks.withLock(projectID)(Effect.gen(function* () {
+          yield* get(projectID)
+          const prefix = processRolePrefix(projectID)
+          if (!id.startsWith(prefix) || !/^[1-9][0-9]{0,2}$/.test(id.slice(prefix.length)))
+            return yield* new TeamError({ message: "Project-local role identity does not belong to this project." })
+          yield* requireRole(input)
+          const key = PROJECT_ROLE + projectID + "/" + id
+          if ((yield* kv.get(key)) !== undefined)
+            return yield* new TeamError({ message: "Project-local role already exists; no role was overwritten." })
+          // Validation is not permission to normalize transferred process rules.
+          yield* kv.set(key, Schema.encodeSync(StoredRole)({ ...input, created: Date.now() }))
+          yield* PubSub.publish(changed, undefined)
+          return { ...input, id, agent: Orchestra.role(id), origin: "custom" as const }
+        }))
+      }),
       saveRole: Effect.fn("Orchestra.saveRole")(function* (id, input) {
         const spec = yield* requireRole(input)
         const target = yield* slot(ROLE, id, yield* roles(), spec.name)
+        if (target.key.startsWith("process-"))
+          return yield* new TeamError({ message: "The process role namespace is reserved for project-local roles." })
         yield* kv.set(ROLE + target.key, Schema.encodeSync(StoredRole)({ ...spec, created: target.created }))
         yield* PubSub.publish(changed, undefined)
         return {
@@ -3202,6 +3260,11 @@ const layer: Layer.Layer<
         yield* PubSub.publish(changed, undefined)
       }),
       playbook: Effect.fn("Orchestra.playbook")(function* (id) {
+        if ((yield* kv.get(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)) !== undefined) {
+          if (!(yield* importReady(id))) return undefined
+          const process = yield* ProjectTemplateV2Runtime.read(kv, id)
+          return process?.playbook ? { name: process.source.name, text: process.playbook } : undefined
+        }
         const templateID = yield* kv.get(PROJECT_TEMPLATE + id)
         if (typeof templateID !== "string") return undefined
         // A live template (built-in, edited or custom) wins; a removed built-in falls back to
@@ -3221,6 +3284,7 @@ const layer: Layer.Layer<
         }
         return history
       }),
+      reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
       changes: Stream.fromPubSub(changed),
     })
   }),

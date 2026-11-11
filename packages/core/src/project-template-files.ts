@@ -70,13 +70,13 @@ export async function saveWithCodec<T extends { text: string; digest: string }>(
 }
 /** Explicit reviewed replacement of one existing library manifest. Never creates a second template.
  * Same-ID writers share the lock. Both old and new canonical bytes are bound by the caller's review. */
-export async function replace(directory: string, serialized: string, previousDigest: string, reviewedDigest: string) {
-  const next = ProjectTemplate.preview(serialized)
+export async function replaceWithCodec<T extends { text: string; digest: string }>(directory: string, serialized: string, previousDigest: string, reviewedDigest: string, codec: Codec<T>) {
+  const next = codec.preview(serialized)
   if (!next.ok) throw Error(next.error)
   if (next.value.digest !== reviewedDigest) throw Error("Template changed after preview. Review it again.")
   const destination = await root(directory)
   return Flock.withLock("template-manifest:" + destination, async () => {
-    const prior = await load(destination)
+    const prior = await loadWithCodec(destination, codec)
     if (prior.digest === reviewedDigest) return { directory: destination, digest: reviewedDigest }
     if (prior.digest !== previousDigest) throw Error("Template changed after preview. Review it again.")
     const target = path.join(destination, FILE), before = await lstat(target)
@@ -88,12 +88,12 @@ export async function replace(directory: string, serialized: string, previousDig
       created = true
       try { await handle.writeFile(next.value.text, "utf8"); await handle.sync() } finally { await handle.close() }
       // Do not replace a file/folder that moved or changed while new bytes were written.
-      const latest = await load(destination), current = await lstat(target)
+      const latest = await loadWithCodec(destination, codec), current = await lstat(target)
       if (latest.digest !== previousDigest || current.ino !== before.ino || current.dev !== before.dev || current.isSymbolicLink() || await realpath(destination) !== destination)
         throw Error("Template changed after preview. Review it again.")
       await rename(temporary, target)
       created = false
-      const verified = await load(destination)
+      const verified = await loadWithCodec(destination, codec)
       if (verified.digest !== reviewedDigest) throw Error("Template failed verification after replacement.")
       return { directory: destination, digest: verified.digest }
     } finally { if (created) await rm(temporary, { force: true }) }
@@ -160,4 +160,9 @@ export function compare(existing: ProjectTemplate.Bundle, incoming: ProjectTempl
     const result = next.map((entry, index) => ({ section, slot: key(entry, index), status: !prior.has(key(entry, index)) ? 'add' as const : JSON.stringify(prior.get(key(entry, index))) === JSON.stringify(entry) ? 'unchanged' as const : 'conflict' as const }))
     return [...result, ...[...prior.keys()].filter((name) => !keys.has(name)).map((name) => ({ section, slot: name, status: 'preserve-existing' as const }))]
   })
+}
+
+/** Preserve the v1 reviewed-update API while process templates use their own codec. */
+export function replace(directory: string, serialized: string, previousDigest: string, reviewedDigest: string) {
+  return replaceWithCodec(directory, serialized, previousDigest, reviewedDigest, ProjectTemplate)
 }

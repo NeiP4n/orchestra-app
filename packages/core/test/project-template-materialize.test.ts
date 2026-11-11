@@ -137,3 +137,30 @@ test("resume validates already-written stores and refuses publication when they 
   await expect(f.service.apply(f.reservation)).rejects.toThrow("incomplete")
   expect(f.isPublished()).toBe(false)
 })
+
+test("process receipt refuses a missing adapter before writes and verifies the process before publication", async () => {
+  const unavailable = fixture()
+  unavailable.reservation.process = { version: 2, template: "closed process source", digest: "reviewed" }
+  await expect(unavailable.service.apply(unavailable.reservation)).rejects.toThrow("inert")
+  expect(unavailable.calls).toEqual([])
+  const f = fixture()
+  f.reservation.process = { version: 2, template: "closed process source", digest: "reviewed" }
+  let interrupted = true
+  f.ports.ensureProcess = async () => {
+    f.calls.push("process")
+    if (interrupted) {
+      interrupted = false
+      throw Error("process checkpoint lost")
+    }
+  }
+  f.ports.verifyProcess = async () => {
+    f.calls.push("verify-process")
+  }
+  const service = M.make(f.ports)
+  await expect(service.apply(f.reservation)).rejects.toThrow("checkpoint")
+  expect(f.calls).not.toContain("sessions")
+  expect(f.isPublished()).toBe(false)
+  await service.apply(f.reservation)
+  expect(f.calls.filter((call) => call === "process")).toHaveLength(2)
+  expect(f.calls.lastIndexOf("verify-process")).toBeLessThan(f.calls.lastIndexOf("publish"))
+})

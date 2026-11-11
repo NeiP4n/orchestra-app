@@ -10,6 +10,7 @@ import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { SessionHistory } from "./history.js"
 import { MessageDecodeError } from "./error.js"
 import { SessionMessage } from "./message.js"
+import { Model } from "@orchestra/schema/model"
 import { Session } from "@orchestra/schema/session"
 import { SessionMessageTable, SessionTable } from "./sql.js"
 import { fromRow } from "./info.js"
@@ -56,6 +57,8 @@ export type MessagesInput = {
 
 export interface Interface {
   readonly get: (sessionID: Session.ID) => Effect.Effect<Session.Info | undefined>
+  /** Exact stored selection, without the display/runtime default-variant projection. */
+  readonly getStoredModel: (sessionID: Session.ID) => Effect.Effect<Model.Ref | undefined>
   readonly list: (input?: ListInput) => Effect.Effect<Session.Info[]>
   readonly messages: (input: MessagesInput) => Effect.Effect<SessionMessage.Info[], MessageDecodeError>
   readonly context: (sessionID: Session.ID) => Effect.Effect<SessionMessage.Info[], MessageDecodeError>
@@ -104,6 +107,10 @@ const layer = Layer.effect(
       get: Effect.fnUntraced(function* (sessionID) {
         const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
         return row ? fromRow(row) : undefined
+      }),
+      getStoredModel: Effect.fn("SessionStore.getStoredModel")(function* (sessionID) {
+        const row = yield* db.select({ model: SessionTable.model }).from(SessionTable).where(eq(SessionTable.id, sessionID)).get().pipe(Effect.orDie)
+        return row?.model ? Schema.decodeUnknownSync(Model.Ref)(row.model) : undefined
       }),
       list: Effect.fn("SessionStore.list")(function* (input = {}) {
         const direction = input.anchor?.direction ?? "next"
