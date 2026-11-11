@@ -327,13 +327,12 @@ const layer = Layer.effect(
       })
       // Standing hard rules are final too: a plugin's allow cannot erase
       // them, and nested tool calls must use the real resolved resources.
-      const ruleUnavailable = RuleEnforce.unavailableRefusal(String(input.sessionID), policyInput.action, policyInput.metadata)
-      const ruleBroken = RuleEnforce.permissionViolation(RuleEnforce.recall(String(input.sessionID)), {
-        action: policyInput.action, agent: String(input.agent ?? ""), resources: policyInput.resources,
+      const ruleMessage = RuleEnforce.resourceRefusal(String(input.sessionID), {
+        ...policyInput, agent: String(input.agent ?? ""),
       })
-      if (ruleUnavailable || ruleBroken) return {
+      if (ruleMessage) return {
         effect: "deny" as const,
-        message: ruleUnavailable ?? RuleEnforce.refusal(ruleBroken!),
+        message: ruleMessage,
         rules: all, save: undefined, scoped: false, onAlways: undefined,
       }
       // Room rules are authoritative and must run after all plugin hooks. Otherwise a later

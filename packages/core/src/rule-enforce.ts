@@ -155,7 +155,7 @@ export const violation = (
 }
 
 /** Match the resolved resource and root-level glob form, with traversal collapsed.
- * No case folding on POSIX, where differently cased files may be distinct. */
+ * Case-insensitive matching preserves the existing conservative deny semantics. */
 export function pathMatches(pattern: string, value: string) {
   const normalized = posix.normalize(value.replaceAll("\\", "/")).replace(/^\.\//, "")
   const patterns = [pattern.replaceAll("\\", "/")]
@@ -169,7 +169,7 @@ export function permissionViolation(entries: ReadonlyArray<Entry>, call: { actio
   for (const entry of [...entries].sort((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))) {
     const directive = parse(entry.text)
     if (!directive) continue
-    if ("role" in directive && directive.role && !roleMatches(directive.role, call.agent)) continue
+    if ("role" in directive && directive.role && directive.kind !== "only" && !roleMatches(directive.role, call.agent)) continue
     if (directive.kind === "command" && call.action === "shell" && call.resources.some(resource => directive.pattern.test(resource))) return entry
     if (directive.kind === "path") {
       // Arbitrary processes can read/write any file and cannot be checked by
@@ -181,6 +181,14 @@ export function permissionViolation(entries: ReadonlyArray<Entry>, call: { actio
     if (directive.kind === "only" && glob(directive.tool).test(call.action) && !roleMatches(directive.role, call.agent)) return entry
   }
   return undefined
+}
+
+/** A shared preflight for code paths that inspect content before asking permission. */
+export function resourceRefusal(sessionID: string, call: { action: string; agent: string; resources: readonly string[]; metadata?: unknown }) {
+  const unavailable = unavailableRefusal(sessionID, call.action, call.metadata)
+  if (unavailable) return unavailable
+  const broken = permissionViolation(recall(sessionID), call)
+  return broken ? refusal(broken) : undefined
 }
 
 export const refusal = (entry: Entry) =>

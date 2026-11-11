@@ -110,3 +110,11 @@ describe("resource-level rule enforcement", () => {
     expect(RuleEnforce.permissionViolation([rule("deny path **/.env for role developer")], { action: "shell", agent: "team-tester", resources: ["bun test"] })).toBeUndefined()
   })
 })
+
+ test("only-role remains final for a different caller, and opaque console cannot bypass command rules", () => {
+   const only = [{ title: "Project", text: "only role lead may use tool edit", by: "operator" }]
+   expect(RuleEnforce.permissionViolation(only, { action: "edit", agent: "worker", resources: ["a"] })).toBe(only[0])
+   expect(RuleEnforce.permissionViolation(only, { action: "edit", agent: "lead", resources: ["a"] })).toBeUndefined()
+   const command = [{ title: "Project", text: "deny command git push", by: "operator" }]
+   expect(RuleEnforce.violation(command, { tool: "console", agent: "lead", input: { action: "write", text: "git push\n" } })).toBe(command[0])
+ })
