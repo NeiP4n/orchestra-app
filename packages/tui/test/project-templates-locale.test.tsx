@@ -88,3 +88,26 @@ for (const language of ["en", "ru"] as const) test(`blocked browser links have e
     expect(calls).toEqual([["review", true]])
   } finally { app.renderer.destroy() }
 })
+
+for (const width of [80,120]) test(`stale browser chat requires visible review and consent at ${width} columns`, async () => {
+  const calls: unknown[]=[]
+  const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave access={{
+    list:async()=>[],prepareSave:async()=>({token:"binding-review",name:"Test2",details:JSON.stringify({format:"orchestra.project-template",version:2,process:{skills:[]}}),browserBindings:[{browser:1,reason:"missing"},{browser:2,reason:"foreign"}]}),
+    confirmSave:async(...args)=>{calls.push(args)},prepareCreate:async()=>{throw Error("unused")},confirmCreate:async()=>{},
+  }}/></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:38})
+  app.renderer.start()
+  const click=async(id:string)=>{const node=app.renderer.root.findDescendantById(`project-templates.${id}`)!;await app.mockMouse.click(node.x+2,node.y);await app.renderOnce()}
+  try {
+    await app.waitForFrame(f=>f.includes("Шаблоны проектов"));await click("save")
+    await app.waitForFrame(f=>f.includes("Браузер 1:"))
+    const frame=app.captureCharFrame().replace(/\s+/g," ")
+    expect(frame).toContain("Браузер 2: старая привязка к чату недоступна.")
+    expect(frame).toContain("Исходный проект не меняется.")
+    expect(calls).toEqual([])
+    if(process.env.CAPTURE_BROWSER_BINDING_REVIEW) await Bun.write(`${process.env.CAPTURE_BROWSER_BINDING_REVIEW}-${width}.json`,JSON.stringify(app.captureSpans()))
+    await click("cancel");expect(calls).toEqual([])
+    await click("save");await app.waitForFrame(f=>f.includes("Браузер 1:"));await click("confirm")
+    await app.waitForFrame(f=>f.includes("Проект сохранён как шаблон"))
+    expect(calls).toEqual([["binding-review",false,true]])
+  }finally{app.renderer.destroy()}
+})

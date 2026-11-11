@@ -1,5 +1,6 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.": "Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.",
   "A template with this name already exists. Update it or save a separate copy.": "A template with this name already exists. Update it or save a separate copy.",
   "Update existing template": "Update existing template",
   "Save separate copy": "Save separate copy",
@@ -164,6 +165,7 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.": "Браузер {browser}: старая привязка к чату недоступна. Сохранить браузер и ссылки без неё? В новом проекте при первом открытии создастся новый BrowserAgent. Исходный проект не меняется.",
   "A template with this name already exists. Update it or save a separate copy.": "Шаблон с таким именем уже есть. Обновите его или сохраните отдельную копию.",
   "Update existing template": "Обновить существующий шаблон",
   "Save separate copy": "Сохранить отдельную копию",

@@ -32,10 +32,12 @@ export interface Stores {
   getSession: (id: string) => Effect.Effect<SessionMetadata | undefined>
   listSessionsInTree: (directory: string) => Effect.Effect<readonly SessionMetadata[]>
 }
+export interface BrowserBindingIssue { browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }
 export function readSource(
   stores: Stores,
   projectID: string,
   linked: Pick<ProjectTemplateSource.Source, "browsers" | "vault" | "selectedGlobalSlotIDs" | "providers" | "mcp">,
+  bindingReview?: BrowserBindingIssue[],
 ) {
   let stage: TemplateStage = "base-project"
   return Effect.gen(function* () {
@@ -95,6 +97,32 @@ export function readSource(
       })
     }
     stage = "base-rules"
+    // A persisted, powered-off browser is still a process definition. Diagnose the
+    // binding against the same passive ownership snapshot before exporting any data.
+    // Never repair owners, adopt a foreign chat, or silently drop a browser here.
+    const reviewedBrowsers = linked.browsers.map(row => ({ ...row }))
+    for (const [index, browser] of reviewedBrowsers.entries()) {
+      if (!browser.chat || ids.has(browser.chat)) continue
+      const info = yield* stores.getSession(browser.chat)
+      const fail = (message: string, reason: import("./project-template-errors.js").TemplateReason) => {
+        if (bindingReview) {
+          const category = reason === "browser-chat-missing" ? "missing" : reason === "browser-chat-child" ? "child" : reason === "browser-chat-foreign" ? "foreign" : "unlisted"
+          bindingReview.push({ browser: index + 1, reason: category })
+          delete browser.chat
+          return
+        }
+        throw new TemplateStageError("base-browsers", new Error(message), reason)
+      }
+      if (!info) fail("Browser chat no longer exists.", "browser-chat-missing")
+      else if (info.parentID) fail("Browser chat is a child task.", "browser-chat-child")
+      else {
+        const claimed = claims.get(info.id) ?? Orchestra.sessionOwner(info.metadata)
+        const owner = typeof claimed === "string" || claimed === undefined
+          ? Orchestra.ownerOf(projects, info.location.directory, claimed) : undefined
+        if (owner && owner.id !== project.id) fail("Browser chat belongs to another project.", "browser-chat-foreign")
+        else fail("Browser chat is not in the project roster.", "browser-chat-unlisted")
+      }
+    }
     const roleRows = yield* scan(`rules/role:${projectID}:`)
     const scopes: {
       key: string
@@ -140,8 +168,8 @@ export function readSource(
     stage = "source-stability"
     const final = yield* stores.kv.get(`orchestra/project/${projectID}`)
     if (JSON.stringify(final) !== JSON.stringify(raw)) throw Error("Project changed during capture.")
-    return { project, sessions, ownedSessionIDs: ids, rules, schedules, ...linked } satisfies ProjectTemplateSource.Source
-  }).pipe(Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(new TemplateStageError(stage, Cause.squash(cause)))))
+    return { project, sessions, ownedSessionIDs: ids, rules, schedules, ...linked, browsers: reviewedBrowsers } satisfies ProjectTemplateSource.Source
+  }).pipe(Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(Cause.squash(cause) instanceof TemplateStageError ? Cause.squash(cause) as TemplateStageError : new TemplateStageError(stage, Cause.squash(cause)))))
 }
 
 /** Existing v1 capture remains a strict projection of the same passive owned source. */
