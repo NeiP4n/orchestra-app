@@ -44,6 +44,8 @@ export interface StepRecord {
     /** The provider's usage as sent, undefined when it sent none. Diagnostic consumers only. */
     readonly rawUsage?: Usage
   }
+  /** Non-whitespace answer text or any tool activity; reasoning alone is not a result. */
+  readonly meaningfulOutput: boolean
   readonly needsContinuation: boolean
 }
 
@@ -96,6 +98,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
   let stepStarted = false
   let providerFailed = false
   let outputStarted = false
+  let answerText = false
   let stepFailure: SessionError.Error | undefined
   let stepSettlement: StepRecord["finish"]
 
@@ -416,9 +419,11 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
         })
         return
       case "text-delta":
+        if (event.text.trim()) answerText = true
         yield* text.append(event.id, event.text, providerState(event.providerMetadata))
         return
       case "text-end":
+        if (event.text?.trim()) answerText = true
         yield* text.end(event.id, providerState(event.providerMetadata), event.text)
         return
       case "reasoning-start":
@@ -615,6 +620,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
       providerFailed,
       failure: stepFailure,
       finish: stepSettlement,
+      meaningfulOutput: answerText || Iterable.some(tools.values(), (tool) => tool.called || tool.settled),
       needsContinuation: Iterable.some(
         tools.values(),
         (tool) => !tool.providerExecuted && (tool.called || tool.settled),

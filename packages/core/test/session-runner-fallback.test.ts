@@ -6,6 +6,7 @@ import {
   HttpContext,
   InvalidRequestError,
   LanguageModel,
+  LLMEvent,
   ProviderInternalError,
   QuotaExceededError,
   RateLimitError,
@@ -777,3 +778,27 @@ describe("team agents do not switch models by themselves", () => {
     expect(SessionRunnerLLM.mayFallBack("build", undefined)).toBe(true)
   })
 })
+
+it.live(
+  "reasoning-only stop retries finitely, falls back, and keeps failed reasoning separate",
+  () =>
+    Effect.gen(function* () {
+      yield* seed({ sessionID: mainSession, model: "worker" })
+      const llm = yield* TestLLM.Service
+      const empty = () =>
+        TestLLM.stop(
+          LLMEvent.reasoningStart({ id: "thought" }),
+          LLMEvent.reasoningDelta({ id: "thought", text: "Need to do the task" }),
+          LLMEvent.reasoningEnd({ id: "thought" }),
+        )
+      yield* llm.push(empty(), empty(), TestLLM.text("Recovered", "answer"))
+      const result = yield* drainPrompt(mainSession, "Do the work")
+      expect(Exit.isSuccess(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "worker", "sonnet-5"])
+      const assistants = result.messages.filter((message) => message.type === "assistant")
+      expect(assistants).toHaveLength(3)
+      expect(assistants.slice(0, 2).every((message) => message.error !== undefined)).toBe(true)
+      expect(assistants.at(-1)).toMatchObject({ finish: "stop", content: [{ type: "text", text: "Recovered" }] })
+    }),
+  15000,
+)

@@ -475,10 +475,15 @@ const layer = Layer.effect(
         const completed = yield* SessionStep.Outcome.$match(outcome, {
           Completed: (outcome) => Effect.succeed(outcome.needsContinuation),
           Retry: (outcome) =>
-            retry.wait({
-              decision: outcome.decision,
-              error: outcome.error,
-              assistantMessageID,
+            Effect.gen(function* () {
+              yield* retry.wait({
+                decision: outcome.decision,
+                error: outcome.error,
+                assistantMessageID,
+              })
+              // Reasoning from a rejected empty attempt stays in its own failed
+              // assistant record. Never append the next answer over its ordinals.
+              if (outcome.freshAssistant) assistantMessageID = SessionMessage.ID.create()
             }),
           Continue: Effect.fnUntraced(function* (outcome) {
             yield* retry.wait({

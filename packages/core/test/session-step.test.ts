@@ -385,7 +385,14 @@ it.effect("measurement: an empty usage report keeps every field and the cost unk
       const { llm, sessionID, steps, dir, sizesRequest, attemptInput, enable } = yield* measurementFixture()
       enable()
       const attempt = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
-      yield* llm.push(TestLLM.complete({ reason: { normalized: "stop" }, usage: {} }))
+      yield* llm.push(
+        TestLLM.complete(
+          { reason: { normalized: "stop" }, usage: {} },
+          LLMEvent.textStart({ id: "answer" }),
+          LLMEvent.textDelta({ id: "answer", text: "ok" }),
+          LLMEvent.textEnd({ id: "answer" }),
+        ),
+      )
       const result = yield* steps.attempt(attemptInput(attempt)).pipe(Effect.exit)
       expect(Exit.isSuccess(result)).toBe(true)
       const { records } = yield* exportedRecords(dir)
@@ -405,27 +412,37 @@ it.effect("measurement: output excludes reasoning when the split is known, unkno
       // Known split: visible output is 100 - 40, never the inclusive 100.
       const split = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
       yield* llm.push(
-        TestLLM.complete({
-          reason: { normalized: "stop" },
-          usage: {
-            inputTokens: 10,
-            nonCachedInputTokens: 10,
-            outputTokens: 100,
-            reasoningTokens: 40,
-            cacheReadInputTokens: 0,
-            cacheWriteInputTokens: 0,
+        TestLLM.complete(
+          {
+            reason: { normalized: "stop" },
+            usage: {
+              inputTokens: 10,
+              nonCachedInputTokens: 10,
+              outputTokens: 100,
+              reasoningTokens: 40,
+              cacheReadInputTokens: 0,
+              cacheWriteInputTokens: 0,
+            },
           },
-        }),
+          LLMEvent.textStart({ id: "answer" }),
+          LLMEvent.textDelta({ id: "answer", text: "ok" }),
+          LLMEvent.textEnd({ id: "answer" }),
+        ),
       )
       const splitResult = yield* steps.attempt(attemptInput(split)).pipe(Effect.exit)
       expect(Exit.isSuccess(splitResult)).toBe(true)
       // Missing split: output stays unknown rather than counting reasoning twice.
       const unsplit = yield* SessionRequestMeasurement.recordPrimarySizes({ sessionID, request: sizesRequest })
       yield* llm.push(
-        TestLLM.complete({
-          reason: { normalized: "stop" },
-          usage: { inputTokens: 10, nonCachedInputTokens: 10, outputTokens: 100 },
-        }),
+        TestLLM.complete(
+          {
+            reason: { normalized: "stop" },
+            usage: { inputTokens: 10, nonCachedInputTokens: 10, outputTokens: 100 },
+          },
+          LLMEvent.textStart({ id: "answer2" }),
+          LLMEvent.textDelta({ id: "answer2", text: "ok" }),
+          LLMEvent.textEnd({ id: "answer2" }),
+        ),
       )
       const unsplitResult = yield* steps.attempt(attemptInput(unsplit)).pipe(Effect.exit)
       expect(Exit.isSuccess(unsplitResult)).toBe(true)
@@ -461,4 +478,68 @@ it.live("measurement: interrupting the step settles the attempt as cancelled", (
       expect(record.outcome).toBe("cancelled")
     }),
   ),
+)
+
+for (const reasoningOnly of [false, true]) {
+  it.effect(`empty stop (${reasoningOnly ? "reasoning only" : "no content"}) retries instead of completing`, () =>
+    Effect.gen(function* () {
+      const { llm, steps, attemptInput } = yield* measurementFixture()
+      yield* llm.push(
+        TestLLM.stop(
+          ...(reasoningOnly
+            ? [
+                LLMEvent.reasoningStart({ id: "thought" }),
+                LLMEvent.reasoningDelta({ id: "thought", text: "thinking" }),
+                LLMEvent.reasoningEnd({ id: "thought" }),
+              ]
+            : []),
+        ),
+      )
+      let requested = false
+      const result = yield* steps.attempt({
+        ...attemptInput(),
+        retry: (_cause, _error, retry) => {
+          requested = retry
+          return Effect.succeed({ retry: true as const, attempt: 2, delay: 0 })
+        },
+      })
+      expect(requested).toBe(true)
+      expect(result._tag).toBe("Retry")
+    }),
+  )
+}
+
+it.effect("empty stop tries fallback after retry exhaustion and fails honestly when no model remains", () =>
+  Effect.gen(function* () {
+    const { llm, steps, attemptInput } = yield* measurementFixture()
+    let fallbackCalls = 0
+    for (const available of [true, false]) {
+      yield* llm.push(TestLLM.stop())
+      const result = yield* steps
+        .attempt({
+          ...attemptInput(),
+          retry: () => Effect.succeed({ retry: false as const }),
+          fallback: () =>
+            Effect.sync(() => {
+              fallbackCalls++
+              return available
+            }),
+        })
+        .pipe(Effect.exit)
+      if (available) {
+        expect(Exit.isSuccess(result)).toBe(true)
+        if (Exit.isSuccess(result)) expect(result.value._tag).toBe("Switched")
+      } else expect(Exit.isFailure(result)).toBe(true)
+    }
+    expect(fallbackCalls).toBe(2)
+  }),
+)
+
+it.effect("whitespace answer is rejected while visible text remains successful", () =>
+  Effect.gen(function* () {
+    const { llm, steps, attemptInput } = yield* measurementFixture()
+    yield* llm.push(TestLLM.text("  \n\t", "blank"), TestLLM.text("Done", "answer"))
+    expect((yield* steps.attempt(attemptInput()))._tag).toBe("Retry")
+    expect((yield* steps.attempt(attemptInput()))._tag).toBe("Completed")
+  }),
 )

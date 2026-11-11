@@ -1,0 +1,27 @@
+name: empty-step-regression
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/session/runner/**'
+      - 'packages/core/test/session-step.test.ts'
+      - 'packages/core/test/session-runner*.test.ts'
+      - '.github/workflows/empty-step-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: offline runner (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Step settlement and bounded real runner fallback (no providers)
+        run: bun test packages/core/test/session-step.test.ts packages/core/test/session-runner-fallback.test.ts packages/core/test/session-runner-tool-events.test.ts packages/core/test/session-runner-retry.test.ts packages/core/test/session-runner-recorded.test.ts
