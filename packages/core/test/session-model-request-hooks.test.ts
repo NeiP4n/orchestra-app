@@ -43,64 +43,62 @@ const transport = SessionModelTransport.Service.of({
 })
 
 describe("SessionModelRequest HTTP hooks", () => {
-  it.effect(
-    "mirrors only the CodeMode schemas Zen requires without changing other providers",
-    () =>
-      Effect.gen(function* () {
-        const registry = yield* Tool.Service
-        yield* registry.transform((editor) => {
-          editor.add({
-            name: "read",
-            description: "Read a test resource",
-            input: Schema.Struct({ text: Schema.String }),
-            execute: ({ text }) => Effect.succeed({ output: { text } }),
-          })
-          editor.add({
-            name: "zen-browser",
-            description: "Drive a test browser",
-            input: Schema.Struct({ text: Schema.String }),
-            execute: ({ text }) => Effect.succeed({ output: { text } }),
-          })
+  it.effect("mirrors only the CodeMode schemas Zen requires without changing other providers", () =>
+    Effect.gen(function* () {
+      const registry = yield* Tool.Service
+      yield* registry.transform((editor) => {
+        editor.add({
+          name: "read",
+          description: "Read a test resource",
+          input: Schema.Struct({ text: Schema.String }),
+          execute: ({ text }) => Effect.succeed({ output: { text } }),
         })
-        const tools = yield* registry.snapshot()
-        const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
-        const makeModel = (provider: string) => {
-          // OpenAIChat has a fixed route provider; only the model reference varies here because
-          // the request compatibility branch is keyed by the selected catalog provider.
-          const resolved = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "test-model" }), {
-            capabilities: { tools: true, input: ["text"], output: ["text"] },
-            cost: [],
-            limit: { context: 200_000, output: 32_000 },
-          })
-          return {
-            ...resolved,
-            ref: Model.Ref.make({ id: resolved.ref.id, providerID: Provider.ID.make(provider) }),
-          }
+        editor.add({
+          name: "zen-browser",
+          description: "Drive a test browser",
+          input: Schema.Struct({ text: Schema.String }),
+          execute: ({ text }) => Effect.succeed({ output: { text } }),
+        })
+      })
+      const tools = yield* registry.snapshot()
+      const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+      const makeModel = (provider: string) => {
+        // OpenAIChat has a fixed route provider; only the model reference varies here because
+        // the request compatibility branch is keyed by the selected catalog provider.
+        const resolved = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "test-model" }), {
+          capabilities: { tools: true, input: ["text"], output: ["text"] },
+          cost: [],
+          limit: { context: 200_000, output: 32_000 },
+        })
+        return {
+          ...resolved,
+          ref: Model.Ref.make({ id: resolved.ref.id, providerID: Provider.ID.make(provider) }),
         }
+      }
 
-        const zen = yield* requests.primary({
-          session,
-          agent: Agent.ID.make("build"),
-          model: makeModel("opencode"),
-          tools,
-          system: [],
-          messages: [],
-        })
-        expect(zen.request.tools?.map((tool) => tool.name)).toContain("read")
-        expect(zen.request.tools?.map((tool) => tool.name)).toContain("execute")
-        expect(zen.request.tools?.map((tool) => tool.name)).not.toContain("zen-browser")
+      const zen = yield* requests.primary({
+        session,
+        agent: Agent.ID.make("build"),
+        model: makeModel("opencode"),
+        tools,
+        system: [],
+        messages: [],
+      })
+      expect(zen.request.tools?.map((tool) => tool.name)).toContain("read")
+      expect(zen.request.tools?.map((tool) => tool.name)).toContain("execute")
+      expect(zen.request.tools?.map((tool) => tool.name)).not.toContain("zen-browser")
 
-        const other = yield* requests.primary({
-          session,
-          agent: Agent.ID.make("build"),
-          model: makeModel("test"),
-          tools,
-          system: [],
-          messages: [],
-        })
-        expect(other.request.tools?.map((tool) => tool.name)).toContain("execute")
-        expect(other.request.tools?.map((tool) => tool.name)).not.toContain("read")
-      }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+      const other = yield* requests.primary({
+        session,
+        agent: Agent.ID.make("build"),
+        model: makeModel("test"),
+        tools,
+        system: [],
+        messages: [],
+      })
+      expect(other.request.tools?.map((tool) => tool.name)).toContain("execute")
+      expect(other.request.tools?.map((tool) => tool.name)).not.toContain("read")
+    }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
   )
 
   it.effect("keeps a full OpenCode Zen mirror within its 128-tool limit for large CodeMode catalogs", () =>
@@ -292,3 +290,40 @@ describe("SessionModelRequest HTTP hooks", () => {
     }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
   )
 })
+
+it.effect("Kilo task cache header follows the effective official route, not a provider label", () =>
+  Effect.gen(function* () {
+    const hooks = yield* PluginHooks.Service
+    let destination = "https://ai-gateway.kilo.ai/api/v1"
+    yield* hooks.register("session", "model.request", (event) =>
+      Effect.sync(() => {
+        event.baseURL = destination
+      }),
+    )
+    const registry = yield* Tool.Service
+    const tools = yield* registry.snapshot()
+    const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+    const prepare = (target = session) =>
+      requests.primary({ session: target, agent: Agent.ID.make("build"), model, tools, system: [], messages: [] })
+    const first = yield* prepare()
+    const again = yield* prepare()
+    const taskID = first.request.http?.headers?.["X-KiloCode-TaskId"]
+    expect(taskID).toMatch(/^[a-f0-9]{64}$/)
+    expect(taskID).not.toContain(session.id)
+    expect(again.request.http?.headers?.["X-KiloCode-TaskId"]).toBe(taskID)
+    const other = yield* prepare(Session.Info.make({ ...session, id: Session.ID.make("ses_other_kilo") }))
+    expect(other.request.http?.headers?.["X-KiloCode-TaskId"]).not.toBe(taskID)
+    const child = yield* prepare(
+      Session.Info.make({ ...session, id: Session.ID.make("ses_child_kilo"), parentID: session.id }),
+    )
+    expect(child.request.http?.headers?.["X-KiloCode-TaskId"]).toBe(taskID)
+    for (const url of [
+      "https://ai-gateway.kilo.ai.evil.test/api/v1",
+      "http://ai-gateway.kilo.ai/api/v1",
+      "https://other.test/api/v1",
+    ]) {
+      destination = url
+      expect((yield* prepare()).request.http?.headers?.["X-KiloCode-TaskId"]).toBeUndefined()
+    }
+  }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+)

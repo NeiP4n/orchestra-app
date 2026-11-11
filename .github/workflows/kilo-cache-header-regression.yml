@@ -1,0 +1,27 @@
+name: kilo-cache-header-regression
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/session/model-request.ts'
+      - 'packages/core/src/session/affinity.ts'
+      - 'packages/core/test/session-model-request*.test.ts'
+      - '.github/workflows/kilo-cache-header-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Kilo header scope (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Effective-route request preparation and opaque stable session affinity
+        run: bun test packages/core/test/session-model-request.test.ts packages/core/test/session-model-request-hooks.test.ts packages/core/test/session-affinity.test.ts

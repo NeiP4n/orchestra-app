@@ -26,6 +26,7 @@ import { Mode } from "@orchestra/schema/mode"
 import type { Content } from "@orchestra/schema/tool"
 import { Cause, Context, Effect, Layer, Result, Stream } from "effect"
 import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { createHash } from "node:crypto"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { App } from "../app.js"
 import { Permission } from "../permission.js"
@@ -430,7 +431,10 @@ export const layer = Layer.effect(
         model: route === base.model.route ? base.model : LanguageModel.update(base.model, { route }),
         http: new HttpOptions({
           ...base.http,
-          headers: Object.keys(modelHook.headers).length === 0 ? undefined : modelHook.headers,
+          headers: {
+            ...modelHook.headers,
+            ...kiloTaskHeaders(route.endpoint.baseURL, affinity),
+          },
         }),
       })
       // History selects native windows against the catalog route before hooks run. A newly installed
@@ -633,3 +637,12 @@ export const node = makeLocationNode({
   layer,
   deps: [PluginHooks.node, SessionModelTransport.node, App.node],
 })
+
+/** Kilo documents TaskId as prompt-cache keying, not a cache-hit guarantee.
+ * Apply only after routing hooks select the actual official gateway endpoint. */
+export function kiloTaskHeaders(baseURL: unknown, affinity: string): Record<string, string> {
+  if (typeof baseURL !== "string") return {}
+  const url = URL.parse(baseURL)
+  if (!url || url.protocol !== "https:" || url.hostname !== "ai-gateway.kilo.ai" || url.port || url.username || url.password || !/^\/api\/v1\/?$/.test(url.pathname)) return {}
+  return { "X-KiloCode-TaskId": createHash("sha256").update(affinity).digest("hex") }
+}
