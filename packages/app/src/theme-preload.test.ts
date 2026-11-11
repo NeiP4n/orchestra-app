@@ -6,6 +6,7 @@ const run = () => Function(src)()
 
 const setSystemDark = (matches: boolean) =>
   Object.defineProperty(window, "matchMedia", {
+    // SAFETY: the preload only reads matches; event methods are never used by this fixture.
     value: () => ({ matches }) as MediaQueryList,
     configurable: true,
   })
