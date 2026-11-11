@@ -25,7 +25,7 @@
 [data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"] {
   position: absolute;
   inset: 0;
-  border: 1px solid var(--icon-spark-base, #67e8f9);
+  border: 1px solid var(--v2-neural-spark, var(--icon-spark-base, #67e8f9));
   border-radius: 9999px;
   opacity: 0;
   animation: sculk-ring 1.8s ease-out infinite;
@@ -47,7 +47,7 @@
   height: 4px;
   margin: -2px 0 0 -2px;
   border-radius: 9999px;
-  background: var(--icon-spark-base, #67e8f9);
+  background: var(--v2-neural-spark, var(--icon-spark-base, #67e8f9));
 }
 
 @keyframes sculk-ring {
@@ -65,4 +65,12 @@
    only the dot: a spinner that looks broken is worse than a still one. */
 :root[data-motion="off"] [data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"] {
   display: none;
+}
+
+/* Respect reduced motion before the app preference has hydrated. An explicit
+   saved Animations choice still wins once data-motion is present. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="on"]) [data-component="sculk-spinner"] [data-slot="sculk-spinner-ring"] {
+    display: none;
+  }
 }

@@ -44,3 +44,21 @@ test("pre-paint Sculk colors are generated from the same TUI source", async () =
   expect(generated).toBeDefined()
   expect(JSON.parse(generated!)).toEqual(sculkBootColors())
 })
+
+test.each(["light", "dark"] as const)("Sculk %s neural roles use the production TUI resolver", (mode) => {
+  const tui = resolveThemeDocument(parseThemeDocument(source, "sculk"), mode)
+  const tokens = resolveThemeVariantV2(buildSculkWebTheme()[mode], mode === "dark")
+
+  for (const role of ["signal", "synapse", "spark", "dormant"] as const) {
+    const rgba = tui.text.neural?.[role]
+    expect(rgba).toBeDefined()
+
+    const hex = `#${rgba!
+      .toInts()
+      .slice(0, 3)
+      .map((n) => n.toString(16).padStart(2, "0"))
+      .join("")}`
+
+    expect(tokens[`v2-neural-${role}`]).toBe(hex)
+  }
+})

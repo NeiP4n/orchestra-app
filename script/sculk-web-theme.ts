@@ -67,6 +67,10 @@ function variant(mode: "light" | "dark"): ThemeVariant {
       "icon-spark-base": amber,
     },
     v2Overrides: {
+      "v2-neural-signal": color(tokens.text.neural?.signal ?? tokens.text.base),
+      "v2-neural-synapse": color(tokens.text.neural?.synapse ?? tokens.border.base),
+      "v2-neural-spark": color(tokens.text.neural?.spark ?? tokens.text.base),
+      "v2-neural-dormant": color(tokens.text.neural?.dormant ?? tokens.text.muted),
       "v2-background-bg-base": bg,
       "v2-background-bg-deep": hex(gray[900]),
       "v2-background-bg-layer-01": bg,
