@@ -9,9 +9,7 @@
   var mode = isDark ? "dark" : "light"
 
   // Generated from TUI Sculk by script/sculk-web-theme.ts.
-  var sculkBoot = JSON.parse(
-    '{"light":{"background":"#f0fafa","color":"#0c2a30"},"dark":{"background":"#050f15","color":"#bff7f2"}}',
-  )
+  var sculkBoot = JSON.parse('{"light":{"background":"#f0fafa","color":"#0c2a30"},"dark":{"background":"#050f15","color":"#bff7f2"}}')
   var boot =
     themeId === "sculk"
       ? sculkBoot[mode]

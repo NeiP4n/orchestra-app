@@ -478,6 +478,15 @@ function normalizeExperimental(
         )
         if (value !== undefined) result.context_governor = value
       }
+      if (own(experimental, "neural_functional_effects")) {
+        const value = decodeEncoded(
+          ConfigExperimental.Info.fields.neural_functional_effects,
+          experimental.neural_functional_effects,
+          ["experimental", "neural_functional_effects"],
+          diagnostics,
+        )
+        if (value !== undefined) result.neural_functional_effects = value
+      }
       if (own(experimental, "subagent_depth")) {
         const value = decodeEncoded(
           ConfigExperimental.Info.fields.subagent_depth,

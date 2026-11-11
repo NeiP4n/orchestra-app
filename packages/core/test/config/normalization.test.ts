@@ -483,6 +483,15 @@ describe("ConfigNormalize", () => {
     expect(normalized({ enabled_providers: "anthropic" }).encoded.experimental).toBeUndefined()
   })
 
+  test("keeps the neural_functional_effects flag", () => {
+    expect(normalized({ experimental: { neural_functional_effects: true } }).encoded.experimental).toEqual({
+      neural_functional_effects: true,
+    })
+    expect(normalized({ experimental: { neural_functional_effects: false } }).encoded.experimental).toEqual({
+      neural_functional_effects: false,
+    })
+  })
+
   test("appends native policies after migrated provider policies", () => {
     expect(
       normalized({

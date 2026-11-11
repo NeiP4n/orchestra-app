@@ -106,7 +106,7 @@ if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {
     render(
       () => (
         <PlatformProvider value={web.platform}>
-          <AppBaseProviders locale={locale}>
+          <AppBaseProviders locale={locale} defaultTheme="sculk">
             <AppInterface
               canonicalLocalServer={server ? ServerConnection.key(server) : undefined}
               servers={server ? [server] : []}

@@ -8,6 +8,7 @@ import oc2ThemeJson from "./themes/oc-2.json"
 import { resolveThemeVariant, themeToCss } from "./resolve"
 import { resolveThemeVariantV2, themeV2ToCss } from "./v2/resolve"
 import type { DesktopTheme } from "./types"
+import { DEFAULT_THEME_ID } from "./default-theme"
 
 export type ColorScheme = "light" | "dark" | "system"
 
@@ -100,7 +101,7 @@ const oc2Theme = oc2ThemeJson as DesktopTheme
 function resolveStoredTheme(id: string | null | undefined, registered?: Record<string, DesktopTheme>) {
   if (id === "oc-2" || (id && (knownThemes().has(id) || registered?.[id]))) return id
 
-  return "oc-2"
+  return DEFAULT_THEME_ID
 }
 
 function read(key: string) {
@@ -459,7 +460,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       // A stored theme wins over the platform default forever, so without
       // this there was no way back once a non-default theme was picked
       // (the Maestro default survived the sculk revert that way).
-      resetTheme: () => setTheme(props.defaultTheme ?? "oc-2"),
+      resetTheme: () => setTheme(props.defaultTheme ?? DEFAULT_THEME_ID),
       setColorScheme,
       registerTheme: (theme: DesktopTheme) => setStore("themes", theme.id, theme),
       previewTheme: (id: string) => {
