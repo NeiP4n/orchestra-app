@@ -284,7 +284,22 @@ for (const language of ["en", "ru"] as const) test(`linked-owner deletion refusa
   } finally { fixture.app.renderer.destroy() }
 })
 
-async function renderIntegration(activeLocation?: LocationRef, form?: FormFields, deleteFailure?: string, language: "en" | "ru" = "en") {
+for (const language of ["en", "ru"] as const) test(`native Antigravity removal warns about the independent plugin pool (${language})`, async () => {
+  const fixture = await renderIntegration(undefined, undefined, undefined, language, "google-antigravity")
+  try {
+    fixture.app.mockInput.pressArrow("down")
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitForFrame(frame => frame.replace(/\s+/g, " ").includes(language === "en" ? "separate Antigravity" : "плагина Antigravity"))
+    expect(fixture.requests).toEqual([])
+    expect(fixture.accounts).toHaveLength(2)
+    if (process.env.CAPTURE_POOL_WARNING) await Bun.write(process.env.CAPTURE_POOL_WARNING + `-${language}.json`, JSON.stringify(fixture.app.captureSpans()))
+    fixture.app.mockInput.pressKey("d", { ctrl: true })
+    await fixture.app.waitFor(() => fixture.requests.length === 1)
+    expect(fixture.requests).toEqual([{ method: "DELETE", path: "/api/credential/cred_personal" }])
+  } finally { fixture.app.renderer.destroy() }
+})
+
+async function renderIntegration(activeLocation?: LocationRef, form?: FormFields, deleteFailure?: string, language: "en" | "ru" = "en", integrationID = "openai") {
   const events = createEventStream()
   const requests: Array<{ method: string; path: string; body?: unknown }> = []
   const locations: LocationRef[] = []
@@ -312,8 +327,8 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
         location,
         data: [
           {
-            id: "openai",
-            name: "OpenAI",
+            id: integrationID,
+            name: integrationID === "google-antigravity" ? "Google Antigravity" : "OpenAI",
             methods: [{ type: "key", label: "API key", form }],
             connections: [...accounts, { type: "env", name: "OPENAI_API_KEY" }],
           },
@@ -347,7 +362,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
         id: `evt_switched_${id}`,
         created: Date.now(),
         type: "credential.switched",
-        data: { integrationID: "openai", credentialID: id },
+        data: { integrationID, credentialID: id },
       })
       return new Response(null, { status: 204 })
     }
@@ -376,7 +391,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
           id: `evt_switched_${id}`,
           created: Date.now(),
           type: "credential.switched",
-          data: { integrationID: "openai", credentialID: accounts[0]?.id ?? null },
+          data: { integrationID, credentialID: accounts[0]?.id ?? null },
         })
       return new Response(null, { status: 204 })
     }
@@ -392,7 +407,7 @@ async function renderIntegration(activeLocation?: LocationRef, form?: FormFields
       location.set(activeLocation)
       void data.location.integration
         .sync(activeLocation)
-        .then(() => dialog.replace(() => <DialogIntegration integrationID="openai" autoConnect />))
+        .then(() => dialog.replace(() => <DialogIntegration integrationID={integrationID} autoConnect />))
     })
     return null
   }

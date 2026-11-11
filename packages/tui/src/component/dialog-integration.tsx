@@ -211,7 +211,7 @@ function manageConnections(
                   ? `Press ${shortcuts.get("dialog.integration.delete")} again to confirm`
                   : connection.label,
                 value: connection.id,
-                details: deleteError()?.id === connection.id ? deleteError()!.message.match(/.{1,40}(?:\s|$)|\S{1,40}/g)?.map(line => line.trim()) : undefined,
+                details: (deleteError()?.id === connection.id ? deleteError()!.message : confirming && integration.id === "google-antigravity" ? t("Only this native credential will be removed. The separate Antigravity plugin account pool is kept; manage it separately.") : undefined)?.match(/.{1,40}(?:\s|$)|\S{1,40}/g)?.map(line => line.trim()),
                 footer: connection.status ? "Sign in required →" : undefined,
                 footerColor: connection.status ? theme.text.feedback.warning.base : undefined,
                 category: "Connected accounts",
@@ -267,8 +267,9 @@ function manageConnections(
                 .remove({ credentialID: option.value })
                 .then(() => {
                   setDeleting(undefined)
+                  if (integration.id === "google-antigravity") toast.show({ variant: "warning", message: t("Native credential removed. The separate Antigravity plugin account pool was not changed.") })
                   if (!final) return
-                  toast.show({ variant: "success", message: `Disconnected ${integration.name}` })
+                  if (integration.id !== "google-antigravity") toast.show({ variant: "success", message: `Disconnected ${integration.name}` })
                   dialog.clear()
                 })
                 .catch((error) => {

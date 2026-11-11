@@ -1,4 +1,5 @@
 export const dict = {
+  "settings.providers.account.nativePoolKept": "Удаляется только нативная запись. Отдельный пул плагина Antigravity сохраняется; управляйте им отдельно.",
   "desktop.menu.app": "Orchestra",
   "desktop.menu.file": "Файл",
   "desktop.menu.edit": "Правка",

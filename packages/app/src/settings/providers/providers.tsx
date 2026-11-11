@@ -257,7 +257,7 @@ export const SettingsProviders: Component<{
           variant: "success",
           icon: "circle-check",
           title: language.t("provider.disconnect.toast.disconnected.title", { provider: name }),
-          description: language.t("provider.disconnect.toast.disconnected.description", { provider: name }),
+          description: language.t((item.integrationID ?? item.id) === "google-antigravity" ? "settings.providers.account.nativePoolKept" : "provider.disconnect.toast.disconnected.description", { provider: name }),
         })
       })
       .catch((err: unknown) => {
@@ -320,9 +320,9 @@ export const SettingsProviders: Component<{
             final ? { provider: providerName } : { account: account.label },
           ),
           description: language.t(
-            final
-              ? "provider.disconnect.toast.disconnected.description"
-              : "settings.providers.account.removed.description",
+            (provider.integrationID ?? provider.id) === "google-antigravity"
+              ? "settings.providers.account.nativePoolKept"
+              : final ? "provider.disconnect.toast.disconnected.description" : "settings.providers.account.removed.description",
             { provider: providerName },
           ),
         }),

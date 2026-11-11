@@ -1,6 +1,7 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
 
 export const dict = {
+  "settings.providers.account.nativePoolKept": "Only the native credential is removed. The separate Antigravity plugin account pool is kept; manage it separately.",
   ...DESKTOP_NATIVE_ENGLISH,
   "session.location.unavailable": "Session location unavailable",
   "session.location.description": "Choose another directory to continue this session.",
