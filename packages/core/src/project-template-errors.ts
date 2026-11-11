@@ -1,3 +1,16 @@
+export type TemplateStage = "project" | "vault" | "browser-links" | "process-source" | "roles" | "playbook" | "skills" | "programs" | "library-read" | "library-write" | "reservation"
+export class TemplateStageError extends Error {
+  constructor(readonly stage: TemplateStage, readonly original: unknown) { super("Template stage failed") }
+}
+/** Stages are literals chosen by code, never exception text, paths or payloads. */
+export async function templateStage<A>(stage: TemplateStage, action: () => Promise<A>): Promise<A> {
+  try { return await action() } catch (error) {
+    if (error instanceof TemplateStageError) throw error
+    throw new TemplateStageError(stage, error)
+  }
+}
+export const templateStageOf = (error: unknown) => error instanceof TemplateStageError ? error.stage : undefined
+
 /** Stable public reasons. Never serialize filesystem paths, URLs, submitted values or raw exceptions. */
 export const templateErrorMessages = {
   TEMPLATE_PERMISSION: "Template storage is not writable. Check application data folder permissions.",
@@ -38,6 +51,7 @@ const exact = new Map<string, TemplateErrorCode>([
   ["Saved URLs require HTTP(S) with no credentials, query or fragment.", "TEMPLATE_LINKS"],
 ])
 export function templateError(error: unknown): { kind: TemplateErrorCode; message: string } {
+  if (error instanceof TemplateStageError) return templateError(error.original)
   let kind: TemplateErrorCode = "TEMPLATE_FAILED"
   if (error instanceof Error) {
     const code = (error as NodeJS.ErrnoException).code

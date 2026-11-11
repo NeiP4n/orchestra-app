@@ -1,3 +1,4 @@
+import { templateStage } from "./project-template-errors.js"
 export * as ProjectTemplateV2Reader from "./project-template-v2-reader.js"
 
 import { Effect } from "effect"
@@ -45,7 +46,7 @@ export async function capture(
       })) throw Error("Session fallback model metadata is damaged.")
       sessionModels.push({ sessionID: row.id, models: refs.map((m) => ({ provider: m.providerID, id: m.id, variant: m.variant ?? null })) })
     }
-    const [roles, playbook, inventory, programs] = await Promise.all([stores.roles(), stores.playbook(projectID), stores.skills({ projectID, sessionIDs: source.sessions.map((s) => s.id) }), stores.programs(projectID)])
+    const [roles, playbook, inventory, programs] = await Promise.all([templateStage("roles", stores.roles), templateStage("playbook", () => stores.playbook(projectID)), templateStage("skills", () => stores.skills({ projectID, sessionIDs: source.sessions.map((s) => s.id) })), templateStage("programs", () => stores.programs(projectID))])
     const byID = new Map(inventory.definitions.map((s) => [s.id, s]))
     if (byID.size !== inventory.definitions.length) throw Error("Skill definitions are ambiguous.")
     const selected = new Set<string>(), visiting = new Set<string>()

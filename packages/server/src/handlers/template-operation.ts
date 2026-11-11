@@ -1,4 +1,4 @@
-import { templateError } from "@orchestra/core/project-template-errors"
+import { templateError, templateStageOf } from "@orchestra/core/project-template-errors"
 import { InvalidRequestError } from "@orchestra/protocol/errors"
 import { Effect } from "effect"
 
@@ -8,14 +8,16 @@ type TemplateOperation = "list" | "prepareSave" | "confirmSave" | "prepareCreate
 export function templateOperation<A>(operation: TemplateOperation, action: () => Promise<A>) {
   return Effect.tryPromise({
     try: action,
-    catch: (error) => new InvalidRequestError(templateError(error)),
+    catch: (error) => ({ response: new InvalidRequestError(templateError(error)), stage: templateStageOf(error) }),
   }).pipe(
     Effect.tapError((error) =>
       Effect.logWarning("project template operation refused", {
         operation,
-        kind: error.kind,
-        reason: error.message,
+        kind: error.response.kind,
+        reason: error.response.message,
+        ...(error.stage ? { stage: error.stage } : {}),
       }),
     ),
+    Effect.mapError(error => error.response),
   )
 }

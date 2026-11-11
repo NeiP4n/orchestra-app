@@ -1,3 +1,4 @@
+import { templateStage } from "./project-template-errors.js"
 export * as ProjectTemplateOperator from "./project-template-operator.js"
 
 import path from "node:path"
@@ -90,11 +91,11 @@ export function make(deps: Deps) {
   }
   const capture = async (projectID: string, browsers: readonly BrowserInput[], process = !!deps.processStores) => {
     const linkReview: ProjectTemplateBrowser.Review = { issues: [], fingerprint: "" }
-    await ready(projectID)
+    await templateStage("project", () => ready(projectID))
     const project = Schema.decodeUnknownSync(Orchestra.Project)(
       await run(deps.kv.get("orchestra/project/" + projectID)),
     )
-    const vault = await CredentialVault.local(projectID, deps.dataDirectory).slots()
+    const vault = await templateStage("vault", () => CredentialVault.local(projectID, deps.dataDirectory).slots())
     // Only explicit per-project integration requirements travel. Global account configuration
     // is not project configuration and is never swept into the template.
     const raw = await run(deps.kv.get("orchestra/template-requirements/" + projectID))
@@ -128,12 +129,12 @@ export function make(deps: Deps) {
       } else selected.add(matches[0].id)
     }
     const linked = {
-      browsers: await ProjectTemplateBrowser.capture(
+      browsers: await templateStage("browser-links", () => ProjectTemplateBrowser.capture(
         deps.dataDirectory,
         projectID,
         browsers.map((row) => ({ ...row, projectID })),
         linkReview,
-      ),
+      )),
       vault,
       selectedGlobalSlotIDs: selected,
       providers,
@@ -146,7 +147,7 @@ export function make(deps: Deps) {
     }
     if (process && !deps.processStores) throw Error("Process template export is unavailable in this build.")
     const preview = process
-      ? await ProjectTemplateV2Reader.capture(deps.processStores!(projectID), projectID, metadata, linked)
+      ? await templateStage("process-source", () => ProjectTemplateV2Reader.capture(deps.processStores!(projectID), projectID, metadata, linked))
       : await run(
           ProjectTemplateReader.capture(
             {
@@ -224,7 +225,7 @@ export function make(deps: Deps) {
           const current = await capture(pending.projectID, browsers, processID(pending.libraryID) !== undefined)
           if (current.digest !== pending.digest || (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)))
             throw Error("Project changed after confirmation preview. Review it again.")
-          await library.replaceSerialized(pending.text, pending.libraryID, pending.previousDigest, pending.digest)
+          await templateStage("library-write", () => library.replaceSerialized(pending.text, pending.libraryID, pending.previousDigest!, pending.digest))
           await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
           return
         }
@@ -244,7 +245,7 @@ export function make(deps: Deps) {
             (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview))
           )
             throw Error("Project changed after confirmation preview. Review it again.")
-          await library.saveSerialized(pending.text, pending.libraryID, pending.digest)
+          await templateStage("library-write", () => library.saveSerialized(pending.text, pending.libraryID, pending.digest))
         }
         await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
       }),
@@ -331,7 +332,7 @@ export function make(deps: Deps) {
       }
     },
     browserDefinitions: async (projectID: string) => {
-      await ready(projectID)
+      await templateStage("project", () => ready(projectID))
       const value = await Browsers.make(deps.kv, deps.dataDirectory).read(projectID)
       if (value === undefined) return null
       if (!record(value) || !Array.isArray(value.browsers)) throw Error("Imported browser definitions are damaged.")
