@@ -17,6 +17,7 @@ for (const tool of ["shell", "execute", "subagent"]) {
       await timeline.getByRole("button", { name: "Start tool", exact: true }).click()
       await expect(group).toHaveAttribute("data-timeline-part-ids", "tool_context_lifecycle,tool_shell_lifecycle")
       const original = await group.elementHandle()
+
       const title = Match.value(tool).pipe(
         Match.when("subagent", () => "Agent"),
         Match.when("execute", () => "Execute"),
