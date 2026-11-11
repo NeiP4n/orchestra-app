@@ -16,10 +16,7 @@ test("About identifies Orchestra and keeps OpenCode credits separate", async ({ 
     "https://github.com/NeiP4n/orchestra-app",
   )
   await expect(about.getByRole("heading", { name: "OpenCode upstream credits" })).toBeVisible()
-  await expect(about.getByRole("link", { name: "www.opencode.ai", exact: true })).toHaveAttribute(
-    "href",
-    "https://opencode.ai",
-  )
+  await expect(about.getByRole("link", { name: "www.opencode.ai", exact: true })).toHaveCount(0)
   await expect(about).toContainText("© Anomaly Innovations, Inc.")
   await expect(about).toContainText("Released under the MIT License")
   await expect(about).not.toContainText("Orchestra is a registered trademark")
