@@ -11,6 +11,7 @@ test("stale initial read cannot overwrite a newer server event; failed write ref
   let resolve!: (state: { enabled: boolean }) => void
   let control!: ReturnType<typeof createContinuationControl>
   let reads = 0
+
   const access: ContinuationAccess = {
     get: () =>
       ++reads === 1
@@ -23,13 +24,17 @@ test("stale initial read cannot overwrite a newer server event; failed write ref
     },
     onState: (fn) => {
       receive = fn
+
       return () => {}
     },
   }
+
   const dispose = render(() => {
     control = createContinuationControl(access)
+
     return null
   }, document.createElement("div"))
+
   try {
     await flush()
     receive({ enabled: true })

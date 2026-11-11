@@ -6,6 +6,7 @@ import { useGlobal, useServerCtx } from "@/runtime/server/runtime"
 
 export function ContinuationSwitch(props: { access: ContinuationAccess }) {
   const control = createContinuationControl(props.access)
+
   return (
     <div data-slot="continuation-control" class="flex min-h-7 items-center gap-2 px-3 text-xs">
       <button
@@ -47,12 +48,16 @@ export function ContinuationSwitch(props: { access: ContinuationAccess }) {
 export function ContinuationSwitchConnected() {
   const layout = useLayout(),
     global = useGlobal()
+
   const connection = createMemo(() => {
     const route = layout.route()
     const key = route.type === "session" ? route.server : layout.home.selection().server
+
     return global.servers.list().find((item) => ServerConnection.key(item) === key)
   })
+
   const context = useServerCtx(connection)
+
   return (
     <Show when={context()} keyed>
       {(ctx) => (
@@ -63,6 +68,7 @@ export function ContinuationSwitchConnected() {
             onState: (receive) => ctx.sdk.event.on("config.continuation.updated", (event) => receive(event.data)),
             onReconnect: (refresh) => createRoot(dispose => {
               createEffect(on(ctx.sdk.connection.status, status => { if (status === "connected") refresh() }, { defer: true }))
+
               return dispose
             }),
           }}

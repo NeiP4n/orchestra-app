@@ -8,12 +8,14 @@ for (const width of [1440, 390]) {
     page,
   }, info) => {
     await page.setViewportSize({ width, height: 900 })
+
     const workspace = await mockWorkspace(page, {
       name: "Operator pause",
       seed: { tabs: [], settings: { appearance: { animations: false } } },
     })
     // Only transport is a fixture. This mounts the real shell, connection selector,
     // generated client and switch; the separate HTTP test exercises real execution.
+
     let enabled = true
     let finish: (() => void) | undefined
     const writes: boolean[] = []
@@ -27,6 +29,7 @@ for (const width of [1440, 390]) {
         })
         enabled = value.enabled
       }
+
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ enabled }) })
     })
     await page.goto("/")
