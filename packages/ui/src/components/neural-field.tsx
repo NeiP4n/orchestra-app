@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { getSharedNeuralActivity, type NeuralSignalKind } from "./neural-activity"
-import { paintNeuralHaze } from "./neural-haze"
+import { createNeuralHazePainter } from "./neural-haze"
 import { createNeuralFrameLoop } from "./neural-frame-loop"
 
 export { getSharedNeuralActivity, neuralEnergyFloor, type NeuralSignal, type NeuralSignalKind } from "./neural-activity"
@@ -243,6 +243,7 @@ function spawnPulses(
 
 export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
   const activity = getSharedNeuralActivity()
+  const paintHaze = createNeuralHazePainter()
   let drift = 0
   const nodes = buildNodes(24, 42)
   const links = buildLinks(nodes, 0.3)
@@ -256,7 +257,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
 
     ctx.clearRect(0, 0, width, height)
     drift += dt * tempo
-    paintNeuralHaze(ctx, width, height, drift, energy, palette, nodes)
+    paintHaze(ctx, width, height, drift, energy, palette, nodes)
     const scale = Math.min(width, height)
     const px = (x: number) => x * width
     const py = (y: number) => y * height

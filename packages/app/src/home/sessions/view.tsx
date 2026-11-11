@@ -116,6 +116,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
       aria-label={props.language.t("sidebar.project.recentSessions")}
     >
       <div
+        data-slot="home-session-tree-header"
         class="sticky top-0 z-30 shrink-0 bg-v2-background-bg-base pb-3 pt-6 lg:pt-12"
         onWheel={props.onWheel}
       >
@@ -172,7 +173,10 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
           class="relative ml-auto h-[calc(100cqh-112px)] w-3 md:h-[calc(100cqh-120px)] lg:h-[calc(100cqh-144px)]"
         />
       </div>
-      <div class="-mr-3 min-h-[calc(100cqh-108px)] md:min-h-[calc(100cqh-108px)] lg:min-h-[calc(100cqh-132px)]">
+      <div
+        data-slot="home-session-tree-content"
+        class="-mr-3 min-h-[calc(100cqh-108px)] md:min-h-[calc(100cqh-108px)] lg:min-h-[calc(100cqh-132px)]"
+      >
         <Show
           when={!props.loading}
           fallback={
@@ -843,13 +847,23 @@ function HomeSessionRow(
             group-hover/session:opacity-100 focus-within:opacity-100
           `}
         >
-          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")}>
+          <Tooltip
+            class="flex shrink-0 items-center"
+            placement="bottom"
+            value={
+              props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")
+            }
+          >
             <IconButton
               data-action="home-session-archive"
               variant="ghost-muted"
               size="large"
               icon={<Icon name={props.archivedMode ? "rotate-ccw" : "archive"} />}
-              aria-label={props.archivedMode ? props.language.t("home.sessions.restoreSession") : props.language.t("common.archive")}
+              aria-label={
+                props.archivedMode
+                  ? props.language.t("home.sessions.restoreSession")
+                  : props.language.t("common.archive")
+              }
               onClick={(event) => {
                 event.preventDefault()
                 event.stopPropagation()

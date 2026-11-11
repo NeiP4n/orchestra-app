@@ -54,3 +54,10 @@
 :root[data-motion="off"] [data-component="new-session-wordmark"] .wordmark-shimmer {
   animation: none;
 }
+
+[data-component="new-session-wordmark"] [data-slot="wordmark-reveal"] > span {
+  font-family: var(--font-family-mono);
+  font-size: clamp(20px, 2vw, 26px);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}

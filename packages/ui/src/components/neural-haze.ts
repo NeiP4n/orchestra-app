@@ -26,9 +26,12 @@ function fbm(x: number, y: number, seed: number) {
   return noise(x, y, seed) * 0.65 + noise(x * 2.3, y * 2.3, seed + 17) * 0.35
 }
 
-
 export function neuralHazeLevel(x: number, y: number, drift: number, energy: number, warmth = 0, seed = 42) {
-  const value = (fbm(x * 0.06 + drift * 0.9, y * 0.21 + Math.sin(drift * 0.3) * 0.6, seed) - 0.5) * 1.1 - 0.12 + energy * 0.28 + warmth
+  const value =
+    (fbm(x * 0.06 + drift * 0.9, y * 0.21 + Math.sin(drift * 0.3) * 0.6, seed) - 0.5) * 1.1 -
+    0.12 +
+    energy * 0.28 +
+    warmth
   const quantized = value * 4
   const floor = Math.floor(quantized)
 
@@ -73,4 +76,34 @@ export function paintNeuralHaze(
   }
 
   ctx.globalAlpha = 1
+}
+
+export function createNeuralHazePainter() {
+  let layer: HTMLCanvasElement | undefined
+  let lastPaint = -Infinity
+  let lastPalette = ""
+
+  return (...args: Parameters<typeof paintNeuralHaze>) => {
+    const [ctx, width, height, , , palette] = args
+    const colors = palette.dormant + palette.signal
+    const now = performance.now()
+    const resized = !layer || layer.width !== width || layer.height !== height
+
+    if (!layer) layer = document.createElement("canvas")
+    if (resized) {
+      layer.width = width
+      layer.height = height
+    }
+    if (resized || colors !== lastPalette || now - lastPaint >= 70) {
+      const cache = layer.getContext("2d")
+
+      if (cache) {
+        cache.clearRect(0, 0, width, height)
+        paintNeuralHaze(cache, width, height, args[3], args[4], palette, args[6])
+      }
+      lastPaint = now
+      lastPalette = colors
+    }
+    ctx.drawImage(layer, 0, 0)
+  }
 }

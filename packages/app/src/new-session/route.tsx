@@ -29,7 +29,7 @@ export function DraftRoute() {
   )
 }
 
-function ResolvedDraftRoute(props: { draft: DraftTab }) {
+export function ResolvedDraftRoute(props: { draft: DraftTab }) {
   const global = useGlobal()
   const conn = createMemo(() => global.servers.list().find((item) => ServerConnection.key(item) === props.draft.server))
 
@@ -70,7 +70,7 @@ function ResolvedDraftContent(props: { draft: DraftTab }) {
       <ModelsProvider directory={props.draft.directory}>
         <LocationProvider directory={props.draft.directory}>
           <SessionUIProvider directory={props.draft.directory} server={props.draft.server}>
-            <DraftProviders>
+            <DraftProviders draftID={props.draft.draftID}>
               <NewSession draftId={props.draft.draftID} />
             </DraftProviders>
           </SessionUIProvider>
@@ -82,10 +82,10 @@ function ResolvedDraftContent(props: { draft: DraftTab }) {
 
 // The draft page only renders the prompt composer.
 // FileProvider and CommentsProvider stay because Composer uses file search and comment context.
-function DraftProviders(props: ParentProps) {
+function DraftProviders(props: ParentProps<{ draftID: string }>) {
   return (
     <FileProvider>
-      <ComposerPersistenceProvider>
+      <ComposerPersistenceProvider draftID={props.draftID}>
         <CommentsProvider>{props.children}</CommentsProvider>
       </ComposerPersistenceProvider>
     </FileProvider>

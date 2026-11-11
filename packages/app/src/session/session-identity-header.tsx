@@ -1,3 +1,4 @@
+import { TuiSessionStatus } from "@/tui/session-status"
 import type { SessionInfo } from "@orchestra/client/promise"
 import { Icon } from "@orchestra/ui/icon"
 import { IconButton } from "@orchestra/ui/icon-button"
@@ -414,6 +415,7 @@ export function SessionIdentityHeader(props: ParentProps<{ sessionID: string; se
               <Show when={!parentID()}>{props.children}</Show>
             </div>
           </div>
+          <TuiSessionStatus sessionID={props.sessionID} />
         </div>
       </SessionTitleHeader>
     </Show>

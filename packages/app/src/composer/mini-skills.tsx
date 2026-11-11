@@ -1,4 +1,4 @@
-import { createMemo, For, Show, type ParentProps } from "solid-js"
+import { createMemo, createSignal, For, onMount, onCleanup, Show, type ParentProps } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@orchestra/ui/button"
 import { Icon } from "@orchestra/ui/icon"
@@ -14,6 +14,15 @@ import {
   MiniSkillsSettings,
   type MiniSkillDefinition,
 } from "./mini-skills-settings"
+
+const tuiPresetGlyphs = new Map([
+  ["🔎", "◎"],
+  ["🧭", "≡"],
+  ["🐛", "⌕"],
+  ["🧐", "✓"],
+  ["🧪", "T"],
+  ["💡", "?"],
+])
 
 type MiniSkillUIState = {
   selectedID?: string
@@ -48,6 +57,27 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
     draftInstruction: "",
   })
 
+  let bar: HTMLDivElement | undefined
+  const [barWidth, setBarWidth] = createSignal(0)
+  onMount(() => {
+    const observer = new ResizeObserver(([entry]) => setBarWidth(entry.contentRect.width))
+
+    if (bar) observer.observe(bar)
+    onCleanup(() => observer.disconnect())
+  })
+  const visibleItems = createMemo(() => {
+    const width = barWidth()
+    let used = 130
+
+    return settings.items.filter((item) => {
+      used += (item.label.length + 3) * 8 + 10
+
+      return used <= width
+    })
+  })
+  const [expanded, setExpanded] = createSignal(false)
+  const displayedItems = () => (expanded() ? settings.items : visibleItems())
+  const overflow = () => settings.items.length - visibleItems().length
   const selected = createMemo(() => settings.items.find((item) => item.id === ui.selectedID))
   const draftValid = createMemo(() => !!ui.draftLabel.trim() && !!ui.draftInstruction.trim())
 
@@ -144,11 +174,11 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
   }
 
   const MiniSkillBar = () => (
-    <div data-component="composer-mini-skills" class="flex min-w-0 flex-col gap-2">
+    <div ref={bar} data-component="composer-mini-skills" class="flex min-w-0 flex-col gap-2">
       <Show
         when={!settings.hidden}
         fallback={
-          <div class="flex min-w-0 flex-wrap items-center gap-1">
+          <div class="flex min-w-0 items-center gap-1 overflow-hidden">
             <span class="me-1 text-[12px] leading-4 text-text-faint">{language.t("composer.miniSkills.title")}</span>
             <Button
               type="button"
@@ -186,7 +216,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
               </Button>
             )}
           </For>
-          <For each={settings.items}>
+          <For each={displayedItems()}>
             {(item) => (
               <Button
                 type="button"
@@ -203,12 +233,18 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
                 }
               >
                 <Show when={item.icon}>
-                  <span aria-hidden="true">{item.icon}</span>
+                  <span aria-hidden="true">{tuiPresetGlyphs.get(item.icon) ?? item.icon}</span>
                 </Show>
                 <span class="truncate">{item.label}</span>
               </Button>
             )}
           </For>
+          <Show when={overflow() > 0}>
+            <Button type="button" size="small" variant="ghost-muted" onClick={() => setExpanded(!expanded())}>
+              {expanded() ? "−" : "+"}
+              {overflow()}
+            </Button>
+          </Show>
           <Button
             type="button"
             size="small"
@@ -218,23 +254,8 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
             aria-label={language.t("composer.miniSkills.manage")}
             title={language.t("composer.miniSkills.manage")}
           >
-            <Icon name="sliders-horizontal" size="small" />
-          </Button>
-          <Button type="button" size="small" variant="ghost-muted" class="gap-1.5" onClick={beginCreate}>
-            <Icon name="plus" size="small" />
-            <span>{language.t("composer.miniSkills.add")}</span>
-          </Button>
-          <Button
-            type="button"
-            size="small"
-            variant="ghost-muted"
-            class="gap-1.5"
-            onClick={() => setHidden(true)}
-            aria-expanded={true}
-            aria-label={language.t("composer.miniSkills.hide")}
-            title={language.t("composer.miniSkills.hide")}
-          >
-            <Icon name="outline-eye-slash" size="small" />
+            <Icon name="settings-gear" size="small" />
+            <span>{language.t("composer.miniSkills.title")}</span>
           </Button>
         </div>
 
@@ -245,7 +266,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 text-[13px] font-medium text-text-base">
                     <Show when={item.icon}>
-                      <span aria-hidden="true">{item.icon}</span>
+                      <span aria-hidden="true">{tuiPresetGlyphs.get(item.icon) ?? item.icon}</span>
                     </Show>
                     <span>{item.label}</span>
                   </div>
@@ -300,6 +321,15 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
                 <Icon name="plus" size="small" />
                 {language.t("composer.miniSkills.add")}
               </Button>
+              <Button
+                type="button"
+                size="small"
+                variant="ghost-muted"
+                onClick={() => setHidden(true)}
+                aria-label={language.t("composer.miniSkills.hide")}
+              >
+                <Icon name="outline-eye-slash" size="small" />
+              </Button>
             </div>
 
             <Show when={settings.items.length === 0}>
@@ -312,7 +342,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-2 text-[13px] leading-4 text-text-base">
                         <Show when={item.icon}>
-                          <span aria-hidden="true">{item.icon}</span>
+                          <span aria-hidden="true">{tuiPresetGlyphs.get(item.icon) ?? item.icon}</span>
                         </Show>
                         <span class="truncate">{item.label}</span>
                       </div>

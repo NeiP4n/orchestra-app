@@ -20,7 +20,7 @@ export default function NewSessionPage(props: { draftId: string }) {
   const settingsSurface = useSettingsSurface()
 
   const draftTab = createMemo(() =>
-    tabs.store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === search.draftId),
+    tabs.store.find((tab): tab is DraftTab => tab.type === "draft" && tab.draftID === props.draftId),
   )
 
   const openWorkspaces = () => {
@@ -39,10 +39,10 @@ export default function NewSessionPage(props: { draftId: string }) {
     selectedWorktree: () => draftTab()?.worktree,
     selectedBranch: () => draftTab()?.branch,
     setSelectedWorktree: (worktree) => {
-      if (search.draftId) tabs.updateDraft(search.draftId, { worktree })
+      tabs.updateDraft(props.draftId, { worktree })
     },
     setSelectedBranch: (branch) => {
-      if (search.draftId) tabs.updateDraft(search.draftId, { branch })
+      tabs.updateDraft(props.draftId, { branch })
     },
     onViewAll: openWorkspaces,
   })

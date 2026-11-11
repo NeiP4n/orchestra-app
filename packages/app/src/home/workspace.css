@@ -1,0 +1,209 @@
+/* TUI workspace order: project/session tree | live prompt stage | overview.
+   Use the saved monospace face; terminal TUI itself inherits its host font. */
+[data-component="tui-workspace"] {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 270px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-base);
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+[data-slot="tui-project-tree"] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px 8px;
+  border-inline-end: 1px solid var(--v2-border-border-base);
+  overflow: auto;
+}
+
+[data-slot="tui-project-tree"] > aside {
+  position: static;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+[data-slot="tui-session-tree"] {
+  min-height: 160px;
+  flex: 1;
+  overflow: auto;
+}
+
+[data-slot="tui-home-stage"] {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+[data-slot="tui-home-stage"] [data-component="new-session"] {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+[data-slot="tui-home-stage"] [data-slot="new-session-stage"] {
+  padding-inline: 16px;
+}
+
+[data-slot="tui-project-overview"] {
+  border-inline-start: 1px solid var(--v2-border-border-base);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow: auto;
+}
+
+[data-slot="tui-project-overview"] h2,
+[data-slot="tui-project-overview"] h3 {
+  font: inherit;
+  color: var(--v2-text-text-muted);
+}
+
+[data-slot="tui-project-overview"] section {
+  border: 1px solid var(--v2-border-border-base);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+[data-slot="tui-project-overview"] h3 {
+  margin-bottom: 12px;
+}
+
+[data-slot="tui-project-overview"] p {
+  overflow-wrap: anywhere;
+}
+
+[data-slot="tui-project-overview"] dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+[data-slot="tui-project-overview"] dd {
+  text-align: end;
+}
+
+[data-slot="tui-empty-stage"] {
+  margin: auto;
+}
+
+@media (max-width: 1199px) {
+  [data-component="tui-workspace"] {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+  [data-slot="tui-project-overview"] {
+    display: none;
+  }
+}
+
+@media (max-width: 899px) {
+  [data-component="tui-workspace"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  [data-slot="tui-project-tree"] {
+    padding-block: 4px;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--v2-border-border-base);
+    overflow: visible;
+  }
+}
+
+/* The project tree already supplies the utility footer. */
+[data-slot="tui-project-tree"] > aside > :last-child {
+  display: none;
+}
+
+[data-slot="tui-session-tree"] [data-slot="home-session-tree-header"] {
+  padding-top: 16px;
+}
+
+[data-slot="tui-session-tree"] [data-slot="home-session-tree-content"] {
+  min-height: 0;
+}
+
+[data-slot="tui-session-tree"] [data-component="home-session-scroll-track"] {
+  display: none;
+}
+
+[data-slot="tui-session-tree"] .home-session-group-header {
+  position: sticky;
+  top: 0;
+}
+
+[data-slot="tui-session-tree"] [data-slot="home-session-tree-header"] {
+  position: static;
+}
+
+[data-slot="tui-mobile-sessions"] summary {
+  cursor: pointer;
+  padding: 6px 8px;
+  color: var(--v2-text-text-muted);
+}
+
+[data-slot="tui-mobile-sessions"] [data-slot="tui-session-tree"] {
+  max-height: 45dvh;
+}
+
+[data-slot="tui-home-stage"] [data-slot="new-session-column"] {
+  width: 72%;
+  min-width: min(340px, 100%);
+  max-width: 960px;
+}
+
+@media (max-width: 899px) {
+  [data-slot="tui-home-stage"] [data-slot="new-session-column"] {
+    width: 100%;
+  }
+}
+
+[data-slot="tui-header-bands"] {
+  display: flex;
+  align-items: end;
+  gap: 2px;
+  width: 38px;
+  height: 14px;
+}
+
+[data-slot="tui-header-bands"] > span {
+  width: 3px;
+  min-height: 2px;
+  height: calc(var(--band-rest) * 100%);
+  background: currentColor;
+}
+
+[data-running="true"] [data-slot="tui-header-bands"] > span {
+  animation: tui-header-band 720ms ease-in-out infinite alternate;
+}
+
+@keyframes tui-header-band {
+  from { height: 22%; }
+  to { height: 88%; }
+}
+
+:root[data-motion="off"] [data-slot="tui-header-bands"] > span {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="on"]) [data-slot="tui-header-bands"] > span {
+    animation: none;
+  }
+}
+
+[data-session-title] > div {
+  border-bottom: 1px solid var(--v2-border-border-base);
+}
+
+[data-slot="composer-controls"],
+[data-component="composer-mini-skills"] {
+  font-family: var(--font-family-mono);
+}
