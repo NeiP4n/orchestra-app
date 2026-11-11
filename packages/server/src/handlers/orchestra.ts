@@ -5,7 +5,7 @@ import { ProjectTemplateV2OwnerReader } from "@orchestra/core/project-template-v
 import { ProjectTemplateCoreRoles } from "@orchestra/core/project-template-core-roles"
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import path from "node:path"
-import { templateError } from "@orchestra/core/project-template-errors"
+import { templateOperation } from "./template-operation"
 import { ProjectTemplateOperator } from "@orchestra/core/project-template-operator"
 import { ProjectTemplateLiveStores } from "@orchestra/core/project-template-live-stores"
 import { ProjectTemplateBrowserStore } from "@orchestra/core/project-template-browser-store"
@@ -103,15 +103,14 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         bootstrap: (directory, name) => Effect.runPromise(ProjectFilesBootstrap.initialize(directory, name, kv).pipe(Effect.provideService(Database.Service, database))),
       }),
     })
-    const templateOperation = <A>(action:()=>Promise<A>)=>Effect.tryPromise({try:action,catch:error=>new InvalidRequestError(templateError(error))})
     return handlers
-      .handle("orchestra.projectTemplate.list",()=>templateOperation(()=>operator.list()))
-      .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation(()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
-      .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation(()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
-      .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation(()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory)))
-      .handle("orchestra.projectTemplate.confirmCreate",ctx=>templateOperation(()=>operator.confirmCreate(ctx.payload.token)))
-      .handle("orchestra.projectTemplate.finishCreate",ctx=>templateOperation(()=>operator.finishCreate(ctx.payload.token)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
-      .handle("orchestra.projectTemplate.browsers",ctx=>templateOperation(()=>operator.browserDefinitions(ctx.params.projectID)))
+      .handle("orchestra.projectTemplate.list",()=>templateOperation("list",()=>operator.list()))
+      .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation("prepareSave",()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
+      .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation("confirmSave",()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
+      .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation("prepareCreate",()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory)))
+      .handle("orchestra.projectTemplate.confirmCreate",ctx=>templateOperation("confirmCreate",()=>operator.confirmCreate(ctx.payload.token)))
+      .handle("orchestra.projectTemplate.finishCreate",ctx=>templateOperation("finishCreate",()=>operator.finishCreate(ctx.payload.token)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
+      .handle("orchestra.projectTemplate.browsers",ctx=>templateOperation("browsers",()=>operator.browserDefinitions(ctx.params.projectID)))
       .handle("orchestra.project.list", () => orchestra.projects())
       .handle("orchestra.group.list", () => federation.groups())
       .handle("orchestra.group.holds", () => federation.holds())
