@@ -16,6 +16,7 @@ import { AbsolutePath } from "@orchestra/core/schema"
 import { Session } from "@orchestra/core/session"
 import { SessionActivation } from "@orchestra/core/session/activation"
 import { SessionExecution } from "@orchestra/core/session/execution"
+import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { SessionRestart } from "@orchestra/core/session/execution/restart"
 import { SessionHold } from "@orchestra/core/session/hold"
 import { SessionInbox } from "@orchestra/core/session/inbox"
@@ -572,6 +573,7 @@ function buildExecution(
       SessionRestart.layer(options).pipe(
         Layer.provideMerge(sessionLayer),
         Layer.provideMerge(Layer.fresh(SessionExecution.layer)),
+        Layer.provideMerge(Layer.fresh(SessionContinuation.layer)),
         Layer.provide(Layer.succeed(Database.Service, database)),
         Layer.provide(Layer.succeed(Bus.Service, bus)),
         Layer.provide(Layer.succeed(SessionStore.Service, store)),

@@ -1,3 +1,4 @@
+import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { KV } from "@orchestra/core/kv"
 import { SessionStore } from "@orchestra/core/session/store"
 import { Database } from "@orchestra/core/database/database"
@@ -95,6 +96,7 @@ const applicationServiceNodes = [
   LocationServiceMap.node,
   LocationActivity.node,
   SessionRestart.node,
+  SessionContinuation.node,
   Workspace.node,
 ] as const
 const applicationServices = LayerNode.group(applicationServiceNodes)

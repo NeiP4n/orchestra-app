@@ -36,78 +36,124 @@ const it = testEffect(
 )
 
 describe("operator continuation switch", () => {
-  it.effect("defaults ON, pauses all active sessions durably, blocks every admission, and resumes without spending crash budget", () => Effect.gen(function* () {
-    const database = yield* Database.Service
-    const store = yield* SessionStore.Service
-    const kv = yield* KV.Service
-    const ids = [Session.ID.make("ses_pause_main"), Session.ID.make("ses_pause_other")]
-    yield* seedSessions(database, ids)
-    const scope = yield* Scope.make()
-    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-    const starts: string[] = []
-    const ready = ids.map(() => Deferred.makeUnsafe<void>())
-    let resumed = false
-    const context = yield* buildExecution(scope, ({ sessionID }) => Effect.gen(function* () {
-      starts.push(sessionID)
-      if (resumed) return
-      yield* Deferred.succeed(ready[ids.indexOf(sessionID)], undefined)
-      yield* Effect.never
-    }))
-    const control = Context.get(context, SessionContinuation.Service)
-    const execution = Context.get(context, SessionExecution.Service)
-    expect(yield* control.enabled).toBe(true)
-    yield* Effect.forEach(ids, (id) => execution.wake(id), { discard: true })
-    yield* Effect.forEach(ready, Deferred.await, { discard: true })
-    yield* control.set(false)
-    expect(yield* control.enabled).toBe(false)
-    expect(yield* execution.active).toEqual(new Set())
-    expect(new Set(yield* store.listSuspended())).toEqual(new Set(ids))
-    for (const id of ids) {
-      expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(true)
-      yield* execution.resume(id)
-      yield* execution.wake(id)
-      yield* execution.interrupt(id, { resume: true })
-    }
-    yield* Context.get(context, SessionRestart.Service).resumeSuspendedSessions
-    expect(starts).toEqual(ids)
-    resumed = true
-    yield* control.set(true)
-    yield* Effect.forEach(ids, execution.awaitIdle, { discard: true })
-    expect(starts.length).toBe(4)
-    expect(yield* store.listSuspended()).toEqual([])
-    for (const id of ids) expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBeUndefined()
-  }))
+  it.effect(
+    "defaults ON, pauses all active sessions durably, blocks every admission, and resumes without spending crash budget",
+    () =>
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        const store = yield* SessionStore.Service
+        const kv = yield* KV.Service
+        const ids = [Session.ID.make("ses_pause_main"), Session.ID.make("ses_pause_other")]
+        yield* seedSessions(database, ids)
+        const scope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+        const starts: string[] = []
+        const ready = ids.map(() => Deferred.makeUnsafe<void>())
+        let resumed = false
+        const context = yield* buildExecution(scope, ({ sessionID }) =>
+          Effect.gen(function* () {
+            starts.push(sessionID)
+            if (resumed) return
+            yield* Deferred.succeed(ready[ids.indexOf(sessionID)], undefined)
+            yield* Effect.never
+          }),
+        )
+        const control = Context.get(context, SessionContinuation.Service)
+        const execution = Context.get(context, SessionExecution.Service)
+        expect(yield* control.enabled).toBe(true)
+        yield* Effect.forEach(ids, (id) => execution.wake(id), { discard: true })
+        yield* Effect.forEach(ready, Deferred.await, { discard: true })
+        yield* control.set(false)
+        expect(yield* control.enabled).toBe(false)
+        expect(yield* execution.active).toEqual(new Set())
+        expect(new Set(yield* store.listSuspended())).toEqual(new Set(ids))
+        for (const id of ids) {
+          expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(true)
+          yield* execution.resume(id)
+          yield* execution.wake(id)
+          yield* execution.interrupt(id, { resume: true })
+        }
+        yield* Context.get(context, SessionRestart.Service).resumeSuspendedSessions
+        expect(starts).toEqual(ids)
+        resumed = true
+        yield* control.set(true)
+        yield* Effect.forEach(ids, execution.awaitIdle, { discard: true })
+        expect(starts.length).toBe(4)
+        expect(yield* store.listSuspended()).toEqual([])
+        for (const id of ids) expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBeUndefined()
+      }),
+  )
 
-  it.effect("OFF survives a new runtime and keeps queued work until ON without deleting input", () => Effect.gen(function* () {
-    const database = yield* Database.Service
-    const kv = yield* KV.Service
-    const admission = yield* SessionInbox.Service
-    const id = Session.ID.make("ses_pause_reboot")
-    yield* seedSessions(database, [id])
-    yield* kv.set(SessionContinuation.KEY, false)
-    yield* admission.admit({ id: SessionMessage.ID.create(), sessionID: id, item: {
-      type: "user", payload: SessionInbox.UserPayload.make({ text: "Preserve this", resumeOnStart: true }), delivery: "queue",
-    } })
-    const scope = yield* Scope.make()
-    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-    let runs = 0
-    const context = yield* buildExecution(scope, ({ sessionID }) => Effect.gen(function* () {
-      runs++
-      yield* SessionInbox.promote(database.db, yield* Bus.Service, sessionID, "input")
-    }))
-    const control = Context.get(context, SessionContinuation.Service)
-    const execution = Context.get(context, SessionExecution.Service)
-    expect(yield* control.enabled).toBe(false)
-    yield* Context.get(context, SessionRestart.Service).resumeSuspendedSessions
-    yield* execution.wake(id)
-    expect(runs).toBe(0)
-    expect(yield* SessionInbox.list(database.db, id)).toHaveLength(1)
-    yield* control.set(true)
-    yield* execution.awaitIdle(id)
-    expect(runs).toBe(1)
-    expect(yield* SessionInbox.list(database.db, id)).toHaveLength(0)
-    expect(yield* kv.get(SessionContinuation.KEY)).toBe(true)
-  }))
+  it.effect("OFF survives a new runtime and keeps queued work until ON without deleting input", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const kv = yield* KV.Service
+      const admission = yield* SessionInbox.Service
+      const id = Session.ID.make("ses_pause_reboot")
+      yield* seedSessions(database, [id])
+      yield* kv.set(SessionContinuation.KEY, false)
+      yield* admission.admit({
+        id: SessionMessage.ID.create(),
+        sessionID: id,
+        item: {
+          type: "user",
+          payload: SessionInbox.UserPayload.make({ text: "Preserve this", resumeOnStart: true }),
+          delivery: "queue",
+        },
+      })
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      let runs = 0
+      const context = yield* buildExecution(scope, ({ sessionID }) =>
+        Effect.gen(function* () {
+          runs++
+          yield* SessionInbox.promote(database.db, yield* Bus.Service, sessionID, "input")
+        }),
+      )
+      const control = Context.get(context, SessionContinuation.Service)
+      const execution = Context.get(context, SessionExecution.Service)
+      expect(yield* control.enabled).toBe(false)
+      yield* Context.get(context, SessionRestart.Service).resumeSuspendedSessions
+      yield* execution.wake(id)
+      expect(runs).toBe(0)
+      expect(yield* SessionInbox.list(database.db, id)).toHaveLength(1)
+      yield* control.set(true)
+      yield* execution.awaitIdle(id)
+      expect(runs).toBe(1)
+      expect(yield* SessionInbox.list(database.db, id)).toHaveLength(0)
+      expect(yield* kv.get(SessionContinuation.KEY)).toBe(true)
+    }),
+  )
+})
+
+describe("paused child admissions", () => {
+  it.effect("queues a new child while OFF and resumes it on ON", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const kv = yield* KV.Service
+      const id = Session.ID.make("ses_pause_child"),
+        parent = Session.ID.make("ses_pause_parent")
+      yield* seedSessions(database, [parent, id])
+      yield* database.db.update(SessionTable).set({ parentID: parent }).where(eq(SessionTable.id, id))
+      yield* kv.set(SessionContinuation.KEY, false)
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const seen: string[] = []
+      const context = yield* buildExecution(scope, ({ sessionID }) =>
+        Effect.sync(() => {
+          seen.push(sessionID)
+        }),
+      )
+      const execution = Context.get(context, SessionExecution.Service)
+      yield* execution.wake(id)
+      expect(seen).toEqual([])
+      expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(true)
+      yield* Context.get(context, SessionContinuation.Service).set(true)
+      yield* execution.awaitIdle(id)
+      expect(seen).toEqual([id])
+      expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBeUndefined()
+    }),
+  )
 })
 
 describe("SessionExecution lifecycle", () => {
@@ -132,13 +178,11 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(
-        scope,
-        ({ sessionID: current }) =>
-          Effect.gen(function* () {
-            drained.push(current)
-            yield* SessionInbox.promote(database.db, bus, current, "input")
-          }).pipe(Effect.asVoid),
+      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
+        Effect.gen(function* () {
+          drained.push(current)
+          yield* SessionInbox.promote(database.db, bus, current, "input")
+        }).pipe(Effect.asVoid),
       )
       const restart = Context.get(context, SessionRestart.Service)
       const execution = Context.get(context, SessionExecution.Service)
@@ -174,9 +218,8 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(
-        scope,
-        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
+        Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
       const execution = Context.get(context, SessionExecution.Service)
@@ -213,9 +256,8 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(
-        scope,
-        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
+        Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
 
@@ -255,9 +297,8 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(
-        scope,
-        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
+        Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
       yield* restart.resumeSuspendedSessions
@@ -1660,6 +1701,7 @@ function buildExecution(
     const bus = yield* Bus.Service
     const store = yield* SessionStore.Service
     const jobs = overrideJobs ?? (yield* Job.Service)
+    const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const sessionLayer = Layer.effect(
       Session.Service,
@@ -1698,6 +1740,7 @@ function buildExecution(
         Layer.provide(Layer.succeed(Bus.Service, bus)),
         Layer.provide(Layer.succeed(SessionStore.Service, store)),
         Layer.provide(Layer.succeed(Job.Service, jobs)),
+        Layer.provide(Layer.succeed(KV.Service, kv)),
         // Do not reuse the outer harness's selector with its already-captured Location map.
         Layer.provide(
           AppNodeBuilder.build(Instance.node, [LocationServiceMap.node.replace(locations)]).pipe(Layer.fresh),

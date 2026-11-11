@@ -142,6 +142,7 @@ export const layer = Layer.effect(
       })
     })
     const coordinator = yield* SessionRunCoordinator.make<SessionSchema.ID, SessionRunner.RunError, InterruptReason>({
+      canRun: continuationControl.isEnabled,
       started: (sessionID) =>
         reportLifecycle(
           sessionID,
@@ -189,13 +190,25 @@ export const layer = Layer.effect(
         ),
     })
 
-    const removePauseListener = continuationControl.listen((enabled) => enabled ? Effect.void : Effect.gen(function* () {
-      const active = yield* coordinator.active
-      yield* Effect.forEach([...active], (id) => Effect.gen(function* () {
-        yield* kv.set(SessionContinuation.pausedKey(id), true)
-        yield* coordinator.interrupt(id, "pause", { awaitSettlement: true })
-      }), { concurrency: 4, discard: true })
-    }))
+    const removePauseListener = continuationControl.listen((enabled) =>
+      enabled
+        ? Effect.void
+        : Effect.gen(function* () {
+            const active = yield* coordinator.active
+            yield* Effect.forEach(
+              [...active],
+              (id) =>
+                Effect.gen(function* () {
+                  yield* kv.set(SessionContinuation.pausedKey(id), true)
+                  yield* coordinator.interrupt(id, "pause", { awaitSettlement: true })
+                }),
+              { concurrency: 4, discard: true },
+            )
+            // A running OS command cannot be safely frozen and replayed. Stop it and retain
+            // its cancelled outcome so ON can review it instead of silently repeating it.
+            yield* jobs.cancelShells
+          }),
+    )
     yield* Effect.addFinalizer(() => Effect.sync(removePauseListener))
 
     // Best-effort L3 finalization (Б17): on every terminal outcome, writes
@@ -272,13 +285,25 @@ export const layer = Layer.effect(
       resume: (sessionID) =>
         Effect.uninterruptibleMask((restore) =>
           SessionHold.held(sessionID).pipe(
-            Effect.flatMap((held) => (held || !continuationControl.isEnabled() ? Effect.void : restore(coordinator.run(sessionID)))),
+            Effect.flatMap((held) =>
+              held
+                ? Effect.void
+                : !continuationControl.isEnabled()
+                  ? kv.set(SessionContinuation.pausedKey(sessionID), true)
+                  : restore(coordinator.run(sessionID)),
+            ),
           ),
         ),
       wake: (sessionID) =>
         Effect.uninterruptibleMask((restore) =>
           SessionHold.held(sessionID).pipe(
-            Effect.flatMap((held) => (held || !continuationControl.isEnabled() ? Effect.void : coordinator.wake(sessionID))),
+            Effect.flatMap((held) =>
+              held
+                ? Effect.void
+                : !continuationControl.isEnabled()
+                  ? kv.set(SessionContinuation.pausedKey(sessionID), true)
+                  : coordinator.wake(sessionID),
+            ),
           ),
         ),
       awaitIdle: coordinator.awaitIdle,

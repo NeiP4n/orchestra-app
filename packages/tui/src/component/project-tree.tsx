@@ -1,3 +1,4 @@
+import { ContinuationSwitchConnected } from "./continuation-switch"
 import { browserBatch } from "../util/browser-batch"
 import { createStateFeedback } from "../ui/state-feedback"
 import { useMotion } from "./neural"
@@ -1065,6 +1066,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           borderColor={theme.border.base}
           paddingTop={1}
         >
+          <ContinuationSwitchConnected compact />
           <HoverAction id="project-tree.show" onClick={() => props.onShow?.()} paddingLeft={1} paddingRight={1}>
             <text fg={theme.text.action.primary.base}>›</text>
           </HoverAction>
@@ -1072,6 +1074,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       }
     >
       <box width={props.width} height="100%" flexShrink={0} overflow="hidden" paddingRight={1} backgroundColor={theme.background.raised.base}>
+        <ContinuationSwitchConnected />
         {/* The panel's head: a segmented switch between the tree and the notes, the main action, and collapse. */}
         <box flexDirection="row" height={1} paddingLeft={1} paddingRight={1} columnGap={1} flexShrink={0}>
           {/* Labels fit at >=40 columns; narrower panels name the active tab. No blank spacer rows. */}

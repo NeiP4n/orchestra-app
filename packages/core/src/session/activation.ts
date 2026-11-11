@@ -3,6 +3,7 @@ export * as SessionActivation from "./activation.js"
 import { Effect, Option, Schema, Scope } from "effect"
 import { KV } from "../kv.js"
 import { Session } from "../session.js"
+import { SessionContinuation } from "./continuation.js"
 import { SessionHold } from "./hold.js"
 import { SessionInbox } from "./inbox.js"
 import { SessionMessage } from "./message.js"
@@ -48,7 +49,7 @@ export function checkDelayMs(minutes?: number): number {
   return clamped * 60_000
 }
 
-export const Status = Schema.Literals(["watching", "started", "restarted", "escalated", "held", "gone", "settled"])
+export const Status = Schema.Literals(["watching", "started", "restarted", "escalated", "held", "paused", "gone", "settled"])
 export type Status = typeof Status.Type
 
 export const Record = Schema.Struct({
@@ -113,6 +114,7 @@ export type VerifyResult =
   | { readonly status: "started"; readonly tokensInput: number; readonly active: boolean }
   | { readonly status: "idle"; readonly tokensInput: number; readonly pending: number }
   | { readonly status: "held" }
+  | { readonly status: "paused" }
   | { readonly status: "gone" }
   | { readonly status: "settled"; readonly note: string }
 
@@ -121,6 +123,8 @@ export const verify = Effect.fn("SessionActivation.verify")(function* (
   sessionID: SessionSchema.ID,
   tokensInputAtDispatch?: number,
 ) {
+  const control = yield* Effect.serviceOption(SessionContinuation.Service)
+  if (Option.isSome(control) && !control.value.isEnabled()) return { status: "paused" } as VerifyResult
   const info = yield* deps.store.get(sessionID)
   if (!info) return { status: "gone" } as VerifyResult
   if (yield* SessionHold.held(sessionID)) return { status: "held" } as VerifyResult
@@ -187,13 +191,15 @@ const escalate = Effect.fn("SessionActivation.escalate")(function* (
 
 const scanRecords = Effect.fn("SessionActivation.scanRecords")(function* (deps: Deps) {
   const read = (after?: string): Effect.Effect<Array<KV.Entry>> =>
-    deps.kv.scan({ prefix: "orchestra/activation/", after, limit: 1000 }).pipe(
-      Effect.flatMap((result) =>
-        result.next
-          ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
-          : Effect.succeed([...result.entries]),
-      ),
-    )
+    deps.kv
+      .scan({ prefix: "orchestra/activation/", after, limit: 1000 })
+      .pipe(
+        Effect.flatMap((result) =>
+          result.next
+            ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
+            : Effect.succeed([...result.entries]),
+        ),
+      )
   return (yield* read()).flatMap((entry) => Option.toArray(decodeRecord(entry.value)))
 })
 
@@ -283,9 +289,10 @@ export const watch = Effect.fn("SessionActivation.watch")(function* (
   const checkAfterMs = input.checkAfterMs ?? checkDelayMs()
   // The baseline is read here, at dispatch time: any tokens the worker
   // already consumed belong to earlier work, not to this dispatch.
-  const baseline = yield* deps.store
-    .get(input.sessionID)
-    .pipe(Effect.map((info) => info?.tokens.input), Effect.orElseSucceed(() => undefined))
+  const baseline = yield* deps.store.get(input.sessionID).pipe(
+    Effect.map((info) => info?.tokens.input),
+    Effect.orElseSucceed(() => undefined),
+  )
   const record: Record = {
     sessionID: input.sessionID,
     projectID: input.projectID,
@@ -323,7 +330,7 @@ export const recover = Effect.fn("SessionActivation.recover")(function* (
   const checkAfterMs = input.checkAfterMs ?? checkDelayMs()
   const reArmed: Array<SessionSchema.ID> = []
   for (const record of yield* scanRecords(deps)) {
-    if (record.status !== "watching" && record.status !== "restarted") continue
+    if (record.status !== "watching" && record.status !== "restarted" && record.status !== "paused") continue
     const current = yield* deps.store.get(record.sessionID).pipe(Effect.orElseSucceed(() => undefined))
     const refreshed: Record = {
       ...record,

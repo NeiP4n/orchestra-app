@@ -131,6 +131,7 @@ export interface Interface {
   readonly block: (input: BlockInput) => Effect.Effect<BlockResult | undefined>
   readonly background: (id: string) => Effect.Effect<Info | undefined>
   readonly backgroundAll: (input: BackgroundAllInput) => Effect.Effect<Info[]>
+  readonly cancelShells: Effect.Effect<void>
   readonly cancel: (id: string) => Effect.Effect<Info | undefined>
   readonly pendingBackground: Effect.Effect<readonly Background[]>
   readonly completeBackground: (notificationID: SessionMessage.ID) => Effect.Effect<void>
@@ -470,6 +471,15 @@ export const make = Effect.gen(function* () {
     background,
     backgroundAll,
     cancel,
+    cancelShells: Effect.gen(function* () {
+      const jobs = yield* SynchronizedRef.get(state.jobs)
+      const ids = [...jobs]
+        .filter(
+          ([, job]) => job.info.status === "running" && (job.info.type === "shell" || job.recovery?.kind === "shell"),
+        )
+        .map(([id]) => id)
+      yield* Effect.forEach(ids, cancel, { concurrency: 4, discard: true })
+    }),
     pendingBackground,
     completeBackground,
   })

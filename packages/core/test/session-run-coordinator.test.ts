@@ -7,6 +7,36 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(Layer.empty)
 
 describe("SessionRunCoordinator", () => {
+  it.effect("rechecks admission after a joiner waits for interrupted cleanup", () =>
+    Effect.gen(function* () {
+      let enabled = true,
+        runs = 0
+      const draining = yield* Deferred.make<void>(),
+        cleanup = yield* Deferred.make<void>()
+      const c = yield* SessionRunCoordinator.make<string, never, string>({
+        canRun: () => enabled,
+        drain: () =>
+          Effect.gen(function* () {
+            runs++
+            yield* Deferred.succeed(draining, undefined)
+            yield* Effect.never
+          }).pipe(Effect.ensuring(Deferred.await(cleanup))),
+      })
+      yield* c.wake("s")
+      yield* Deferred.await(draining)
+      yield* c.interrupt("s", "pause")
+      const joiner = yield* c.run("s").pipe(Effect.forkChild)
+      yield* Effect.yieldNow
+      enabled = false
+      yield* Deferred.succeed(cleanup, undefined)
+      yield* Fiber.join(joiner)
+      yield* c.awaitIdle("s")
+      expect(runs).toBe(1)
+      yield* c.wake("new")
+      expect(yield* c.active).toEqual(new Set())
+    }),
+  )
+
   it.effect("joins concurrent resumes for one key", () =>
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void>()
@@ -791,81 +821,85 @@ describe("SessionRunCoordinator", () => {
     }),
   )
 
-  it.effect("guarantees dispatch lock release and fiber interruption when interrupted during startup registration", () =>
-    Effect.gen(function* () {
-      const startGate = yield* Deferred.make<void>()
-      const startedCalled = yield* Deferred.make<void>()
-      let dispatchLocked = false
-      let drainRan = false
-      const settledReasons: Array<string | undefined> = []
+  it.effect(
+    "guarantees dispatch lock release and fiber interruption when interrupted during startup registration",
+    () =>
+      Effect.gen(function* () {
+        const startGate = yield* Deferred.make<void>()
+        const startedCalled = yield* Deferred.make<void>()
+        let dispatchLocked = false
+        let drainRan = false
+        const settledReasons: Array<string | undefined> = []
 
-      const coordinator = yield* SessionRunCoordinator.make<string, never, string>({
-        started: () =>
-          Effect.gen(function* () {
-            dispatchLocked = true
-            yield* Deferred.succeed(startedCalled, undefined)
-            yield* Deferred.await(startGate)
-          }),
-        drain: () =>
-          Effect.sync(() => {
-            drainRan = true
-          }),
-        settled: (_key, _exit, reason) =>
-          Effect.sync(() => {
-            dispatchLocked = false
-            settledReasons.push(reason)
-          }),
-      })
+        const coordinator = yield* SessionRunCoordinator.make<string, never, string>({
+          started: () =>
+            Effect.gen(function* () {
+              dispatchLocked = true
+              yield* Deferred.succeed(startedCalled, undefined)
+              yield* Deferred.await(startGate)
+            }),
+          drain: () =>
+            Effect.sync(() => {
+              drainRan = true
+            }),
+          settled: (_key, _exit, reason) =>
+            Effect.sync(() => {
+              dispatchLocked = false
+              settledReasons.push(reason)
+            }),
+        })
 
-      yield* coordinator.wake("session")
-      yield* Deferred.await(startedCalled)
-      expect(dispatchLocked).toBe(true)
+        yield* coordinator.wake("session")
+        yield* Deferred.await(startedCalled)
+        expect(dispatchLocked).toBe(true)
 
-      const interrupted = yield* coordinator.interrupt("session", "user")
-      expect(interrupted).toBe(true)
+        const interrupted = yield* coordinator.interrupt("session", "user")
+        expect(interrupted).toBe(true)
 
-      yield* Deferred.succeed(startGate, undefined)
-      yield* coordinator.awaitIdle("session")
+        yield* Deferred.succeed(startGate, undefined)
+        yield* coordinator.awaitIdle("session")
 
-      expect(dispatchLocked).toBe(false)
-      expect(drainRan).toBe(false)
-      expect(settledReasons).toEqual(["user"])
-      expect(yield* coordinator.isActive("session")).toBe(false)
-    }),
+        expect(dispatchLocked).toBe(false)
+        expect(drainRan).toBe(false)
+        expect(settledReasons).toEqual(["user"])
+        expect(yield* coordinator.isActive("session")).toBe(false)
+      }),
   )
 
-  it.effect("guarantees immediate interruption and dispatch lock release when interrupt arrives during initial registration", () =>
-    Effect.gen(function* () {
-      let dispatchLocked = false
-      let drainRan = false
-      const settledReasons: Array<string | undefined> = []
+  it.effect(
+    "guarantees immediate interruption and dispatch lock release when interrupt arrives during initial registration",
+    () =>
+      Effect.gen(function* () {
+        let dispatchLocked = false
+        let drainRan = false
+        const settledReasons: Array<string | undefined> = []
 
-      const coordinator = yield* SessionRunCoordinator.make<string, never, string>({
-        started: () =>
-          Effect.sync(() => {
-            dispatchLocked = true
-          }),
-        drain: () =>
-          Effect.sync(() => {
-            drainRan = true
-          }),
-        settled: (_key, _exit, reason) =>
-          Effect.sync(() => {
-            dispatchLocked = false
-            settledReasons.push(reason)
-          }),
-      })
+        const coordinator = yield* SessionRunCoordinator.make<string, never, string>({
+          started: () =>
+            Effect.sync(() => {
+              dispatchLocked = true
+            }),
+          drain: () =>
+            Effect.sync(() => {
+              drainRan = true
+            }),
+          settled: (_key, _exit, reason) =>
+            Effect.sync(() => {
+              dispatchLocked = false
+              settledReasons.push(reason)
+            }),
+        })
 
-      yield* coordinator.wake("session")
-      const interrupted = yield* coordinator.interrupt("session", "user")
-      expect(interrupted).toBe(true)
+        yield* coordinator.wake("session")
+        const interrupted = yield* coordinator.interrupt("session", "user")
+        expect(interrupted).toBe(true)
 
-      yield* coordinator.awaitIdle("session")
+        yield* coordinator.awaitIdle("session")
 
-      expect(dispatchLocked).toBe(false)
-      expect(drainRan).toBe(false)
-      expect(settledReasons).toEqual(["user"])
-      expect(yield* coordinator.isActive("session")).toBe(false)
-    }),
+        expect(dispatchLocked).toBe(false)
+        expect(drainRan).toBe(false)
+        expect(settledReasons).toEqual(["user"])
+        expect(yield* coordinator.isActive("session")).toBe(false)
+      }),
   )
 })
