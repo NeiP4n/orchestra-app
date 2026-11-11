@@ -23,7 +23,8 @@ test("v1 update binds old and new digests, rechecks source, keeps ID and is idem
   name="Final"
   await expect(operator.confirmSave(stale.token,[])).rejects.toThrow("Project changed")
   const update=await operator.prepareSave("prj_a",[],entry.id)
-  expect(update.name).toBe("Factory")
+  expect(update.name).toBe("Final")
+  expect(update.name).toBe(JSON.parse(update.details).name)
   expect(JSON.parse(update.details).version).toBe(1)
   await operator.confirmSave(update.token,[])
   await operator.confirmSave(update.token,[])

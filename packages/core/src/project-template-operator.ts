@@ -198,7 +198,7 @@ export function make(deps: Deps) {
       )
       return {
         token,
-        name: prior?.bundle.name ?? value.name,
+        name: value.name,
         details: preview.text,
         omittedLinks: preview.linkReview.issues,
         triggerReview: ProjectTemplateTriggerReview.review(

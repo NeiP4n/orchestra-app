@@ -1,5 +1,8 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "A template with this name already exists. Update it or save a separate copy.": "A template with this name already exists. Update it or save a separate copy.",
+  "Update existing template": "Update existing template",
+  "Save separate copy": "Save separate copy",
   "Up-to-date documentation and code examples for libraries and frameworks.": "Up-to-date documentation and code examples for libraries and frameworks.",
   "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.": "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.",
   "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.": "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.",
@@ -161,6 +164,9 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "A template with this name already exists. Update it or save a separate copy.": "Шаблон с таким именем уже есть. Обновите его или сохраните отдельную копию.",
+  "Update existing template": "Обновить существующий шаблон",
+  "Save separate copy": "Сохранить отдельную копию",
   "Up-to-date documentation and code examples for libraries and frameworks.": "Свежая документация и примеры кода для библиотек и фреймворков.",
   "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.": "Работа с кодом через языковые серверы: поиск символов и ссылок, точное переименование и редактирование в более чем 40 языках.",
   "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.": "Поиск по индексу кода и документации проекта: BM25 и векторный поиск с указанием файла и строки, а также память агентов на локальном узле.",
