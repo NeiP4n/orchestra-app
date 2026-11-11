@@ -69,10 +69,13 @@ export const templateErrorMessages = {
   TEMPLATE_RULE_ROLE: "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.",
   TEMPLATE_PLAYBOOK_ROLE: "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.",
   TEMPLATE_SKILL_ROLE: "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.",
+  TEMPLATE_UNRESOLVED_ROLES: "This template preserves unavailable role references. Restore the original source roles and update the template before creating a project. No permissions were invented or removed.",
   TEMPLATE_FAILED: "Could not finish the template operation. Review changes and retry the same operation.",
 } as const
 export type TemplateErrorCode = keyof typeof templateErrorMessages
 const exact = new Map<string, TemplateErrorCode>([
+  ["Unresolved source role definitions must be restored before creating a project.", "TEMPLATE_UNRESOLVED_ROLES"],
+  ["Unresolved source role definitions require review before saving.", "TEMPLATE_UNRESOLVED_ROLES"],
   ["Browser chat no longer exists.", "TEMPLATE_BROWSER_CHAT_MISSING"],
   ["Browser chat is a child task.", "TEMPLATE_BROWSER_CHAT_CHILD"],
   ["Browser chat belongs to another project.", "TEMPLATE_BROWSER_CHAT_FOREIGN"],

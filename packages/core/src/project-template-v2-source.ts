@@ -32,12 +32,9 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
     const roles = new Map(process.roles.map((r) => [r.agent, r]))
     const skills = new Map(process.skills.map((s) => [s.id, s]))
     if (roles.size !== process.roles.length || skills.size !== process.skills.length) throw Error()
-    // Preserve the complete process. Removing a missing role could discard its
-    // permissions or leave role-scoped rules/skills without their intended owner.
-    if (source.sessions.some(s => s.agent !== undefined && !roles.has(s.agent))) { reason = "session-role-missing"; throw Error() }
-    if (source.rules.some(r => r.scope === "role" && !roles.has(r.role!))) { reason = "rule-role-missing"; throw Error() }
-    if (process.recommendedRoles.some(id => !roles.has(id))) { reason = "playbook-role-missing"; throw Error() }
-    if (process.skillAssignments.some(a => a.target.kind === "role" && !roles.has(a.target.role))) { reason = "skill-role-missing"; throw Error() }
+    // Archive every reference without inventing role permissions. The codec preserves
+    // missing identities, while the installer rejects this incomplete snapshot.
+    const unresolvedRoles = [...roleIDs].filter(id => !roles.has(id)).sort()
     const selected = new Set<string>(), visiting = new Set<string>()
     const select = (id: string) => {
       if (visiting.has(id)) throw Error()
@@ -58,6 +55,7 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
     if (process.sessionModels.length !== sessions.size || new Set(process.sessionModels.map((r) => r.sessionID)).size !== sessions.size) throw Error()
     const sessionModels = process.sessionModels.map((r) => { const session = sessions.get(r.sessionID); if (!session) throw Error(); return { session, models: r.models } })
     return V2.preview(JSON.stringify({ ...base.value.bundle, version: 2, process: {
+      ...(unresolvedRoles.length ? { unresolvedRoles } : {}),
       playbook: process.playbook, recommendedRoles: process.recommendedRoles,
       roles: process.roles.filter((r) => roleIDs.has(r.agent)), skills: process.skills.filter((s) => selected.has(s.id)), skillAssignments, sessionModels, programs: process.programs,
     } }))

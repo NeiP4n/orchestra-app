@@ -3375,6 +3375,7 @@ export function make(options: ClientOptions) {
                 browsers: input["browsers"],
                 omitUnsafeLinks: input["omitUnsafeLinks"],
                 omitInvalidBrowserBindings: input["omitInvalidBrowserBindings"],
+                acceptUnresolvedRoles: input["acceptUnresolvedRoles"],
               },
               successStatus: 204,
               declaredStatuses: [400, 401],

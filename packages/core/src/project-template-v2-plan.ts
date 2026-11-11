@@ -21,6 +21,7 @@ const modelKey = (m: V2.Model) => `${m.provider}/${m.id}${m.variant === null ? "
 export function prepare(serialized: string, destination: Destination) {
   const preview = V2.preview(serialized)
   if (!preview.ok) throw Error(preview.error)
+  if (preview.value.bundle.process.unresolvedRoles?.length) throw Error("Unresolved source role definitions must be restored before creating a project.")
   if (preview.value.digest !== destination.reviewedDigest) throw Error("Process template changed after review.")
   if (!/^prj_[A-Za-z0-9_-]{1,100}$/.test(destination.projectID)) throw Error("Fresh destination project required.")
   ProjectTemplateFiles.checkCompatibility({ ...preview.value.bundle, version: 1 }, destination.installedVersion)

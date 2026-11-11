@@ -28,7 +28,6 @@ for (const [name, change, stage, reasonCode] of [
   ["Windows path inside rule", (f: ReturnType<typeof fixture>) => { f.values.set("rules/project:prj_diag", [{ text: "Use C:\\PRIVATE_CANARY\\project" }]) }, "base-rules", "path-not-portable"],
   ["Windows path inside role", (f: ReturnType<typeof fixture>) => { f.stores.roles = async () => [{ agent: "orchestrator", name: "Main", description: "", rules: "Use C:\\PRIVATE_CANARY\\project", category: "Core", readOnly: false }] }, "process-roles", "path-not-portable"],
   ["Windows path inside playbook", (f: ReturnType<typeof fixture>) => { f.stores.playbook = async () => ({ text: "Use C:\\PRIVATE_CANARY\\project", recommendedRoles: [] }) }, "process-playbook", "path-not-portable"],
-  ["missing role definition", (f: ReturnType<typeof fixture>) => { f.stores.roles = async () => [] }, "process-bindings", "session-role-missing"],
   ["missing assigned skill", (f: ReturnType<typeof fixture>) => { f.stores.skills = async () => ({ definitions: [], assignments: [{ target: { kind: "project" }, skills: ["missing"] }] }) }, "skill-graph", "dependency-missing"],
   ["unknown source failure", (f: ReturnType<typeof fixture>) => { f.stores.getSession = () => Effect.die(new Error("PRIVATE_CANARY token=PRIVATE_SECRET")) }, "base-sessions", "read-failed"],
 ] as const) test(`safe process diagnosis: ${name}`, async () => {
@@ -65,15 +64,27 @@ for (const linked of [false, true]) test(`skill file diagnostic is bounded for $
   }
 })
 
-for (const [type,configure,reason,code] of [
- ["session",(f:ReturnType<typeof fixture>)=>{f.session.agent="team_deleted"},"session-role-missing","TEMPLATE_SESSION_ROLE"],
- ["rule",(f:ReturnType<typeof fixture>)=>{f.values.set("rules/role:prj_diag:team_deleted",[{text:"Never publish without approval"}])},"rule-role-missing","TEMPLATE_RULE_ROLE"],
- ["playbook",(f:ReturnType<typeof fixture>)=>{f.stores.playbook=async()=>({text:null,recommendedRoles:["team_deleted"]})},"playbook-role-missing","TEMPLATE_PLAYBOOK_ROLE"],
- ["skill",(f:ReturnType<typeof fixture>)=>{f.stores.skills=async()=>({definitions:[],assignments:[{target:{kind:"role",role:"team_deleted"},skills:[]}]})},"skill-role-missing","TEMPLATE_SKILL_ROLE"],
-] as const) test(`missing ${type} role fails visibly without losing configuration`,async()=>{
+for (const [type, configure] of [
+ ["session",(f:ReturnType<typeof fixture>)=>{f.session.agent="team_deleted"}],
+ ["rule",(f:ReturnType<typeof fixture>)=>{f.values.set("rules/role:prj_diag:team_deleted",[{text:"Never publish without approval"}])}],
+ ["playbook",(f:ReturnType<typeof fixture>)=>{f.stores.playbook=async()=>({text:null,recommendedRoles:["team_deleted"]})}],
+ ["skill",(f:ReturnType<typeof fixture>)=>{f.stores.skills=async()=>({definitions:[],assignments:[{target:{kind:"role",role:"team_deleted"},skills:[]}]})}],
+] as const) test(`missing ${type} role is archived without losing its configuration`,async()=>{
  const f=fixture();configure(f);const before=JSON.stringify([...f.values]);
- const error=await f.run().then(()=>undefined,e=>e)
- expect(templateDiagnosticOf(error)).toEqual({stage:"process-bindings",reasonCode:reason})
- expect(templateError(error).kind).toBe(code)
+ const result=await f.run(), bundle=result.bundle
+ expect(bundle.process.unresolvedRoles).toEqual(["team_deleted"])
+ expect(bundle.process.roles.some(role=>role.agent==="team_deleted")).toBe(false)
+ if(type==="session")expect(bundle.sessions[0].role).toBe("team_deleted")
+ if(type==="rule")expect(bundle.rules).toContainEqual({scope:"role",session:null,role:"team_deleted",text:"Never publish without approval"})
+ if(type==="playbook")expect(bundle.process.recommendedRoles).toEqual(["team_deleted"])
+ if(type==="skill")expect(bundle.process.skillAssignments).toEqual([{target:{kind:"role",role:"team_deleted"},skills:[]}])
+ expect(V2.preview(result.text).ok).toBe(true)
  expect(JSON.stringify([...f.values])).toBe(before)
+})
+test("a missing core role is archived, never replaced by an invented definition",async()=>{
+ const f=fixture();f.stores.roles=async()=>[]
+ const result=await f.run()
+ expect(result.bundle.process.unresolvedRoles).toEqual(["orchestrator"])
+ expect(result.bundle.process.roles).toEqual([])
+ expect(result.bundle.sessions[0].role).toBe("orchestrator")
 })

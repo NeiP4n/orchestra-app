@@ -36,6 +36,8 @@ export interface Skill {
 export interface Process {
   playbook: string | null
   recommendedRoles: string[]
+  /** Missing source definitions are archived as references, never executable roles. */
+  unresolvedRoles?: string[]
   roles: Role[]
   skills: Skill[]
   skillAssignments: { target: { kind: "project" } | { kind: "role"; role: string } | { kind: "session"; session: string }; skills: string[] }[]
@@ -109,7 +111,7 @@ export function parseSkills(value: unknown): Skill[] {
   return skills
 }
 function parseProcess(raw: unknown, base: V1.Bundle): Process {
-  const p = object(raw, ["playbook", "recommendedRoles", "roles", "skills", "skillAssignments", "sessionModels", "programs"])
+  const p = object(raw, ["playbook", "recommendedRoles", "roles", "skills", "skillAssignments", "sessionModels", "programs"], ["unresolvedRoles"])
   const roles = templateCapture("process-roles", () => list(p.roles, 100).map((value): Role => {
     const r = object(value, ["agent", "name", "description", "rules", "category", "readOnly"], ["mode", "model", "models", "variant", "tools", "autoTools", "hub", "registry"])
     return {
@@ -120,7 +122,10 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
       ...(has(r, "autoTools") ? { autoTools: bool(r.autoTools) } : {}), ...(has(r, "hub") ? { hub: ids(r.hub) } : {}), ...(has(r, "registry") ? { registry: ids(r.registry) } : {}),
     }
   }))
-  const roleIDs = new Set(unique(roles.map((r) => r.agent)))
+  const definedRoles = new Set(unique(roles.map((r) => r.agent)))
+  const unresolvedRoles = has(p, "unresolvedRoles") ? ids(p.unresolvedRoles) : []
+  if (unresolvedRoles.some(role => definedRoles.has(role))) invalid()
+  const roleIDs = new Set([...definedRoles, ...unresolvedRoles])
   if (base.sessions.some((r) => r.role !== null && !roleIDs.has(r.role)) || base.rules.some((r) => r.scope === "role" && !roleIDs.has(r.role!))) invalid()
   const recommendedRoles = templateCapture("process-playbook", () => ids(p.recommendedRoles))
   if (recommendedRoles.some((r) => !roleIDs.has(r))) invalid()
@@ -142,8 +147,15 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
   const sessionModels = templateCapture("process-models", () => list(p.sessionModels, 100).map((value) => { const r = object(value, ["session", "models"]), session = id(r.session); if (!sessions.has(session)) invalid(); const models = list(r.models, 30).map(model); unique(models.map((m) => JSON.stringify(m))); return { session, models } }))
   unique(sessionModels.map((r) => r.session))
   if (sessionModels.length !== sessions.size) invalid()
+  const referencedRoles = new Set([
+    ...base.sessions.flatMap(s => s.role === null ? [] : [s.role]),
+    ...base.rules.flatMap(r => r.scope === "role" ? [r.role!] : []),
+    ...recommendedRoles,
+    ...skillAssignments.flatMap(a => a.target.kind === "role" ? [a.target.role] : []),
+  ])
+  if (roleIDs.size > 100 || unresolvedRoles.some(role => !referencedRoles.has(role))) invalid()
   const programs = templateCapture("process-programs", () => list(p.programs, 100).map((value) => { const r = object(value, ["id", "reason"]); return { id: id(r.id), reason: text(r.reason, 1024) } })); unique(programs.map((r) => r.id))
-  return { playbook: p.playbook === null ? null : templateCapture("process-playbook", () => text(p.playbook)), recommendedRoles, roles, skills, skillAssignments, sessionModels, programs }
+  return { ...(unresolvedRoles.length ? { unresolvedRoles } : {}), playbook: p.playbook === null ? null : templateCapture("process-playbook", () => text(p.playbook)), recommendedRoles, roles, skills, skillAssignments, sessionModels, programs }
 }
 /** v1 reader remains untouched. No runtime path accepts v2 until the reviewed installer exists. */
 export function parse(serialized: string): V1.Result<Bundle> {

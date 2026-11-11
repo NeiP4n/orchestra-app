@@ -266,3 +266,37 @@ it.live("Test2/Test3 HTTP export reviews two powered-off browser definitions wit
   const projects=(yield* call("/api/orchestra/project")).body
   expect(projects.find((p:{id:string})=>p.id===test3.id).main).toBe(test3.main)
 }))
+
+it.live("missing role Save archives references and rules only after consent; Create stays blocked without any new project",()=>Effect.gen(function*(){
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("template-missing-role-")))
+ const global=Global.layerWith({data:path.join(tmp.path,"data"),cache:path.join(tmp.path,"cache"),config:path.join(tmp.path,"config"),state:path.join(tmp.path,"state"),tmp:path.join(tmp.path,"tmp"),bin:path.join(tmp.path,"bin"),log:path.join(tmp.path,"logs"),repos:path.join(tmp.path,"repos")})
+ const handler=yield* ServerFetch.make({app:{version:"1.0.0"},database:{path:":memory:"},fs:{filewatcher:false},models:{fetch:false},config:{directory:tmp.path,project:false,content:"{}"}},{allowUnauthenticated:true,overrides:[Global.node.replace(global)]})
+ const call=(route:string,body?:unknown)=>Effect.promise(async()=>{
+  const response=await handler(new Request("http://orchestra.local"+route,{method:body===undefined?"GET":"POST",headers:{"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)}))
+  const text=await response.text();return {status:response.status,body:text?JSON.parse(text):undefined}
+ })
+ const source=path.join(tmp.path,"test2");yield* Effect.promise(()=>mkdir(source))
+ const project=(yield* call("/api/orchestra/project",{name:"Test2",directory:source})).body
+ // Historical persisted role IDs can outlive their definition. No generated role fills the gap.
+ const session=(yield* call("/api/session",{title:"Old worker",agent:"team_deleted",location:{directory:source}})).body.data
+ expect(session.agent).toBe("team_deleted")
+ const scope="role:"+project.id+":team_deleted"
+ expect((yield* call("/api/orchestra/rules/"+encodeURIComponent(scope),{text:"Never publish without approval"})).status).toBe(200)
+ const preview=yield* call("/api/orchestra/project-template/prepare-save",{projectID:project.id,browsers:[]})
+ expect(preview.status).toBe(200)
+ expect(preview.body.unresolvedRoles).toEqual(["team_deleted"])
+ const bundle=JSON.parse(preview.body.details)
+ expect(bundle.sessions.find((s:{title:string})=>s.title==="Old worker").role).toBe("team_deleted")
+ expect(bundle.rules).toContainEqual({scope:"role",session:null,role:"team_deleted",text:"Never publish without approval"})
+ expect(bundle.process.roles.some((r:{agent:string})=>r.agent==="team_deleted")).toBe(false)
+ expect((yield* call("/api/orchestra/project-template/confirm-save",{token:preview.body.token,browsers:[]})).body.kind).toBe("TEMPLATE_UNRESOLVED_ROLES")
+ expect((yield* call("/api/orchestra/project-template")).body).toEqual([])
+ expect((yield* call("/api/orchestra/project-template/confirm-save",{token:preview.body.token,browsers:[],acceptUnresolvedRoles:true})).status).toBe(204)
+ const library=(yield* call("/api/orchestra/project-template")).body
+ expect(library).toHaveLength(1)
+ expect((yield* call("/api/orchestra/project-template/prepare-create",{templateID:library[0].id,settingsDirectory:source})).body.kind).toBe("TEMPLATE_UNRESOLVED_ROLES")
+ expect((yield* call("/api/orchestra/project")).body).toHaveLength(1)
+ // Source state is untouched and a fresh save still has the same exact warning/digest.
+ const again=yield* call("/api/orchestra/project-template/prepare-save",{projectID:project.id,browsers:[],templateID:library[0].id})
+ expect(again.body.details).toBe(preview.body.details)
+}))
