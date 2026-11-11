@@ -3,7 +3,7 @@ import { tuiAudioBands, TUI_IDLE_BANDS } from "./audio-bands"
 
 test("the TUI idle header never changes with the clock", () => {
   expect(tuiAudioBands(false, 0)).toEqual([0.08, 0.12, 0.16, 0.2, 0.2, 0.16, 0.12, 0.08])
-  expect(tuiAudioBands(false, 9999)).toEqual(TUI_IDLE_BANDS)
+  expect(tuiAudioBands(false, 9999)).toEqual([...TUI_IDLE_BANDS])
 })
 
 test("all eight bands follow the TUI harmonics and bounds", () => {
@@ -13,6 +13,6 @@ test("all eight bands follow the TUI harmonics and bounds", () => {
 
     expect(bands).toHaveLength(8)
     expect(bands.every((level) => level >= 0.12 && level <= 1)).toBe(true)
-    expect(bands).not.toEqual(TUI_IDLE_BANDS)
+    expect(bands).not.toEqual([...TUI_IDLE_BANDS])
   }
 })

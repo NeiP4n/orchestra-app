@@ -27,6 +27,8 @@ import {
   type OpenSessionOptions,
 } from "./controller"
 
+type SessionRowEvent<T extends Event> = T & { currentTarget: HTMLButtonElement | HTMLAnchorElement }
+
 const SHOW_HOME_SESSION_ARCHIVE = true
 
 const HOME_SECTION_LABEL = "text-v2-text-text-muted [font-weight:440]"
@@ -710,7 +712,7 @@ function HomeSessionRow(
             hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none
           `}
           classList={{ "gap-1.5": props.desktop, "gap-2": !props.desktop }}
-          onMouseDown={(event) => {
+          onMouseDown={(event: SessionRowEvent<MouseEvent>) => {
             if (event.button === 1) event.preventDefault()
           }}
           onMouseEnter={() => {
@@ -720,7 +722,7 @@ function HomeSessionRow(
           }}
           onFocus={() => props.onPreloadSession(props.record.session)}
           onMouseLeave={() => props.onHoverSession(undefined)}
-          onPointerDown={(event) => {
+          onPointerDown={(event: SessionRowEvent<PointerEvent>) => {
             suppressClick = false
 
             if (event.pointerType !== "touch") return
@@ -735,7 +737,7 @@ function HomeSessionRow(
               openMenu(element, x, y)
             }, HOME_SESSION_LONG_PRESS_MS)
           }}
-          onPointerMove={(event) => {
+          onPointerMove={(event: SessionRowEvent<PointerEvent>) => {
             if (!longPressStart) return
 
             if (Math.abs(event.clientX - longPressStart.x) <= 8 && Math.abs(event.clientY - longPressStart.y) <= 8)
@@ -747,13 +749,13 @@ function HomeSessionRow(
             clearLongPress()
             suppressClick = false
           }}
-          onKeyDown={(event) => {
+          onKeyDown={(event: SessionRowEvent<KeyboardEvent>) => {
             if (event.key !== "ContextMenu" && (event.key !== "F10" || !event.shiftKey)) return
             event.preventDefault()
             const bounds = event.currentTarget.getBoundingClientRect()
             openMenu(event.currentTarget, bounds.left + 12, bounds.bottom)
           }}
-          onClick={(event) => {
+          onClick={(event: SessionRowEvent<MouseEvent>) => {
             event.preventDefault()
             // The flag stays set until the long-press compatibility click
             // arrives, however delayed; keyboard activation (detail 0) is
@@ -770,7 +772,7 @@ function HomeSessionRow(
 
             props.onOpenSession(props.record.session, { background: isBackgroundOpen(event) })
           }}
-          onAuxClick={(event) => {
+          onAuxClick={(event: SessionRowEvent<MouseEvent>) => {
             if (!isBackgroundOpen(event)) return
             event.preventDefault()
             props.onOpenSession(props.record.session, { background: true })

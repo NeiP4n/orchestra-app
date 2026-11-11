@@ -29,9 +29,9 @@ function fbm(x: number, y: number, seed: number) {
   return noise(x, y, seed) * 0.65 + noise(x * 2.3, y * 2.3, seed + 17) * 0.35
 }
 
-export function neuralHazeLevel(x: number, y: number, drift: number, energy: number, warmth = 0, seed = 7) {
+export function neuralHazeLevel(x: number, y: number, drift: number, energy: number, warmth = 0, seed = 7, shift = 0) {
   const value =
-    (fbm(x * 0.06 + drift * 0.9, y * 0.21 + Math.sin(drift * 0.3) * 0.6, seed) - 0.5) * 1.1 -
+    (fbm((x + shift) * 0.06 + drift * 0.9, y * 0.21 + Math.sin(drift * 0.3) * 0.6, seed) - 0.5) * 1.1 -
     0.12 +
     energy * 0.28 +
     warmth
@@ -50,6 +50,7 @@ export function paintNeuralHaze(
   energy: number,
   palette: { dormant: string; signal: string },
   nodes: readonly { x: number; y: number; flash: number }[],
+  effects?: { scans: readonly number[]; glitches: readonly { y: number; height: number; shift: number }[] },
 ) {
   const cellWidth = 8
   const cellHeight = 16
@@ -59,8 +60,10 @@ export function paintNeuralHaze(
   ctx.textBaseline = "top"
 
   for (let y = 0; y < rows; y++) {
+    const glitch = effects?.glitches.find((item) => y >= item.y && y < item.y + item.height)
+    const scan = effects?.scans.reduce((best, row) => Math.max(best, 1 - Math.abs(row * rows - y) / 2), 0) ?? 0
     for (let x = 0; x < cols; x++) {
-      let warmth = 0
+      let warmth = scan * 0.45 + (glitch ? 0.12 : 0)
 
       for (const node of nodes) {
         if (node.flash < 0.2) continue
@@ -70,7 +73,7 @@ export function paintNeuralHaze(
         if (falloff > 0) warmth += falloff * node.flash * 0.55
       }
 
-      const level = neuralHazeLevel(x, y, drift, energy, warmth)
+      const level = neuralHazeLevel(x, y, drift, energy, warmth, 7, glitch?.shift ?? 0)
 
       if (level <= 0) continue
       ctx.fillStyle = warmth > 0.15 ? palette.signal : palette.dormant
@@ -105,7 +108,7 @@ export function createNeuralHazePainter() {
 
       if (cache) {
         cache.clearRect(0, 0, width, height)
-        paintNeuralHaze(cache, width, height, args[3], args[4], palette, args[6])
+        paintNeuralHaze(cache, width, height, args[3], args[4], palette, args[6], args[7])
       }
 
       lastPaint = now
