@@ -199,6 +199,31 @@ describe("DodTool", () => {
     ),
   )
 
+  it.live("prose on add or in an existing board never reaches shell permission or changes the item state", () =>
+    withTempDir(({ path: directory }) => {
+      const seen: string[] = []
+      return Effect.gen(function* () {
+        const tools = yield* Tool.Service
+        const refusedAdd = yield* run(tools, "prose-add", {
+          action: "add", what: "Bad check", command: "Run 'bun test' to verify all tests pass",
+        })
+        expect(refusedAdd.error?.message).toContain("Invalid verification.command")
+        const added = yield* run(tools, "valid-add", { action: "add", what: "Real check", command: "echo hello" })
+        expect(text(added)).toContain("Added L-001")
+        yield* run(tools, "take", { action: "take", id: "L-001" })
+        const file = path.join(directory, Dod.FILE)
+        const before = yield* Effect.promise(() => Bun.file(file).text())
+        const legacy = before.replace('command: "echo hello"', `command: "Run 'bun test' to verify all tests pass"`)
+        expect(legacy).not.toBe(before)
+        yield* Effect.promise(() => Bun.write(file, legacy))
+        const refused = yield* run(tools, "legacy-verify", { action: "verify", id: "L-001" })
+        expect(refused.error?.message).toContain("prose description")
+        expect(seen.filter(value => value.startsWith("shell:"))).toEqual([])
+        expect(yield* Effect.promise(() => Bun.file(file).text())).toBe(legacy)
+      }).pipe(Effect.provide(harness(directory, seen)))
+    }),
+  )
+
   it.live("refuses a planted verification command from the board file without running it", () =>
     withTempDir(({ path: directory }) => {
       const seen: string[] = []

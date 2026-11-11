@@ -651,11 +651,13 @@ describe("Dod", () => {
     await Bun.write(temporary, "after\n")
     await expect(
       Dod.replaceFile(temporary, file, {
-        rename: () => Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" })),
+        // EACCES is a Windows replace fallback, not an unrelated failure.
+        // EIO takes the non-fallback branch on every OS.
+        rename: () => Promise.reject(Object.assign(new Error("disk I/O failure"), { code: "EIO" })),
         copyFile,
         unlink,
       }),
-    ).rejects.toThrow("permission denied")
+    ).rejects.toThrow("disk I/O failure")
     expect(await Bun.file(file).text()).toBe("before\n")
     expect(await Bun.file(temporary).exists()).toBe(false)
   })
@@ -698,4 +700,17 @@ describe("Dod", () => {
       })
     }
   })
+})
+
+
+test("verification prose is rejected before creating a board, not extracted or executed", async () => {
+  for (const command of ["Run 'bun test' to verify all tests pass", "Please run bun test", "Execute npm test", "To verify, run pytest", "Запусти bun test", "'bun test'"]) {
+    expect(Dod.verificationProblem(command)).toBeDefined()
+    await using dir = await tmpdir()
+    expect(await fails(Dod.add({ directory: dir.path, what: "Check", verify: command }))).toContain("Invalid verification.command")
+    expect(await Bun.file(path.join(dir.path, Dod.FILE)).exists()).toBe(false)
+  }
+  for (const command of ["bun test", "npm run test -- --run", "python -m pytest", "./scripts/check.sh", "./Run checks.sh --test", "echo hello", "bun test && bun run typecheck", "cmd /c bun test", '"C:\\Program Files\\checks.exe" --test']) {
+    expect(Dod.verificationProblem(command)).toBeUndefined()
+  }
 })

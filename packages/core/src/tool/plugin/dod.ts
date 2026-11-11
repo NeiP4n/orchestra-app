@@ -62,7 +62,7 @@ export const Input = Schema.Struct({
   standby_id: optional(Schema.String.annotate({ description: "add: id of the reserve agent for the item" })),
   steps: optional(Schema.Array(Schema.String).annotate({ description: "add: checkable steps, in order" })),
   command: optional(
-    Schema.String.annotate({ description: "add: shell command whose exit code 0 proves the item done" }),
+    Schema.String.annotate({ description: "add: executable shell command only, e.g. bun test. No prose, no Run prefix or wrapping quotes. Exit code 0 proves the item done" }),
   ),
   depends_on: optional(Schema.Array(Schema.String).annotate({ description: "add: IDs that must be DONE first" })),
 })

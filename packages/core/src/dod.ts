@@ -591,9 +591,22 @@ const FORBIDDEN_VERIFICATION = [
   { pattern: /(^|[;|&]\s*)eval\b/i, reason: "eval" },
 ] as const
 
+/** Reject descriptions rather than guessing which quoted substring the author meant.
+ * Executable names, paths, arguments and shell chains otherwise remain unchanged. */
+export function verificationDescriptionProblem(command: string): string | undefined {
+  const value = command.trim()
+  if (!value) return "an empty command"
+  if (/^(?:please\s+)?(?:run|execute|launch|invoke)\s+(?:[\x22\x27`]|(?:bun|npm|pnpm|yarn|node|python|pytest|cargo|go|make|npx)\b)/i.test(value) ||
+      /^(?:to\s+(?:verify|check|test)|verify\s+(?:that|all|the)|check\s+(?:that|all|the)|запусти(?:ть)?\s|выполни(?:ть)?\s|для\s+проверки\b)/i.test(value))
+    return "a prose description instead of an executable command"
+  if (/^[\x22\x27](?:bun|npm|pnpm|yarn|node|python|pytest|cargo|go|make|npx)\s/i.test(value) && /[\x22\x27]$/.test(value))
+    return "a quoted description instead of an executable command"
+  return undefined
+}
+
 /** Why a verification command must not run, or undefined when it is a plain check. */
 export function verificationProblem(command: string): string | undefined {
-  return FORBIDDEN_VERIFICATION.find((rule) => rule.pattern.test(command))?.reason
+  return FORBIDDEN_VERIFICATION.find((rule) => rule.pattern.test(command))?.reason ?? verificationDescriptionProblem(command)
 }
 
 // The check a submitted item names, once the item is the owner's to submit.
@@ -795,6 +808,10 @@ export const add = Effect.fn("Dod.add")(function* (input: {
   // the holder's lease expires.
   standby?: Owner
 }) {
+  if (input.verify !== undefined) {
+    const problem = verificationDescriptionProblem(input.verify)
+    if (problem) return yield* new DodError({ message: `Invalid verification.command: ${problem}. Supply only the executable command, for example bun test; do not write instructions around it.` })
+  }
   const what = input.what.trim()
   if (!what) return yield* new DodError({ message: "Name what the item delivers" })
   yield* initialize(input.directory)
@@ -1072,7 +1089,7 @@ export async function replaceFile(
       error?.code !== "EPERM" &&
       error?.code !== "EEXIST" &&
       error?.code !== "EBUSY" &&
-      process.platform !== "win32"
+      !(process.platform === "win32" && error?.code === "EACCES")
     ) {
       await fs.unlink(temporary).catch(() => {})
       throw error
