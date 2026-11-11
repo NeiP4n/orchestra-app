@@ -57,7 +57,7 @@ export function TemplateFiles(props: { access: TemplateFileAccess }) {
         <label class="flex flex-col gap-1">Полный путь к .orchestra-template на сервере
           <input class="rounded border border-v2-border-border-base bg-v2-background-bg-base px-3 py-2 min-h-9" placeholder="C:/Downloads/Test2.orchestra-template" aria-label="Путь к файлу шаблона" value={file()} onInput={e => { setFile(e.currentTarget.value); setPending() }} disabled={busy()} />
         </label>
-        <button class="rounded border border-v2-border-border-base px-3 py-2 text-start hover:bg-v2-surface-surface-raised focus-visible:outline focus-visible:outline-2 disabled:opacity-50" type="button" disabled={busy() || !file().trim()} onClick={() => void run(async () => setPending(await props.access.prepareImport(file())))}>Импорт из файла</button>
+        <button class="rounded border border-v2-border-border-base px-3 py-2 text-start hover:bg-v2-surface-surface-raised focus-visible:outline focus-visible:outline-2 disabled:opacity-50" type="button" disabled={busy() || !file().trim()} onClick={() => void run(async () => { setPending(await props.access.prepareImport(file())) })}>Импорт из файла</button>
         <Show when={pending()}>{value => <div class="flex flex-col gap-2">
           <p>Добавить «{value().name}» в библиотеку? Это не создаёт проект и ничего не запускает.</p>
           <Show when={value().unresolvedRoles?.length}><p role="alert">Неполный шаблон: недоступные роли. Создание проекта будет заблокировано.</p></Show>
