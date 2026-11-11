@@ -59,7 +59,10 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
   // Last time a probe got any answer from the registered server. A server that
   // answers — even slowly — is progressing, so a burst of timed-out probes must
   // not kill it; only silence longer than the waiting budget does.
-  let lastAnsweredAt: number | undefined
+  // A new observer has no historical evidence of silence. Start the grace
+  // period on first sight of each owner, never at Infinity on reconnect.
+  let lastAnsweredAt = Date.now()
+  let observedOwner: Info | undefined
   let announced = false
   const announce = (reason: "missing" | "version-mismatch", previousVersion?: string) =>
     Effect.sync(() => {
@@ -81,6 +84,10 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
   const found = yield* Effect.gen(function* () {
     const registration = yield* registered(options.file, timing.requestTimeout)
     const info = registration.info
+    if (info !== undefined && (observedOwner === undefined || !same(observedOwner, info))) {
+      observedOwner = info
+      lastAnsweredAt = Date.now()
+    }
     const service = registration.service
     if (service !== undefined) lastAnsweredAt = Date.now()
     if (registration.timedOut && info !== undefined) {
@@ -93,8 +100,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
         // One that answered recently is alive but slow — a loaded machine stretches
         // probes past the timeout — so give it until the waiting budget runs out
         // instead of killing it just before it would have become ready.
-        const silentFor =
-          lastAnsweredAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - lastAnsweredAt
+        const silentFor = Date.now() - lastAnsweredAt
         if (silentFor >= waitingTimeoutFor(timing, waitingKills)) {
           yield* announce("missing")
           yield* Effect.logWarning("Background service is unresponsive; recovery cannot preserve persistent terminals")
@@ -130,11 +136,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
       if (decision._tag === "reuse") {
         // Same release, different build: the restart was skipped, so say so —
         // otherwise a stale server looks identical to a fresh one.
-        if (
-          typeof options.version === "string" &&
-          service.version !== undefined &&
-          service.version !== options.version
-        )
+        if (typeof options.version === "string" && service.version !== undefined && service.version !== options.version)
           yield* Effect.logWarning("Reusing background service from a different build", {
             server: service.version,
             client: options.version,

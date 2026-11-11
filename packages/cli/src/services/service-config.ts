@@ -116,11 +116,7 @@ export const options = Effect.fnUntraced(function* (input: { readonly checkVersi
     file,
     version: input.checkVersion ? ORCHESTRA_VERSION : undefined,
     env: (yield* read()).env,
-    command: [
-      ...selfCommand(),
-      "serve",
-      "--service",
-    ],
+    command: [...selfCommand(), "serve", "--service"],
     cwd: selfRoot(),
   }
 })
@@ -128,10 +124,16 @@ export const options = Effect.fnUntraced(function* (input: { readonly checkVersi
 export const read = Effect.fn("cli.service-config.read")(function* () {
   const { fs, configFile, legacyConfigFile } = yield* paths
   if (legacyConfigFile) yield* migrateConfig(legacyConfigFile, configFile)
-  return yield* fs.readFileString(configFile).pipe(
-    Effect.flatMap(decodeInfo),
-    Effect.orElseSucceed(() => ({}) as Info),
+  // Only a missing file is a fresh install. Permission, I/O and decoding errors
+  // must not masquerade as an empty config and rotate every browser session key.
+  const text = yield* fs.readFileString(configFile).pipe(
+    Effect.catchIf(
+      (error) => error.reason._tag === "NotFound",
+      () => Effect.succeed(undefined),
+    ),
   )
+  if (text === undefined) return {} as Info
+  return yield* decodeInfo(text)
 })
 
 const write = Effect.fn("cli.service-config.write")(function* (value: Info) {

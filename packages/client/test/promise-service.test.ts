@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test"
+import { writeFile } from "node:fs/promises"
+import { withEnsureTiming } from "../src/service-timing"
 import { Service, type EnsureReason } from "../src/promise/service"
 import { expectPortAvailable, serviceFixture } from "./fixture/service-fixture"
 import { accelerate } from "./fixture/service-timing"
@@ -212,11 +214,16 @@ test("evicts an unresponsive registered service before starting its replacement"
   await fixture.waitForFile()
   const original = await Bun.file(registration).json()
 
-  const endpoint = await ensure({
-    file: registration,
-    version: "test",
-    command: fixture.command("delayed", "10"),
-  })
+  const endpoint = await Service.ensure(
+    withEnsureTiming(
+      {
+        file: registration,
+        version: "test",
+        command: fixture.command("delayed", "10"),
+      },
+      { requestTimeout: 100, pollInterval: 20, waitingTimeoutBase: 200, promiseTimeout: 3000, stopPollInterval: 5 },
+    ),
+  )
   const replacement = await Bun.file(registration).json()
   fixture.track(replacement.pid)
 
@@ -250,13 +257,11 @@ test("replaces a registered service stuck in its startup state", async () => {
   const starting = fixture.spawn("starting")
   await fixture.waitForFile()
 
-  const endpoint = await run(
-    ensure({
-      file: registration,
-      version: "test",
-      command: fixture.command("delayed", "10"),
-    }),
-  )
+  const endpoint = await ensure({
+    file: registration,
+    version: "test",
+    command: fixture.command("delayed", "10"),
+  })
   const replacement = await Bun.file(registration).json()
   fixture.track(replacement.pid)
 
@@ -375,3 +380,31 @@ test("stop waits for the original process while preserving a newly registered su
     await stopping
   }
 }, 20_000)
+
+test("a reconnect gives an initially silent live owner the recovery budget before eviction", async () => {
+  await using fixture = await serviceFixture()
+  const owner = fixture.spawn("initially-silent")
+  await fixture.waitForFile()
+  const original = await Bun.file(fixture.registration).json()
+  const options = withEnsureTiming(
+    { file: fixture.registration, version: "test", command: [] as string[] },
+    {
+      pollInterval: 10,
+      requestTimeout: 50,
+      waitingTimeoutBase: 1500,
+      promiseTimeout: 5000,
+    },
+  )
+  const release = setTimeout(() => void writeFile(fixture.registration + ".release", ""), 700)
+  try {
+    const endpoint = await Service.ensure(options)
+    expect(endpoint.url).toBe(original.url)
+    expect(owner.exitCode).toBe(null)
+    expect((await Bun.file(fixture.registration).json()).pid).toBe(original.pid)
+    expect(
+      (await Bun.file(fixture.registration + ".requests").text()).trim().split("\n").length,
+    ).toBeGreaterThanOrEqual(3)
+  } finally {
+    clearTimeout(release)
+  }
+})

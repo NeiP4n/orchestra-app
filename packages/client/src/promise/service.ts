@@ -39,7 +39,10 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
   // Last time a probe got any answer from the registered server. A server that
   // answers — even slowly — is progressing, so a burst of timed-out probes must
   // not kill it; only silence longer than the waiting budget does.
-  let lastAnsweredAt: number | undefined
+  // A new observer has no historical evidence of silence. Start the grace
+  // period on first sight of each owner, never at Infinity on reconnect.
+  let lastAnsweredAt = Date.now()
+  let observedOwner: Info | undefined
   let announced = false
 
   const announce = (reason: "missing" | "version-mismatch", previousVersion?: string) => {
@@ -51,7 +54,12 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
     const [command, ...args] = options.command ?? ["opencode", "serve", "--service"]
     if (command === undefined) throw new Error("Missing service command")
     try {
-      return spawnServiceContender(command, args, await PtyHandoff.environment(options.file ?? fallback(), options.env), options.cwd)
+      return spawnServiceContender(
+        command,
+        args,
+        await PtyHandoff.environment(options.file ?? fallback(), options.env),
+        options.cwd,
+      )
     } catch (cause) {
       throw new Error("Failed to start server", { cause })
     }
@@ -62,6 +70,10 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
       if (Date.now() >= deadline)
         throw pool.failure() ?? new Error("Timed out waiting for the background service to start")
       const registration = await registered(options.file, timing.requestTimeout)
+      if (registration.info !== undefined && (observedOwner === undefined || !same(observedOwner, registration.info))) {
+        observedOwner = registration.info
+        lastAnsweredAt = Date.now()
+      }
       if (registration.service !== undefined) lastAnsweredAt = Date.now()
       if (registration.timedOut && registration.info !== undefined) {
         timeouts = {
@@ -73,8 +85,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
           // One that answered recently is alive but slow — a loaded machine stretches
           // probes past the timeout — so give it until the waiting budget runs out
           // instead of killing it just before it would have become ready.
-          const silentFor =
-            lastAnsweredAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - lastAnsweredAt
+          const silentFor = Date.now() - lastAnsweredAt
           if (silentFor >= waitingTimeoutFor(timing, waitingKills)) {
             announce("missing")
             console.warn("Background service is unresponsive; recovery cannot preserve persistent terminals")
@@ -116,9 +127,7 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
             service.version !== undefined &&
             service.version !== options.version
           )
-            console.warn(
-              `Reusing background service ${service.version}; this client is ${options.version}`,
-            )
+            console.warn(`Reusing background service ${service.version}; this client is ${options.version}`)
           await PtyHandoff.complete(options.file ?? fallback(), service.info)
           return service.endpoint
         }

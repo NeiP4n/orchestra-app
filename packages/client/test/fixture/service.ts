@@ -85,6 +85,10 @@ const server = Bun.serve({
       await appendFile(registration + ".requests", process.pid + "\n")
       return new Promise<Response>(() => {})
     }
+    if (mode === "initially-silent" && !(await Bun.file(registration + ".release").exists())) {
+      await appendFile(registration + ".requests", process.pid + "\n")
+      return new Promise<Response>(() => {})
+    }
     if (mode === "flaky" && !(await Bun.file(registration + ".release").exists())) {
       // A slow starter on a loaded machine: answers 503 twice, then its probes
       // start timing out until the release file appears, then answers 200.
