@@ -179,6 +179,7 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     this._seed = options.seed ?? 7
     this._activity = options.activity
     this._scope = scope(options.session)
+    this._functional = options.functionalEffects === true
     this._names = options.names ?? {}
     this.cursor = this._activity?.cursor ?? 0
     this.schedule()

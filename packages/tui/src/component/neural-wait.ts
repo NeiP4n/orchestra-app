@@ -34,6 +34,6 @@ export function waitGlyph(elapsed: number) {
 }
 
 // Whether the effect applies at all: it is opt-in.
-export function functionalEffectsEnabled(experimental: Readonly<Record<string, boolean>> | undefined) {
+export function functionalEffectsEnabled(experimental: { readonly neural_functional_effects?: boolean } | undefined) {
   return experimental?.neural_functional_effects === true
 }
