@@ -1,3 +1,6 @@
+import { createMediaQuery } from "@solid-primitives/media"
+import { TuiProjectTree } from "@/tui/project-tree"
+import { useSettings } from "@/settings/model"
 import { Route, useParams } from "@solidjs/router"
 import { createMemo, lazy, Show, Suspense, type ParentProps } from "solid-js"
 import { Home } from "@/home/route"
@@ -56,26 +59,32 @@ export function AppRoutes() {
       <Route
         path="/server/:serverKey/session/:id"
         component={() => (
-          <SessionRouteFrame>
-            <Suspense
-              fallback={
-                <div class="flex min-h-0 flex-1 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]">
-                  <SessionPanelFrame raised />
-                </div>
-              }
-            >
-              <TargetServerRoute>
-                <TargetSessionRouteContent />
-              </TargetServerRoute>
-            </Suspense>
-          </SessionRouteFrame>
+          <TuiSessionWorkspace>
+            <SessionRouteFrame>
+              <Suspense
+                fallback={
+                  <div class="flex min-h-0 flex-1 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]">
+                    <SessionPanelFrame raised />
+                  </div>
+                }
+              >
+                <TargetServerRoute>
+                  <TargetSessionRouteContent />
+                </TargetServerRoute>
+              </Suspense>
+            </SessionRouteFrame>
+          </TuiSessionWorkspace>
         )}
       />
       <Route path="/new-session" component={DraftRoute} />
       <Route
         path="/server/:serverKey/room/:roomID/dod"
         component={() => (
-          <Suspense fallback={<div class="flex min-h-0 flex-1 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]" />}>
+          <Suspense
+            fallback={
+              <div class="flex min-h-0 flex-1 px-[var(--shell-inline-inset,8px)] pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]" />
+            }
+          >
             <TargetServerRoute>
               <DodBoardRoute />
             </TargetServerRoute>
@@ -83,6 +92,21 @@ export function AppRoutes() {
         )}
       />
     </Route>
+  )
+}
+
+function TuiSessionWorkspace(props: ParentProps) {
+  const wide = createMediaQuery("(min-width: 1200px)")
+  const settings = useSettings()
+  const tree = () => wide() && settings.appearance.tabLayout() !== "vertical"
+
+  return (
+    <div data-component="tui-session-workspace" data-tree={tree()}>
+      <Show when={tree()}>
+        <TuiProjectTree />
+      </Show>
+      <div data-slot="tui-session-stage">{props.children}</div>
+    </div>
   )
 }
 

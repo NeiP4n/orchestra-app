@@ -5,6 +5,7 @@ import { HomeSessionsView } from "./view"
 import { Show } from "solid-js"
 
 export function HomeSessions(props: {
+  navigationLinks?: boolean
   sessions: HomeSessionsController
   search: HomeSessionSearchController
   scroll: HomeScrollController
@@ -13,6 +14,7 @@ export function HomeSessions(props: {
     <Show when={props.sessions.session.server()}>
       {(server) => (
         <HomeSessionsView
+          navigationLinks={props.navigationLinks}
           language={props.sessions.copy.language}
           groups={props.sessions.data.groups()}
           archivedGroups={props.sessions.data.archivedGroups()}

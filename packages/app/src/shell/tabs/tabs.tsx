@@ -206,7 +206,9 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       if (!tab) return
       const key = tabKey(tab)
       const draftID = tab.type === "draft" ? tab.draftID : undefined
-      const nextTab = nextTabAfterClose(store, index, recentKey() === key && location.pathname !== "/")
+      const visible = store.filter((tab) => tab.type !== "draft" || !tab.home)
+      const visibleIndex = visible.findIndex((item) => tabKey(item) === key)
+      const nextTab = nextTabAfterClose(visible, visibleIndex, recentKey() === key && location.pathname !== "/")
       closing.add(key)
       void startTransition(() => {
         setStore(
@@ -250,9 +252,11 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         setStore(
           produce((tabs) => {
             const byKey = new Map(tabs.map((tab) => [tabKey(tab), tab]))
-            const next = keys.flatMap((key) => byKey.get(key) ?? [])
+            const visible = keys.flatMap((key) => byKey.get(key) ?? [])
+            const hidden = tabs.filter((tab) => tab.type === "draft" && tab.home)
+            const next = [...visible, ...hidden]
 
-            if (next.length !== tabs.length) return
+            if (new Set(keys).size !== keys.length || next.length !== tabs.length) return
             tabs.splice(0, tabs.length, ...next)
           }),
         )
@@ -261,6 +265,19 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         const tab = store.find((item) => item.type === "draft" && item.draftID === draftID)
 
         if (!tab || tab.type !== "draft") throw new Error(`Draft not found: ${draftID}`)
+
+        return tab
+      },
+      ensureHomeDraft(input: { server: ServerConnection.Key; directory: string }) {
+        const existing = store.find(
+          (tab): tab is DraftTab =>
+            tab.type === "draft" && !!tab.home && tab.server === input.server && tab.directory === input.directory,
+        )
+
+        if (existing) return existing
+        const tab: DraftTab = { type: "draft", home: true, draftID: uuid(), ...input }
+        memory.ensure(tabKey(tab), "prompt", () => createDraftComposerState(tab.draftID, {}))
+        setStore(produce((tabs) => tabs.push(tab)))
 
         return tab
       },
@@ -298,7 +315,12 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
       promoteDraft(draftID: string, session: Omit<SessionTab, "type">) {
         // Keep the replacement and navigation atomic so /new-session never renders
         // after its backing draft tab has been removed from the store.
-        const active = location.pathname === "/new-session" && location.query.draftId === draftID
+        const home = store.some((tab) => tab.type === "draft" && tab.draftID === draftID && tab.home)
+
+        const active =
+          (location.pathname === "/new-session" && location.query.draftId === draftID) ||
+          (location.pathname === "/" && home)
+
         const next = { type: "session" as const, ...session }
         void startTransition(() => {
           setStore(
@@ -335,7 +357,12 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           const index = store.findIndex((tab) => tab.type === "draft" && tab.draftID === draftID)
 
           if (index === -1) return
-          const active = location.pathname === "/new-session" && location.query.draftId === draftID
+          const home = store.some((tab) => tab.type === "draft" && tab.draftID === draftID && tab.home)
+
+          const active =
+            (location.pathname === "/new-session" && location.query.draftId === draftID) ||
+            (location.pathname === "/" && home)
+
           setStore(
             produce((tabs) => {
               tabs[index] = next

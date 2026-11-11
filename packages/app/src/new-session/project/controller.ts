@@ -5,6 +5,7 @@ import { useServerSDK } from "@/runtime/server/client"
 import { serverName, ServerConnection, useServers } from "@/runtime/server/registry"
 import { useWorkspaceLocation } from "@/workspaces/location"
 import { workspaceSelectionDestination } from "@/workspaces/paths"
+import { useLayout } from "@/shell/state/layout"
 import { useTabs } from "@/shell/tabs/tabs"
 import type { PromptProjectControls } from "./selector"
 
@@ -13,6 +14,7 @@ export function createComposerProjectControls(props: { draftId: string; worktree
   const serverSDK = useServerSDK()
   const location = useWorkspaceLocation()
   const tabs = useTabs()
+  const layout = useLayout()
   const global = useGlobal()
   const pickDirectory = useDirectoryPicker()
   const projectServer = () => serverSDK.server
@@ -41,6 +43,9 @@ export function createComposerProjectControls(props: { draftId: string; worktree
     const target = global.ensureServerCtx(connection)
     target.projects.open(worktree)
     target.projects.touch(worktree)
+    const home = tabs.draft(props.draftId).home
+
+    if (home) layout.home.setSelection({ server: ServerConnection.key(connection), directory: worktree })
     tabs.updateDraft(props.draftId, {
       server: ServerConnection.key(connection),
       directory: worktree,

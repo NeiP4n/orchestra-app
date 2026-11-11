@@ -1,6 +1,7 @@
 import { onMount, type ComponentProps, splitProps } from "solid-js"
 import { iconNames, isIconName, getIcon, type IconName } from "../catalog"
 import "./icon.css"
+import { tuiControlGlyphs } from "./tui-control-glyphs"
 
 const spriteID = "opencode-v2-icon-sprite"
 
@@ -10,7 +11,15 @@ let spriteInserted = false
 
 function spriteContent() {
   return iconNames()
-    .map((name) => `<symbol id="${symbol(name)}" viewBox="${getIcon(name).viewBox}">${getIcon(name).body}</symbol>`)
+    .map((name) => {
+      const glyph = tuiControlGlyphs.get(name)
+
+      const body = glyph
+        ? `<text x="10" y="10" text-anchor="middle" dominant-baseline="central" fill="currentColor" style="font-family:var(--font-family-mono);font-size:${glyph.length > 1 ? 12 : 17}px">${glyph}</text>`
+        : getIcon(name).body
+
+      return `<symbol id="${symbol(name)}" viewBox="${glyph ? "0 0 20 20" : getIcon(name).viewBox}">${body}</symbol>`
+    })
     .join("")
 }
 
@@ -72,7 +81,7 @@ export function Icon(props: IconProps) {
       }
       width={pixelSize}
       height={pixelSize}
-      viewBox={icon().viewBox}
+      viewBox={tuiControlGlyphs.has(iconName()) ? "0 0 20 20" : icon().viewBox}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden={rest["aria-hidden"] ?? "true"}

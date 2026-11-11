@@ -17,6 +17,7 @@ export const Session = Persistence.struct({
 export const Draft = Persistence.struct({
   type: Schema.Literal("draft"),
   draftID: Schema.String,
+  home: Persistence.optional(Schema.Boolean),
   server: ServerKey,
   directory: Schema.String,
   worktree: Persistence.optional(Schema.String),

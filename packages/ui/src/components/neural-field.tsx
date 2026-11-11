@@ -1,5 +1,8 @@
 import { createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { getSharedNeuralActivity, type NeuralSignalKind } from "./neural-activity"
+import { NeuralMeshActivity } from "./neural-mesh-activity"
+import { buildNeuralMesh, type MeshNode } from "./neural-mesh"
+import { createNeuralHazePainter } from "./neural-haze"
 import { createNeuralFrameLoop } from "./neural-frame-loop"
 
 export { getSharedNeuralActivity, neuralEnergyFloor, type NeuralSignal, type NeuralSignalKind } from "./neural-activity"
@@ -109,27 +112,12 @@ function mulberry32(seed: number) {
 
 type Node = { x: number; y: number; flash: number }
 
-type Pulse = { from: number; to: number; t: number; color: string }
+type Pulse = { from: number; to: number; t: number; color: string; hops?: number }
 
 function buildNodes(count: number, seed: number): Node[] {
   const random = mulberry32(seed)
 
   return Array.from({ length: count }, () => ({ x: 0.06 + random() * 0.88, y: 0.08 + random() * 0.84, flash: 0 }))
-}
-
-function buildLinks(nodes: readonly Node[], maxDistance: number): Array<[number, number]> {
-  const links: Array<[number, number]> = []
-
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const dx = nodes[i].x - nodes[j].x
-      const dy = nodes[i].y - nodes[j].y
-
-      if (Math.hypot(dx, dy) < maxDistance) links.push([i, j])
-    }
-  }
-
-  return links
 }
 
 function fitCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
@@ -240,32 +228,89 @@ function spawnPulses(
   }
 }
 
-export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
+export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: string; variant?: "overview" }> = (
+  props,
+) => {
   const activity = getSharedNeuralActivity()
-  const nodes = buildNodes(24, 42)
-  const links = buildLinks(nodes, 0.3)
+  const paintHaze = createNeuralHazePainter()
+  let drift = 0
+  let mesh = buildNeuralMesh(1, 1)
+  let meshKey = ""
+  let nodes: MeshNode[] = []
+  let signals = new NeuralMeshActivity(nodes)
+  let links: Array<[number, number]> = []
   const pulses: Pulse[] = []
+  let background = 0
   const cursor = { value: activity.cursor }
 
   const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
+    const cols = Math.max(1, Math.floor(width / 8))
+    const rows = Math.max(1, Math.floor(height / 16))
+    const key = `${cols}x${rows}`
+
+    if (key !== meshKey) {
+      mesh = buildNeuralMesh(cols, rows)
+      nodes = mesh.nodes.map((node) => ({ ...node, x: node.x / cols, y: node.y / rows }))
+      signals = new NeuralMeshActivity(nodes)
+      links = mesh.edges.map((edge): [number, number] => [edge.from, edge.to])
+      pulses.length = 0
+      meshKey = key
+    }
+
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
-    spawnPulses(activity, cursor, nodes, links, palette, pulses, 96)
+    const fresh = activity.since(cursor.value)
+    cursor.value = activity.cursor
+
+    for (const signal of fresh) {
+      if (props.sessionIDs && !props.sessionIDs.includes(signal.sessionID)) continue
+      const event = signals.take(signal)
+      const outgoing = links.filter((edge) => edge.includes(event.hub))
+      const selected = event.all ? outgoing : outgoing.slice(0, 1)
+
+      for (const [a, b] of selected) {
+        pulses.push({ from: event.hub, to: a === event.hub ? b : a, t: 0, color: colorFor(event.kind, palette) })
+      }
+
+      if (pulses.length > 96) pulses.splice(0, pulses.length - 96)
+    }
+
+    signals.step(dt, energy, cols, rows)
+    background += dt * tempo * (0.8 + energy * 9)
+
+    while (background >= 1 && links.length) {
+      background -= 1
+      const [a, b] = links[Math.floor(Math.random() * links.length)]
+      const reverse = Math.random() < 0.5
+      pulses.push({
+        from: reverse ? b : a,
+        to: reverse ? a : b,
+        t: 0,
+        hops: 0,
+        color: Math.random() < 0.18 ? palette.spark : palette.signal,
+      })
+    }
+
+    if (pulses.length > 96) pulses.splice(0, pulses.length - 96)
 
     ctx.clearRect(0, 0, width, height)
-    const scale = Math.min(width, height)
+    drift += dt * tempo
+    paintHaze(ctx, width, height, drift, energy, palette, nodes, signals)
     const px = (x: number) => x * width
     const py = (y: number) => y * height
 
     ctx.lineWidth = 1
 
-    for (const [a, b] of links) {
-      ctx.strokeStyle = palette.synapse
-      ctx.globalAlpha = 0.12 + energy * 0.18
-      ctx.beginPath()
-      ctx.moveTo(px(nodes[a].x), py(nodes[a].y))
-      ctx.lineTo(px(nodes[b].x), py(nodes[b].y))
-      ctx.stroke()
+    ctx.font = "16px monospace"
+    ctx.textBaseline = "top"
+    ctx.fillStyle = palette.synapse
+
+    for (let index = 0; index < mesh.edges.length; index++) {
+      ctx.globalAlpha = 0.9 * (dt === 0 ? 0.8 : 0.55 + 0.45 * Math.sin((drift * 1000) / 1700 + index * 0.9))
+
+      for (const [x, y] of mesh.edges[index].cells) {
+        ctx.fillText("·", (x * width) / cols, (y * height) / rows)
+      }
     }
 
     ctx.globalAlpha = 1
@@ -279,37 +324,95 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
 
       if (pulse.t >= 1) {
         nodes[pulse.to].flash = 1
+        const onward = links.filter((edge) => edge.includes(pulse.to) && !edge.includes(pulse.from))
+        const hops = pulse.hops ?? 1
+
+        if (onward.length && Math.random() <= 0.72 - hops * 0.12 + energy * 0.2) {
+          const [a, b] = onward[Math.floor(Math.random() * onward.length)]
+          pulses.push({ from: pulse.to, to: a === pulse.to ? b : a, t: 0, color: pulse.color, hops: hops + 1 })
+        }
+
         pulses.splice(i, 1)
         continue
       }
 
       const from = nodes[pulse.from]
       const to = nodes[pulse.to]
-      const x = px(from.x + (to.x - from.x) * pulse.t)
-      const y = py(from.y + (to.y - from.y) * pulse.t)
+      const x = (Math.round((from.x + (to.x - from.x) * pulse.t) * cols) * width) / cols
+      const y = (Math.round((from.y + (to.y - from.y) * pulse.t) * rows) * height) / rows
       ctx.fillStyle = pulse.color
       ctx.globalAlpha = 0.9
-      ctx.beginPath()
-      ctx.arc(x, y, 2.5, 0, Math.PI * 2)
-      ctx.fill()
+      ctx.fillText("●", x, y)
     }
 
     ctx.globalAlpha = 1
 
-    for (const node of nodes) {
-      node.flash = Math.max(0, node.flash - dt * 0.6)
-      const radius = 1.5 + node.flash * 2.5 + energy * 0.5
-      ctx.fillStyle = node.flash > 0.05 ? palette.signal : palette.dormant
+    for (let index = 0; index < nodes.length; index++) {
+      const node = nodes[index]
+      node.flash = Math.max(0, node.flash - dt * 1.4)
+      ctx.fillStyle = palette.signal
       ctx.globalAlpha = 0.5 + node.flash * 0.5 + energy * 0.2
-      ctx.beginPath()
-      ctx.arc(px(node.x), py(node.y), Math.min(radius, scale * 0.02), 0, Math.PI * 2)
-      ctx.fill()
+      ctx.fillText(
+        Array.from(signals.hubs.values()).includes(index)
+          ? "◈"
+          : node.flash > 0.45
+            ? "◉"
+            : mesh.nodes[index].degree > 3
+              ? "●"
+              : "•",
+        px(node.x),
+        py(node.y),
+      )
     }
+
+    ctx.lineWidth = 1
+
+    for (const ripple of signals.ripples) {
+      const node = nodes[ripple.from]
+      const radius = (2 + ripple.age * 22) * 16
+      ctx.strokeStyle = palette.signal
+      ctx.globalAlpha = Math.max(0, 1 - ripple.age / 0.9)
+      ctx.setLineDash([1, 8])
+      ctx.beginPath()
+      ctx.arc(px(node.x), py(node.y), radius, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+
+    for (const bridge of signals.bridges) {
+      const from = nodes[bridge.from]
+      const to = nodes[bridge.to]
+      const color = bridge.state === "done" ? palette.done : bridge.state === "fail" ? palette.fail : palette.spark
+      ctx.globalAlpha = signals.fade(bridge) * 0.8
+      ctx.fillStyle = color
+      const length = Math.max(Math.abs(to.x - from.x) * cols, Math.abs(to.y - from.y) * rows)
+
+      for (let cell = 1; cell < Math.ceil(length * bridge.at); cell++) {
+        const t = cell / length
+        const x = (Math.round((from.x + (to.x - from.x) * t) * cols) * width) / cols
+        const y = (Math.round((from.y + (to.y - from.y) * t) * rows) * height) / rows
+        ctx.fillText("·", x, y)
+      }
+
+      if (bridge.state !== "travel") {
+        const label = `${bridge.state === "done" ? "✓" : bridge.state === "fail" ? "✗" : "▸"} ${bridge.label}`
+        ctx.fillStyle = color
+        ctx.fillText(label, Math.max(0, Math.min(width - label.length * 8, px(to.x) + 16)), py(to.y))
+      }
+    }
+
+    ctx.setLineDash([])
 
     ctx.globalAlpha = 1
   })
 
-  return <canvas ref={ref} data-component="neural-field" class={props.class} aria-hidden="true" />
+  return (
+    <canvas
+      ref={ref}
+      data-component={props.variant === "overview" ? "neural-overview" : "neural-field"}
+      class={props.class}
+      aria-hidden="true"
+    />
+  )
 }
 
 export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
