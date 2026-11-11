@@ -387,7 +387,7 @@ export function authorize(http: HttpClient.HttpClient) {
         return yield* exchangeCode(http, { code: request.code, verifier }).pipe(
           Effect.flatMap((tokens) => resolveProjectAndMakeCredential(http, tokens)),
           Effect.tap(() => respond()),
-          Effect.tapError((error) => respond(error.message)),
+          Effect.tapError((error) => respond(error instanceof Error ? error.message : "Antigravity OAuth authorization failed")),
           Effect.onInterrupt(() => Effect.sync(() => request.response.destroy())),
         )
       }),
