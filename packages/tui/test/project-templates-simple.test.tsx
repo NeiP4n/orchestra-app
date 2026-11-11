@@ -186,7 +186,7 @@ for(const width of [80,120]) test(`unavailable role save uses one visible warnin
  const calls:unknown[][]=[]
  const access:ProjectTemplatesAccess={
   list:async()=>[],
-  prepareSave:async()=>({token:"missing-role",name:"Test2",details:JSON.stringify({format:"orchestra.project-template",version:2,process:{skills:[],unresolvedRoles:["team_deleted"]}}),unresolvedRoles:["team_deleted"]}),
+  prepareSave:async()=>({token:"missing-role",name:"Test2",details:JSON.stringify({format:"orchestra.project-template",version:2,sessions:[{title:"Old worker",role:"team_deleted"}],process:{skills:[],unresolvedRoles:["team_deleted"]}}),unresolvedRoles:["team_deleted"]}),
   confirmSave:async(...args)=>{calls.push(args)},prepareCreate:async()=>{throw Error("not create")},confirmCreate:async()=>{throw Error("not create")},
  }
  const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple access={access} canSave /></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:40})
@@ -207,6 +207,7 @@ for(const width of [80,120]) test(`unavailable role save uses one visible warnin
   if(process.env.CAPTURE_ROLE_REVIEW)await Bun.write(`/tmp/template-role-review-${width}.spans.json`,JSON.stringify(app.captureSpans()))
   await click("project-templates.details")
   expect(app.captureCharFrame()).toContain("Недоступная роль: team_deleted")
+  expect(app.captureCharFrame()).toContain("Сессия Old worker: роль team_deleted")
   await click("project-templates.confirm")
   await app.waitForFrame(f=>f.includes("Проект сохранён как шаблон"))
   expect(calls).toEqual([["missing-role",false,false,true]])

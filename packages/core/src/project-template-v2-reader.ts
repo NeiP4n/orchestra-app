@@ -9,7 +9,7 @@ import { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 
 /** All adapters are passive owner reads, not repair/create, shell, browser or transcript reads. */
 export interface Stores extends Reader.Stores {
-  roles: () => Promise<readonly V2.Role[]>
+  roles: (input: { projectID: string; sessionIDs: readonly string[] }) => Promise<readonly V2.Role[]>
   playbook: (projectID: string) => Promise<{ text: string | null; recommendedRoles: string[] }>
   /** Owning skill reader resolves project/session registry assignments and dependency definitions.
    * File paths are local inputs to the reader only and never enter exported bytes. */
@@ -49,7 +49,7 @@ export async function capture(
     }
     return sessionModels
     })
-    const [roles, playbook, inventory, programs] = await Promise.all([templateStage("roles", stores.roles), templateStage("playbook", () => stores.playbook(projectID)), templateStage("skills", () => stores.skills({ projectID, sessionIDs: source.sessions.map((s) => s.id) })), templateStage("programs", () => stores.programs(projectID))])
+    const [roles, playbook, inventory, programs] = await Promise.all([templateStage("roles", () => stores.roles({ projectID, sessionIDs: source.sessions.map(s => s.id) })), templateStage("playbook", () => stores.playbook(projectID)), templateStage("skills", () => stores.skills({ projectID, sessionIDs: source.sessions.map((s) => s.id) })), templateStage("programs", () => stores.programs(projectID))])
     const selected = await templateStage("skill-graph", async () => {
     const byID = new Map(inventory.definitions.map((s) => [s.id, s]))
     if (byID.size !== inventory.definitions.length) throw Error("Skill definitions are ambiguous.")

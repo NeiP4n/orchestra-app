@@ -1,6 +1,8 @@
 import { TemplateStageError, templateCapture, templateDiagnosticOf } from "./project-template-errors.js"
 export * as ProjectTemplateV2 from "./project-template-v2.js"
 
+import { Agent } from "@orchestra/schema/agent"
+import { Schema } from "effect"
 import { createHash } from "node:crypto"
 import { ProjectTemplate as V1 } from "./project-template.js"
 import { countSecrets } from "./memory/scrub.js"
@@ -8,6 +10,8 @@ import { countSecrets } from "./memory/scrub.js"
 /** Process definitions only. A valid document is NOT a permission grant or an executable import plan. */
 export type Model = NonNullable<V1.Bundle["sessions"][number]["model"]>
 export interface Role {
+  /** Complete runtime definition. Reuse only on normalized destination equality. */
+  runtime?: Agent.Info
   agent: string
   name: string
   description: string
@@ -113,8 +117,14 @@ export function parseSkills(value: unknown): Skill[] {
 function parseProcess(raw: unknown, base: V1.Bundle): Process {
   const p = object(raw, ["playbook", "recommendedRoles", "roles", "skills", "skillAssignments", "sessionModels", "programs"], ["unresolvedRoles"])
   const roles = templateCapture("process-roles", () => list(p.roles, 100).map((value): Role => {
-    const r = object(value, ["agent", "name", "description", "rules", "category", "readOnly"], ["mode", "model", "models", "variant", "tools", "autoTools", "hub", "registry"])
+    const r = object(value, ["agent", "name", "description", "rules", "category", "readOnly"], ["mode", "model", "models", "variant", "tools", "autoTools", "hub", "registry", "runtime"])
     return {
+      ...(has(r, "runtime") ? { runtime: templateCapture("process-roles", () => {
+        const runtime = Schema.decodeUnknownSync(Agent.Info)(r.runtime)
+        if (runtime.id !== r.agent) invalid()
+        text(JSON.stringify(runtime), 65536)
+        return runtime
+      }) } : {}),
       agent: id(r.agent), name: text(r.name, 160), description: text(r.description, 4096, true), rules: text(r.rules, 65536, true), category: text(r.category, 160), readOnly: bool(r.readOnly),
       ...(has(r, "mode") ? { mode: id(r.mode) } : {}), ...(has(r, "model") ? { model: modelReference(r.model) } : {}),
       ...(has(r, "models") ? { models: unique(list(r.models, 30).map(modelReference)) } : {}), ...(has(r, "variant") ? { variant: id(r.variant) } : {}),
