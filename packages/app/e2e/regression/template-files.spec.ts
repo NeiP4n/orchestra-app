@@ -5,6 +5,7 @@ for(const width of [1440,768,390]) test(`connected shell template file export an
  await page.context().grantPermissions(["clipboard-read","clipboard-write"])
  await page.setViewportSize({width,height:900})
  await mockWorkspace(page,{name:"Template transfer",seed:{tabs:[],settings:{appearance:{animations:false}}}})
+ await page.route("**/api/config/continuation",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({enabled:true})}))
  await page.route("**/api/orchestra/project",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify([{id:"prj_source",name:"Test2"}])}))
  await page.route("**/api/orchestra/project-template",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify([{id:"process:demo",name:"Test2"}])}))
  await page.route("**/api/orchestra/project-template/export-file",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({path:"C:/Projects/Test2/Test2.orchestra-template",warning:"Do not commit to git"})}))
