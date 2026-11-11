@@ -9,6 +9,7 @@ export interface Command {
   sessionID: string
   requestID: string
   action: "pause" | "resume" | "export"
+  reviewedDigest?: string
 }
 export interface Result {
   requestID: string
@@ -31,6 +32,15 @@ export function request(id: string, sessionID: string, action: Command["action"]
   write(id, "command", request)
   return request
 }
+/** Each selected entry was reviewed by the local operator. No grant or cap is changed. */
+export function requestReviewedResume(id: string, sessionID: string, digest: string) {
+  const item = ScheduleView.list(sessionID).find((item) => item.id === id)
+  if (!item || item.enabled || !/^[a-f0-9]{64}$/.test(digest) || item.review?.digest !== digest)
+    throw Error("Триггер изменился после проверки. Проверьте заново.")
+  const request: Command = { id, sessionID, action: "resume", requestID: randomUUID(), reviewedDigest: digest }
+  write(id, "command", request)
+  return request
+}
 export function read(id: string, sessionID: string): Command | undefined {
   try {
     const value = JSON.parse(readFileSync(file(id, "command"), "utf8")) as Command
@@ -39,7 +49,8 @@ export function read(id: string, sessionID: string): Command | undefined {
       value.sessionID === sessionID &&
       typeof value.requestID === "string" &&
       /^[a-f0-9-]{36}$/.test(value.requestID) &&
-      ["pause", "resume", "export"].includes(value.action)
+      ["pause", "resume", "export"].includes(value.action) &&
+      (value.reviewedDigest === undefined || (value.action === "resume" && /^[a-f0-9]{64}$/.test(value.reviewedDigest)))
     )
       return value
   } catch {}

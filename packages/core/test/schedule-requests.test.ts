@@ -39,3 +39,32 @@ test("operator commands are exact-main scoped, latest-request acknowledged, with
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test("reviewed resumes require exact local owner and unchanged configuration", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "reviewed-resume-")),
+    previous = process.env.ORCHESTRA_DATA_DIR
+  process.env.ORCHESTRA_DATA_DIR = root
+  try {
+    const made = Trigger.create(
+      { kind: "interval", spec: "60", prompt: "Read status only" },
+      { id: "trg_reviewed", projectID: "project", now: 1000, existing: 0 },
+    )
+    if (!made.ok) throw Error(made.error)
+    const paused = { ...made.trigger, enabled: false, nextAt: null, publishApproved: false }
+    ScheduleView.sync(paused, "main")
+    const item = ScheduleView.list("main")[0]!
+    expect(item.review?.prompt).toBe("Read status only")
+    expect(() => ScheduleRequests.requestReviewedResume(paused.id, "foreign", item.review!.digest)).toThrow()
+    expect(() => ScheduleRequests.requestReviewedResume(paused.id, "main", "bad")).toThrow()
+    const command = ScheduleRequests.requestReviewedResume(paused.id, "main", item.review!.digest)
+    expect(command.reviewedDigest).toBe(item.review!.digest)
+    expect(ScheduleRequests.read(paused.id, "main")).toEqual(command)
+    expect(ScheduleView.list("main")[0]?.enabled).toBe(false)
+    ScheduleView.sync({ ...paused, prompt: "Changed instruction" }, "main")
+    expect(() => ScheduleRequests.requestReviewedResume(paused.id, "main", item.review!.digest)).toThrow()
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_DATA_DIR
+    else process.env.ORCHESTRA_DATA_DIR = previous
+    rmSync(root, { recursive: true, force: true })
+  }
+})

@@ -2861,3 +2861,47 @@ it.live("v2 live import persists process before publication and resumes without 
   expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
   yield* kv.set(ProjectTemplateLiveStores.RECEIPT+reserved.id,JSON.parse(JSON.stringify(published)))
  }).pipe(Effect.scoped),30_000)
+
+it.live("reviewed trigger activation checks current KV configuration and keeps publication and firing history unchanged", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-reviewed-trigger-")))
+    const orchestra = yield* Orchestra.Service, kv = yield* KV.Service
+    const project = yield* orchestra.create({name:"Reviewed triggers",directory:tmp.path})
+    const main = yield* orchestra.main(project.id)
+    const made = Trigger.create({kind:"interval",spec:"60",prompt:"Read status only"},{id:"trg_reviewed_window",projectID:project.id,now:Date.now(),existing:0})
+    if(!made.ok) throw Error(made.error)
+    const paused = {...made.trigger,enabled:false,nextAt:null,publishApproved:false,total:2,fired:[Date.now()-1000]}
+    const key = Trigger.key(project.id,paused.id)
+    yield* kv.set(key,paused as never)
+    ScheduleView.sync(paused,String(main.id))
+    const digest = ScheduleView.list(String(main.id)).find(item=>item.id===paused.id)!.review!.digest
+    const first = ScheduleRequests.requestReviewedResume(paused.id,String(main.id),digest)
+    const result = yield* Effect.sync(()=>ScheduleRequests.result(first)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+    expect(result.ok).toBe(true)
+    const enabled = Trigger.parse(yield* kv.get(key))!
+    expect(enabled.enabled).toBe(true)
+    expect(enabled.publishApproved).toBe(false)
+    expect(enabled.maxPerHour).toBe(paused.maxPerHour)
+    expect(enabled.maxPerDay).toBe(paused.maxPerDay)
+    expect(enabled.fired).toEqual(paused.fired)
+    expect(enabled.total).toBe(2)
+
+    // Projection is deliberately stale: KV already changed before a reviewed command arrives.
+    yield* kv.set(key,{...paused,prompt:"Unreviewed changed instruction"} as never)
+    ScheduleView.sync(paused,String(main.id))
+    const stale = ScheduleRequests.requestReviewedResume(paused.id,String(main.id),digest)
+    const refused = yield* Effect.sync(()=>ScheduleRequests.result(stale)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+    expect(refused.ok).toBe(false)
+    expect(refused.message).toContain("изменился")
+    expect(Trigger.parse(yield* kv.get(key))?.enabled).toBe(false)
+
+    const unbound = {...paused,browserSessionID:"unknown_browser"}
+    yield* kv.set(key,unbound as never)
+    ScheduleView.sync(unbound,String(main.id))
+    const browserReview = ScheduleView.list(String(main.id)).find(item=>item.id===paused.id)!.review!
+    const unboundCommand = ScheduleRequests.requestReviewedResume(paused.id,String(main.id),browserReview.digest)
+    const unboundResult = yield* Effect.sync(()=>ScheduleRequests.result(unboundCommand)).pipe(Effect.filterOrFail(value=>value!==undefined),Effect.retry(Schedule.spaced("20 millis")),Effect.timeout("8 seconds"))
+    expect(unboundResult.ok).toBe(false)
+    expect(unboundResult.message).toContain("Браузер")
+    expect(Trigger.parse(yield* kv.get(key))?.enabled).toBe(false)
+  }),30_000)

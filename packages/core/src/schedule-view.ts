@@ -3,6 +3,7 @@ export * as ScheduleView from "./schedule-view.js"
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync, rmSync } from "node:fs"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
+import { TriggerReview } from "./trigger-review.js"
 import type { Trigger } from "./trigger.js"
 
 // Read-only local UI projection. KV remains the scheduler's source of truth.
@@ -27,6 +28,7 @@ export interface Item {
   lastFiredAt?: number
   pausedReason?: string
   browserSessionID?: string
+  review?: ReturnType<typeof TriggerReview.snapshot>
   updatedAt: number
 }
 const directory = () => path.join(Global.Path.data, "schedule-view")
@@ -41,7 +43,7 @@ export function shortName(prompt: string): string {
 }
 export function sync(trigger: Trigger.Info, sessionID: string) {
   try {
-    const item: Item = { id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
+    const item: Item = { review: TriggerReview.snapshot(trigger), id: trigger.id, sessionID, name: shortName(trigger.prompt), kind: trigger.kind,
       missedCount: trigger.missedCount, missedCountAtLeast: trigger.missedCountAtLeast, lastMissedAt: trigger.lastMissedAt, missedPolicy: trigger.missedPolicy, pendingDelivery: !!trigger.pendingFire,
       maxPerDay: trigger.maxPerDay, maxPerHour: trigger.maxPerHour, fired: trigger.fired,
       total: trigger.total, localActions: !!trigger.actions?.length, actionErrors: trigger.errors?.consecutive,
