@@ -1,11 +1,18 @@
 import type { Config, Path, Project, ProviderAuthResponse } from "@/runtime/server/types"
 import { showToast } from "@/shell/notifications/toast"
 import { getFilename } from "@orchestra/util/path"
-import { getOwner, onCleanup, untrack } from "solid-js"
+import { createEffect, getOwner, onCleanup, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import { type ServerSDK } from "./client"
-import { bootstrapDirectory, bootstrapGlobal, loadGlobalConfigQuery, loadPathQuery } from "./global-sync/bootstrap"
+import {
+  applyLoadedProjects,
+  bootstrapDirectory,
+  bootstrapGlobal,
+  loadGlobalConfigQuery,
+  loadPathQuery,
+  loadProjectsQuery,
+} from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import type { ProjectMeta } from "./global-sync/types"
 import { formatServerError } from "@/runtime/server/errors"
@@ -29,6 +36,7 @@ type GlobalStore = {
   config: Config
   reload: undefined | "pending" | "complete"
   projectError?: string
+  projectsReady?: boolean
 }
 
 export const loadLspQuery = (scope: ServerScope, directory: string) =>
@@ -106,6 +114,29 @@ export function createServerSyncContextInner(serverSDK: ServerSDK, data: Data) {
         )
       }
     },
+  })
+
+  // Query cache is shared, but every server context owns a separate Solid store.
+  // Observe project metadata directly so cached/in-flight bootstrap work in a
+  // previous context cannot leave this context's project state uninitialized.
+  const projectsQuery = useQuery(() => ({
+    ...loadProjectsQuery(serverSDK.scope, serverSDK.api.project),
+    enabled: connected(),
+  }))
+
+  createEffect(() => {
+    if (projectsQuery.isSuccess) {
+      applyLoadedProjects({ scope: serverSDK.scope, setGlobalStore, queryClient }, projectsQuery.data)
+
+      return
+    }
+
+    if (projectsQuery.isError) {
+      const error = projectsQuery.error
+
+      setGlobalStore("projectError", error instanceof Error ? error.message : String(error))
+      setGlobalStore("projectsReady", true)
+    }
   })
 
   const bootstrap = useQuery(() => ({
@@ -304,15 +335,9 @@ export function createServerSyncContextInner(serverSDK: ServerSDK, data: Data) {
   return {
     data: globalStore,
     set: setGlobalStore,
-    // The home project list reads from the store, which starts empty: expose
-    // whether its first load is still in flight (or failed) so the panel shows
-    // a loading state instead of claiming zero projects. The bootstrap query
-    // only runs once connected and only resolves once the server answers, so
-    // isPending stays true through the whole pre-connection window — the old
-    // `connected() &&` guard turned that window into a false empty state.
-    // A failed project fetch still resolves the bootstrap (and records
-    // projectError), so the error state, not the spinner, is what shows then.
-    projectsLoading: () => bootstrap.isPending,
+    // Projects become usable when their own request settles. Location/path or
+    // config bootstrap work must not keep a completed project list spinning.
+    projectsLoading: () => !globalStore.projectsReady,
     projectsError: () => globalStore.projectError,
     retryBootstrap: () => void bootstrap.refetch(),
     child: children.child,
