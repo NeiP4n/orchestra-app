@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, realpath, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { ProjectTemplateTransfer as Transfer } from "../src/project-template-transfer"
@@ -10,7 +10,7 @@ test("one shareable file in project root roundtrips exact process bytes, never o
  try{
   await writeFile(path.join(root,"PRIVATE_DATA.txt"),"PRIVATE_CANARY")
   const b=processFixture(),first=await Transfer.write(root,JSON.stringify(b)),second=await Transfer.write(root,JSON.stringify(b))
-  expect(path.dirname(first.path)).toBe(root);expect(first.path.endsWith(".orchestra-template")).toBe(true)
+  expect(path.dirname(first.path)).toBe(await realpath(root));expect(first.path.endsWith(".orchestra-template")).toBe(true)
   expect(second.path).not.toBe(first.path)
   expect(first.warning).toContain("git")
   const value=await Transfer.read(first.path)

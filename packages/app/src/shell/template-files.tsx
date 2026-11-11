@@ -4,13 +4,15 @@ import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal, useServerCtx } from "@/runtime/server/runtime"
 
 type Entry = { id: string; name: string }
+
 export interface TemplateFileAccess {
   list: () => Promise<readonly Entry[]>
   projects: () => Promise<readonly Entry[]>
   exportFile: (templateID: string, projectID: string) => Promise<{ path: string; warning: string }>
   prepareImport: (path: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[] }>
-  confirmImport: (token: string) => Promise<unknown>
+  confirmImport: (token: string) => Promise<Entry>
 }
+
 export function TemplateFiles(props: { access: TemplateFileAccess }) {
   const [entries, setEntries] = createSignal<readonly Entry[]>([])
   const [projects, setProjects] = createSignal<readonly Entry[]>([])
@@ -20,20 +22,25 @@ export function TemplateFiles(props: { access: TemplateFileAccess }) {
   const [status, setStatus] = createSignal("")
   const [loaded, setLoaded] = createSignal(false)
   const [pending, setPending] = createSignal<Awaited<ReturnType<TemplateFileAccess["prepareImport"]>>>()
+
   const run = async (action: () => Promise<void>) => {
     if (busy()) return
     setBusy(true)
     setStatus("")
+
     try { await action() } catch { setStatus("Не удалось завершить. Проверьте файл и подключение. Повторить можно той же кнопкой.") }
     finally { setBusy(false) }
   }
+
   const load = () => run(async () => {
     const [templates, destinations] = await Promise.all([props.access.list(), props.access.projects()])
     setEntries(templates)
     setProjects(destinations)
+
     if (!destinations.some(row => row.id === project())) setProject(destinations[0]?.id ?? "")
     setLoaded(true)
   })
+
   return (
     <details data-slot="template-files" class="max-h-[75vh] overflow-y-auto border-b border-v2-border-border-base px-3 py-2 text-xs">
       <summary class="cursor-pointer" onClick={() => { if (!loaded()) void load() }}>Шаблоны: экспорт / импорт файла</summary>
@@ -75,14 +82,19 @@ export function TemplateFiles(props: { access: TemplateFileAccess }) {
     </details>
   )
 }
+
 export function TemplateFilesConnected() {
   const layout = useLayout(), global = useGlobal()
+
   const connection = createMemo(() => {
     const route = layout.route()
     const key = route.type === "session" ? route.server : layout.home.selection().server
+
     return global.servers.list().find(item => ServerConnection.key(item) === key)
   })
+
   const context = useServerCtx(connection)
+
   return <Show when={context()} keyed>{ctx => <TemplateFiles access={{
     list: () => ctx.sdk.api.orchestra.projectTemplate.list(),
     projects: () => ctx.sdk.api.orchestra.project.list(),

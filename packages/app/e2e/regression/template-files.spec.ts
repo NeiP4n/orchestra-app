@@ -8,6 +8,7 @@ for(const width of [1440,768,390]) test(`connected shell template file export an
  await page.route("**/api/orchestra/project-template",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify([{id:"process:demo",name:"Test2"}])}))
  await page.route("**/api/orchestra/project-template/export-file",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({path:"C:/Projects/Test2/Test2.orchestra-template",warning:"Do not commit to git"})}))
  await page.route("**/api/orchestra/project-template/prepare-import",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({token:"pti_review",name:"Friend",details:"Portable process only",unresolvedRoles:[]})}))
+
  let confirmed=0
  await page.route("**/api/orchestra/project-template/confirm-import",route=>{confirmed++;return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({id:"process:friend",name:"Friend"})})})
  await page.goto("/")
