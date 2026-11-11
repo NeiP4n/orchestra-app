@@ -73,15 +73,20 @@ export async function append(directory: string, receipt: Receipt) {
         if (error.code !== "ENOENT") throw error
         return undefined
       })
-      if (before && (before.isSymbolicLink() || !before.isFile())) throw Error("Metrics require a regular file")
+      if (before && (before.isSymbolicLink() || !before.isFile() || before.nlink !== 1)) throw Error("Metrics require a regular file")
       const handle = await open(
         target,
-        constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+        constants.O_APPEND |
+          constants.O_WRONLY |
+          (before ? 0 : constants.O_CREAT | constants.O_EXCL) |
+          (constants.O_NOFOLLOW ?? 0),
         0o600,
       )
       try {
         const info = await handle.stat()
-        if (!info.isFile() || info.size + Buffer.byteLength(line) > MAX_BYTES) throw Error("Metrics file limit reached")
+        if (!info.isFile() || info.nlink !== 1 || (before && (info.ino !== before.ino || info.dev !== before.dev)))
+          throw Error("Metrics require an unchanged private regular file")
+        if (info.size + Buffer.byteLength(line) > MAX_BYTES) throw Error("Metrics file limit reached")
         await handle.writeFile(line, "utf8")
       } finally {
         await handle.close()
