@@ -28,7 +28,7 @@ for (const [name, change, stage, reasonCode] of [
   ["Windows path inside rule", (f: ReturnType<typeof fixture>) => { f.values.set("rules/project:prj_diag", [{ text: "Use C:\\PRIVATE_CANARY\\project" }]) }, "base-rules", "path-not-portable"],
   ["Windows path inside role", (f: ReturnType<typeof fixture>) => { f.stores.roles = async () => [{ agent: "orchestrator", name: "Main", description: "", rules: "Use C:\\PRIVATE_CANARY\\project", category: "Core", readOnly: false }] }, "process-roles", "path-not-portable"],
   ["Windows path inside playbook", (f: ReturnType<typeof fixture>) => { f.stores.playbook = async () => ({ text: "Use C:\\PRIVATE_CANARY\\project", recommendedRoles: [] }) }, "process-playbook", "path-not-portable"],
-  ["missing role definition", (f: ReturnType<typeof fixture>) => { f.stores.roles = async () => [] }, "process-bindings", "role-missing"],
+  ["missing role definition", (f: ReturnType<typeof fixture>) => { f.stores.roles = async () => [] }, "process-bindings", "session-role-missing"],
   ["missing assigned skill", (f: ReturnType<typeof fixture>) => { f.stores.skills = async () => ({ definitions: [], assignments: [{ target: { kind: "project" }, skills: ["missing"] }] }) }, "skill-graph", "dependency-missing"],
   ["unknown source failure", (f: ReturnType<typeof fixture>) => { f.stores.getSession = () => Effect.die(new Error("PRIVATE_CANARY token=PRIVATE_SECRET")) }, "base-sessions", "read-failed"],
 ] as const) test(`safe process diagnosis: ${name}`, async () => {
@@ -63,4 +63,17 @@ for (const linked of [false, true]) test(`skill file diagnostic is bounded for $
     await rm(link, { recursive: true, force: true })
     await rm(root, { recursive: true, force: true })
   }
+})
+
+for (const [type,configure,reason,code] of [
+ ["session",(f:ReturnType<typeof fixture>)=>{f.session.agent="team_deleted"},"session-role-missing","TEMPLATE_SESSION_ROLE"],
+ ["rule",(f:ReturnType<typeof fixture>)=>{f.values.set("rules/role:prj_diag:team_deleted",[{text:"Never publish without approval"}])},"rule-role-missing","TEMPLATE_RULE_ROLE"],
+ ["playbook",(f:ReturnType<typeof fixture>)=>{f.stores.playbook=async()=>({text:null,recommendedRoles:["team_deleted"]})},"playbook-role-missing","TEMPLATE_PLAYBOOK_ROLE"],
+ ["skill",(f:ReturnType<typeof fixture>)=>{f.stores.skills=async()=>({definitions:[],assignments:[{target:{kind:"role",role:"team_deleted"},skills:[]}]})},"skill-role-missing","TEMPLATE_SKILL_ROLE"],
+] as const) test(`missing ${type} role fails visibly without losing configuration`,async()=>{
+ const f=fixture();configure(f);const before=JSON.stringify([...f.values]);
+ const error=await f.run().then(()=>undefined,e=>e)
+ expect(templateDiagnosticOf(error)).toEqual({stage:"process-bindings",reasonCode:reason})
+ expect(templateError(error).kind).toBe(code)
+ expect(JSON.stringify([...f.values])).toBe(before)
 })

@@ -32,7 +32,12 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
     const roles = new Map(process.roles.map((r) => [r.agent, r]))
     const skills = new Map(process.skills.map((s) => [s.id, s]))
     if (roles.size !== process.roles.length || skills.size !== process.skills.length) throw Error()
-    if ([...roleIDs].some((id) => !roles.has(id))) { reason = "role-missing"; throw Error() }
+    // Preserve the complete process. Removing a missing role could discard its
+    // permissions or leave role-scoped rules/skills without their intended owner.
+    if (source.sessions.some(s => s.agent !== undefined && !roles.has(s.agent))) { reason = "session-role-missing"; throw Error() }
+    if (source.rules.some(r => r.scope === "role" && !roles.has(r.role!))) { reason = "rule-role-missing"; throw Error() }
+    if (process.recommendedRoles.some(id => !roles.has(id))) { reason = "playbook-role-missing"; throw Error() }
+    if (process.skillAssignments.some(a => a.target.kind === "role" && !roles.has(a.target.role))) { reason = "skill-role-missing"; throw Error() }
     const selected = new Set<string>(), visiting = new Set<string>()
     const select = (id: string) => {
       if (visiting.has(id)) throw Error()
