@@ -21,6 +21,7 @@ test.each(["light", "dark"] as const)("Sculk %s chrome and accents use exact TUI
   expect(tokens["v2-text-text-base"]).toBe(hue.gray[200])
 
   const tui = resolveThemeDocument(parseThemeDocument(source, "sculk"), mode)
+
   const link = `#${tui.markdown.link
     .toInts()
     .slice(0, 3)
