@@ -106,7 +106,7 @@ jobs:
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || github.ref_name == 'lan-rooms' || github.base_ref == 'lan-rooms') }}
         timeout-minutes: 30
         # --continue: one failing package must not hide the results of the others; the step still fails if any package fails.
-        run: GITHUB_ACTIONS=false bun turbo test --continue --concurrency=3
+        run: GITHUB_ACTIONS=false bun turbo test --continue --concurrency=3 --log-order=stream --log-prefix=task --summarize
         env:
           ORCHESTRA_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
 
@@ -114,11 +114,25 @@ jobs:
         if: ${{ success() && github.event_name != 'workflow_dispatch' && github.ref_name != 'lan-rooms' && github.base_ref != 'lan-rooms' }}
         timeout-minutes: 20
         # --continue: one failing package must not hide the results of the others; the step still fails if any package fails.
-        run: GITHUB_ACTIONS=false bun turbo test --affected --continue --concurrency=3
+        run: GITHUB_ACTIONS=false bun turbo test --affected --continue --concurrency=3 --log-order=stream --log-prefix=task --summarize
         env:
           ORCHESTRA_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
           TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('{0}^1', github.sha) || github.event.before }}
           TURBO_SCM_HEAD: ${{ github.sha }}
+
+      # Preserve per-task evidence even when one long-running task times out.
+      # Streamed package prefixes show which task is still alive instead of
+      # buffering its entire output until it exits.
+      - name: Preserve unit task evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unit-task-evidence-${{ matrix.settings.name }}
+          path: |
+            .turbo/runs/*.json
+            packages/**/.turbo/turbo-test.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Verify published codemode package
         if: runner.os == 'Linux'
