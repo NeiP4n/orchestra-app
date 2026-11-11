@@ -159,8 +159,8 @@ test.each([
       frame = app.captureCharFrame()
       expect(frame).not.toContain("Включено: 1")
       if (process.env.ORCHESTRA_CAPTURE_SCHEDULES) {
-        writeFileSync(`/tmp/reviewed-trigger-${kind}-${width}.txt`, frame)
-        writeFileSync(`/tmp/reviewed-trigger-${kind}-${width}.spans.json`, JSON.stringify(app.captureSpans()))
+        writeFileSync(`${root.path}/reviewed-trigger-${kind}-${width}.txt`, frame)
+        writeFileSync(`${root.path}/reviewed-trigger-${kind}-${width}.spans.json`, JSON.stringify(app.captureSpans()))
       }
     } finally {
       app.renderer.destroy()
