@@ -178,12 +178,20 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect(JSON.stringify(changed.body)).not.toContain(source)
       expect(JSON.stringify(changed.body)).not.toContain(project.id)
       expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
-      expect(
-        (yield* call("/api/orchestra/project-template/prepare-save", "POST", {
-          projectID: project.id,
-          browsers: [{ ...browsers[0], chat: created.body.mainSessionID }],
-        })).status,
-      ).toBe(400)
+      // Foreign binding is now a reviewed, explicit omission in the copy, never
+      // an owner adoption. The server still refuses saving it without consent.
+      const foreignBrowsers = [{ ...browsers[0], chat: created.body.mainSessionID }]
+      const foreign = yield* call("/api/orchestra/project-template/prepare-save", "POST", {
+        projectID: project.id, browsers: foreignBrowsers,
+      })
+      expect(foreign.status).toBe(200)
+      expect(foreign.body.browserBindings).toEqual([{ browser: 1, reason: "foreign" }])
+      expect(JSON.parse(foreign.body.details).browsers[0].session).toBeUndefined()
+      expect(foreign.body.details).not.toContain(created.body.mainSessionID)
+      expect((yield* call("/api/orchestra/project-template/confirm-save", "POST", {
+        token: foreign.body.token, browsers: foreignBrowsers,
+      })).status).toBe(400)
+      expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
       expect(
         (yield* call("/api/orchestra/project-template/confirm-create", "POST", { token: "../foreign" })).status,
       ).toBe(400)
@@ -225,3 +233,36 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
     }),
   30_000,
 )
+
+it.live("Test2/Test3 HTTP export reviews two powered-off browser definitions without adopting foreign or deleted chats",()=>Effect.gen(function*(){
+  const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("template-browser-profile-")))
+  const global=Global.layerWith({data:path.join(tmp.path,"data"),cache:path.join(tmp.path,"cache"),config:path.join(tmp.path,"config"),state:path.join(tmp.path,"state"),tmp:path.join(tmp.path,"tmp"),bin:path.join(tmp.path,"bin"),log:path.join(tmp.path,"logs"),repos:path.join(tmp.path,"repos")})
+  const handler=yield* ServerFetch.make({app:{version:"1.0.0"},database:{path:":memory:"},fs:{filewatcher:false},models:{fetch:false},config:{directory:tmp.path,project:false,content:"{}"}},{allowUnauthenticated:true,overrides:[Global.node.replace(global)]})
+  const call=(route:string,body?:unknown)=>Effect.promise(async()=>{
+    const response=await handler(new Request("http://orchestra.local"+route,{method:body===undefined?"GET":"POST",headers:{"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)}))
+    const text=await response.text();return {status:response.status,body:text?JSON.parse(text):undefined}
+  })
+  const dirs=[path.join(tmp.path,"test2"),path.join(tmp.path,"test3")]
+  yield* Effect.promise(()=>Promise.all(dirs.map(dir=>mkdir(dir))))
+  const test2=(yield* call("/api/orchestra/project",{name:"Test2",directory:dirs[0]})).body
+  const test3=(yield* call("/api/orchestra/project",{name:"Test3",directory:dirs[1]})).body
+  const auto=(yield* call("/api/session",{title:"Приветствие auto",location:{directory:dirs[0]}})).body.data
+  const definitions=[{id:"brw_whatsapp",name:"Whatsapp",mode:"window",chat:test3.main},{id:"brw_second",name:"Browser 2",mode:"window",chat:auto.id}]
+  const preview=yield* call("/api/orchestra/project-template/prepare-save",{projectID:test2.id,browsers:definitions})
+  expect(preview.status).toBe(200)
+  expect(preview.body.browserBindings).toEqual([{browser:1,reason:"foreign"}])
+  const bundle=JSON.parse(preview.body.details)
+  expect(bundle.browsers.map((b:{name:string})=>b.name)).toEqual(["Whatsapp","Browser 2"])
+  expect(bundle.browsers[0].session).toBeUndefined()
+  const greeting=bundle.sessions.find((s:{title:string})=>s.title==="Приветствие auto")
+  expect(greeting.role).toBeNull();expect(bundle.browsers[1].session).toBe(greeting.slot)
+  expect(preview.body.details).not.toContain(test3.main)
+  expect((yield* call("/api/orchestra/project-template/confirm-save",{token:preview.body.token,browsers:definitions})).status).toBe(400)
+  expect((yield* call("/api/orchestra/project-template")).body).toEqual([])
+  expect((yield* call("/api/orchestra/project-template/confirm-save",{token:preview.body.token,browsers:definitions,omitInvalidBrowserBindings:true})).status).toBe(204)
+  expect((yield* call("/api/orchestra/project-template")).body).toHaveLength(1)
+  const deleted=yield* call("/api/orchestra/project-template/prepare-save",{projectID:test2.id,browsers:[{...definitions[0],chat:"ses_deleted"},definitions[1]]})
+  expect(deleted.status).toBe(200);expect(deleted.body.browserBindings).toEqual([{browser:1,reason:"missing"}])
+  const projects=(yield* call("/api/orchestra/project")).body
+  expect(projects.find((p:{id:string})=>p.id===test3.id).main).toBe(test3.main)
+}))

@@ -20906,6 +20906,38 @@
                     "details": {
                       "type": "string"
                     },
+                    "browserBindings": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "browser": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["missing", "child", "foreign", "unlisted"]
+                              }
+                            },
+                            "required": ["browser", "reason"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "triggerReview": {
                       "anyOf": [
                         {
@@ -21194,6 +21226,16 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "omitInvalidBrowserBindings": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": ["token", "browsers"],
@@ -21227,6 +21269,38 @@
                     },
                     "details": {
                       "type": "string"
+                    },
+                    "browserBindings": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "browser": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": ["Infinity", "-Infinity", "NaN"]
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": ["missing", "child", "foreign", "unlisted"]
+                              }
+                            },
+                            "required": ["browser", "reason"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "triggerReview": {
                       "anyOf": [

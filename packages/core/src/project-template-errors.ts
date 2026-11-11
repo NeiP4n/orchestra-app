@@ -1,6 +1,6 @@
 export const templateStages = ["project", "vault", "browser-links", "process-source", "roles", "playbook", "skills", "programs", "library-read", "library-write", "reservation", "source-read", "session-models", "skill-graph", "skill-files", "source-stability", "base-project", "base-sessions", "base-browsers", "base-rules", "base-schedules", "base-vault", "base-integrations", "base-schema", "process-bindings", "process-roles", "process-playbook", "process-skills", "process-assignments", "process-models", "process-programs", "process-schema"] as const
 export type TemplateStage = typeof templateStages[number]
-export const templateReasons = ["read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "ownership-invalid", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
+export const templateReasons = ["read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "ownership-invalid", "browser-chat-missing", "browser-chat-child", "browser-chat-foreign", "browser-chat-unlisted", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
 export type TemplateReason = typeof templateReasons[number]
 export interface TemplateDiagnostic { stage: TemplateStage; reasonCode: TemplateReason }
 const diagnosticReason = (error: unknown): TemplateReason => {
@@ -58,6 +58,10 @@ export const templateErrorMessages = {
   TEMPLATE_MAIN_CHILD: "The project main-session marker points to a child task. The owner record needs repair; no template was saved.",
   TEMPLATE_MAIN_FOREIGN: "The project main session is owned by another project. The owner record needs repair; no template was saved.",
   TEMPLATE_SESSION_CONFLICT: "A top-level project session has conflicting ownership. No sessions or owner markers were changed.",
+  TEMPLATE_BROWSER_CHAT_MISSING: "A browser points to a deleted chat. Open the project's Browsers list and review its chat binding. No template was saved.",
+  TEMPLATE_BROWSER_CHAT_CHILD: "A browser points to a child task, not a project chat. Review its chat binding. No template was saved.",
+  TEMPLATE_BROWSER_CHAT_FOREIGN: "A browser points to a chat owned by another project. Review its chat binding. No foreign chat was exported.",
+  TEMPLATE_BROWSER_CHAT_UNLISTED: "A browser chat is outside the project's saved roster. Review its project binding. No template was saved.",
   TEMPLATE_BROWSER_OWNER: "A selected browser has an invalid project or session identity. Review the project's Browsers list.",
   TEMPLATE_OWNERSHIP: "Project ownership or session metadata is incomplete. Reopen the project and review again.",
   TEMPLATE_UNSAFE: "Template content is not portable or contains secret-like data. Review configuration before saving.",
@@ -65,6 +69,10 @@ export const templateErrorMessages = {
 } as const
 export type TemplateErrorCode = keyof typeof templateErrorMessages
 const exact = new Map<string, TemplateErrorCode>([
+  ["Browser chat no longer exists.", "TEMPLATE_BROWSER_CHAT_MISSING"],
+  ["Browser chat is a child task.", "TEMPLATE_BROWSER_CHAT_CHILD"],
+  ["Browser chat belongs to another project.", "TEMPLATE_BROWSER_CHAT_FOREIGN"],
+  ["Browser chat is not in the project roster.", "TEMPLATE_BROWSER_CHAT_UNLISTED"],
   ["Project main session is not initialized.", "TEMPLATE_MAIN_UNSET"],
   ["Project main session is missing.", "TEMPLATE_MAIN_MISSING"],
   ["Project main session points to a child task.", "TEMPLATE_MAIN_CHILD"],

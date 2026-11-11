@@ -2840,8 +2840,8 @@ export type ConfigEntry =
         experimental?: {
           portable_shell_scanner?: boolean
           context_governor?: boolean
-          neural_functional_effects?: boolean
           subagent_depth?: number
+          neural_functional_effects?: boolean
           policies?: Array<{
             action: "provider.use" | "tool.use" | "integration.use"
             resource: string
@@ -14660,6 +14660,7 @@ export type OrchestraProjectTemplatePrepareSaveOutput = {
   token: string
   name: string
   details: string
+  browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
   triggerReview?:
     | Array<{
         schedule: number
@@ -14686,6 +14687,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
     readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
   }["token"]
   readonly browsers: {
     readonly token: string
@@ -14696,6 +14698,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
     readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
   }["browsers"]
   readonly omitUnsafeLinks?: {
     readonly token: string
@@ -14706,7 +14709,19 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
       readonly mode?: "headless" | "window" | "capture" | undefined
     }>
     readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
   }["omitUnsafeLinks"]
+  readonly omitInvalidBrowserBindings?: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+  }["omitInvalidBrowserBindings"]
 }
 
 export type OrchestraProjectTemplateConfirmSaveOutput = void
@@ -14720,6 +14735,7 @@ export type OrchestraProjectTemplatePrepareCreateOutput = {
   token: string
   name: string
   details: string
+  browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
   triggerReview?:
     | Array<{
         schedule: number

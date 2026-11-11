@@ -1,3 +1,4 @@
+import type { ProjectTemplateReader } from "@orchestra/core/project-template-reader"
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
 import type { ProjectTemplateTriggerReview } from "@orchestra/core/project-template-trigger-review"
 import type { ProjectTemplateLinkReview } from "@orchestra/core/project-template-link-review"
@@ -28,8 +29,8 @@ export interface ProjectTemplatesKeys {
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
   list: () => Promise<readonly { id: string; name: string }[]>
-  prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
-  confirmSave: (token: string, omitUnsafeLinks?: boolean) => Promise<void>
+  prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
+  confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean) => Promise<void>
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
@@ -62,6 +63,7 @@ export function ProjectTemplatesSimple(props: {
     token: string
     name: string
     details: string
+    browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]
     omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]
     triggerReview?: readonly ProjectTemplateTriggerReview.Item[]
   }>()
@@ -104,7 +106,10 @@ export function ProjectTemplatesSimple(props: {
       // Consume the pending operation before awaiting: double clicks cannot confirm the same token twice.
       setPrepared()
       try {
-        if (current.kind === "save") await props.access.confirmSave(current.token, !!current.omittedLinks?.length)
+        if (current.kind === "save") {
+          if (current.browserBindings?.length) await props.access.confirmSave(current.token, !!current.omittedLinks?.length, true)
+          else await props.access.confirmSave(current.token, !!current.omittedLinks?.length)
+        }
         else await props.access.confirmCreate(current.token)
       } catch (error) {
         setReason(templateErrorKey(error))
@@ -242,6 +247,7 @@ export function ProjectTemplatesSimple(props: {
             <Show when={current().triggerReview?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.")}</text>
             </Show>
+            <For each={current().browserBindings}>{(issue) => <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.", { browser: issue.browser })}</text>}</For>
             <Show when={current().omittedLinks?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.")}</text>
             </Show>
