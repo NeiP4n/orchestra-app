@@ -1,7 +1,10 @@
 export * as ProjectFilesFormat from "./format.js"
 
-import { appendFile, mkdir, readFile, rename, stat } from "node:fs/promises"
+import { lstat, mkdir, open, readFile, rename, stat } from "node:fs/promises"
 import path from "node:path"
+import { constants } from "node:fs"
+import { Flock } from "@orchestra/util/flock"
+import "@orchestra/util/global"
 import { Effect, Schema } from "effect"
 import { WriteAtomic } from "../write-atomic.js"
 import { ProjectFilesErrors } from "./errors.js"
@@ -41,7 +44,8 @@ export const writeText = (file: string, contents: string): Effect.Effect<void, P
     catch: (error) => ProjectFilesErrors.writeFailed(file, `cannot write ${file}: ${String(error)}`),
   })
 
-export const decodeYaml = <A>(file: string, schema: Schema.Codec<A, unknown, never>) =>
+export const decodeYaml =
+  <A>(file: string, schema: Schema.Codec<A, unknown, never>) =>
   (text: string): Effect.Effect<A, ProjectFilesErrors.ProjectFileError> =>
     Effect.gen(function* () {
       const parsed = yield* Effect.try({
@@ -50,7 +54,7 @@ export const decodeYaml = <A>(file: string, schema: Schema.Codec<A, unknown, nev
       })
       return yield* Schema.decodeUnknownEffect(schema)(parsed).pipe(
         Effect.mapError((error) =>
-          ProjectFilesErrors.corrupt(file, `${file} is not a valid ${file.split("/").pop()}: ${error.message}`)
+          ProjectFilesErrors.corrupt(file, `${file} is not a valid ${file.split("/").pop()}: ${error.message}`),
         ),
       )
     })
@@ -58,7 +62,8 @@ export const decodeYaml = <A>(file: string, schema: Schema.Codec<A, unknown, nev
 export const readYaml = <A>(
   file: string,
   schema: Schema.Codec<A, unknown, never>,
-): Effect.Effect<A, ProjectFilesErrors.ProjectFileError> => readText(file).pipe(Effect.flatMap(decodeYaml(file, schema)))
+): Effect.Effect<A, ProjectFilesErrors.ProjectFileError> =>
+  readText(file).pipe(Effect.flatMap(decodeYaml(file, schema)))
 
 export const writeYaml = (file: string, value: unknown): Effect.Effect<void, ProjectFilesErrors.ProjectFileError> =>
   Effect.try({
@@ -66,18 +71,20 @@ export const writeYaml = (file: string, value: unknown): Effect.Effect<void, Pro
     catch: (error) => ProjectFilesErrors.writeFailed(file, `cannot render ${file} as YAML: ${String(error)}`),
   }).pipe(Effect.flatMap((text) => writeText(file, text)))
 
-export const decodeJson = <A>(file: string, schema: Schema.Codec<A, unknown, never>) =>
+export const decodeJson =
+  <A>(file: string, schema: Schema.Codec<A, unknown, never>) =>
   (text: string): Effect.Effect<A, ProjectFilesErrors.ProjectFileError> =>
     Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(text).pipe(
       Effect.mapError((error) =>
-        ProjectFilesErrors.corrupt(file, `${file} is not valid JSON or has the wrong shape: ${error.message}`)
+        ProjectFilesErrors.corrupt(file, `${file} is not valid JSON or has the wrong shape: ${error.message}`),
       ),
     )
 
 export const readJson = <A>(
   file: string,
   schema: Schema.Codec<A, unknown, never>,
-): Effect.Effect<A, ProjectFilesErrors.ProjectFileError> => readText(file).pipe(Effect.flatMap(decodeJson(file, schema)))
+): Effect.Effect<A, ProjectFilesErrors.ProjectFileError> =>
+  readText(file).pipe(Effect.flatMap(decodeJson(file, schema)))
 
 export const writeJson = (file: string, value: unknown): Effect.Effect<void, ProjectFilesErrors.ProjectFileError> =>
   writeText(file, `${JSON.stringify(value, null, 2)}\n`)
@@ -92,7 +99,7 @@ export const readJsonl = <A>(
       Effect.catch((error) =>
         isNotFound(error)
           ? Effect.succeed("")
-          : Effect.fail(ProjectFilesErrors.missing(file, `cannot read ${file}: ${String(error)}`))
+          : Effect.fail(ProjectFilesErrors.missing(file, `cannot read ${file}: ${String(error)}`)),
       ),
     )
     const lines = text.split("\n").filter((line) => line.trim() !== "")
@@ -115,11 +122,38 @@ export const appendJsonl = (file: string, entry: unknown, options?: { rotateAtBy
     try: async () => {
       const rotateAt = options?.rotateAtBytes ?? 1_048_576
       await mkdir(path.dirname(file), { recursive: true })
-      const size = await stat(file)
-        .then((info) => info.size)
-        .catch(() => 0)
-      if (size >= rotateAt) await rename(file, `${file}.1`).catch(() => undefined)
-      await appendFile(file, `${JSON.stringify(entry)}\n`, "utf8")
+      await Flock.withLock(file, async () => {
+        let before = await lstat(file).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error
+          return undefined
+        })
+        if (before && (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1))
+          throw Error("Journal must be a private regular file")
+        if (before && before.size >= rotateAt) {
+          await rename(file, `${file}.1`)
+          before = undefined
+        }
+        const handle = await open(
+          file,
+          constants.O_APPEND |
+            constants.O_WRONLY |
+            (before ? 0 : constants.O_CREAT | constants.O_EXCL) |
+            (constants.O_NOFOLLOW ?? 0),
+          0o600,
+        )
+        try {
+          const actual = await handle.stat()
+          if (
+            !actual.isFile() ||
+            actual.nlink !== 1 ||
+            (before && (actual.ino !== before.ino || actual.dev !== before.dev))
+          )
+            throw Error("Journal changed while opening")
+          await handle.writeFile(`${JSON.stringify(entry)}\n`, "utf8")
+        } finally {
+          await handle.close()
+        }
+      })
     },
     catch: () => undefined,
   }).pipe(Effect.catch(() => Effect.void))
