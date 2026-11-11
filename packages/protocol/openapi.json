@@ -26656,6 +26656,9 @@
               "context_governor": {
                 "type": "boolean"
               },
+              "rule_lessons": {
+                "type": "boolean"
+              },
               "subagent_depth": {
                 "type": "integer",
                 "minimum": 0
