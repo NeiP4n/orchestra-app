@@ -42,6 +42,10 @@
       "icon-spark-base": "#9c5e00"
     },
     "v2Overrides": {
+      "v2-neural-signal": "#0e9ba1",
+      "v2-neural-synapse": "#768e8e",
+      "v2-neural-spark": "#b86e00",
+      "v2-neural-dormant": "#6b9192",
       "v2-background-bg-base": "#f0fafa",
       "v2-background-bg-deep": "#ffffff",
       "v2-background-bg-layer-01": "#f0fafa",
@@ -121,6 +125,10 @@
       "icon-spark-base": "#eedcaa"
     },
     "v2Overrides": {
+      "v2-neural-signal": "#00e5ff",
+      "v2-neural-synapse": "#44656a",
+      "v2-neural-spark": "#eedcaa",
+      "v2-neural-dormant": "#2f676e",
       "v2-background-bg-base": "#050f15",
       "v2-background-bg-deep": "#02080b",
       "v2-background-bg-layer-01": "#050f15",

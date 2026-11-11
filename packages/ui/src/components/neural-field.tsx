@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { getSharedNeuralActivity, type NeuralSignalKind } from "./neural-activity"
+import { createNeuralFrameLoop } from "./neural-frame-loop"
 
 export { getSharedNeuralActivity, neuralEnergyFloor, type NeuralSignal, type NeuralSignalKind } from "./neural-activity"
 import "./neural-field.css"
@@ -58,10 +59,10 @@ function readPalette(el: HTMLElement): Palette {
   const style = getComputedStyle(el)
   const get = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
   return {
-    signal: get("--v2-text-text-base", "#eeeeee"),
-    synapse: get("--v2-border-border-base", "#808080"),
-    spark: get("--icon-spark-base", "#67e8f9"),
-    dormant: get("--v2-text-text-muted", "#808080"),
+    signal: get("--v2-neural-signal", get("--v2-text-text-base", "#eeeeee")),
+    synapse: get("--v2-neural-synapse", get("--v2-border-border-base", "#808080")),
+    spark: get("--v2-neural-spark", get("--icon-spark-base", "#67e8f9")),
+    dormant: get("--v2-neural-dormant", get("--v2-text-text-muted", "#808080")),
     done: get("--v2-state-fg-success", "#7fd88f"),
     fail: get("--v2-state-fg-danger", "#e06c75"),
   }
@@ -129,34 +130,26 @@ function fitCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   return ctx
 }
 
-function useCanvasLoop(draw: (ctx: CanvasRenderingContext2D, width: number, height: number, dt: number) => void) {
+function useCanvasLoop(
+  draw: (ctx: CanvasRenderingContext2D, width: number, height: number, dt: number, palette: Palette) => void,
+) {
   const motion = useMotion()
   let canvas: HTMLCanvasElement | undefined
-  let raf = 0
-  let last = 0
-  let visible = true
-
-  const tick = (now: number) => {
-    raf = requestAnimationFrame(tick)
-    if (!canvas || !visible || document.hidden) {
-      last = now
-      return
-    }
-    const dt = Math.min(0.1, (now - last) / 1000 || 0.016)
-    last = now
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-    const rect = canvas.getBoundingClientRect()
-    draw(ctx, rect.width, rect.height, dt)
-  }
-
-  const drawStatic = () => {
-    if (!canvas) return
-    const ctx = fitCanvas(canvas)
-    if (!ctx) return
-    const rect = canvas.getBoundingClientRect()
-    draw(ctx, rect.width, rect.height, 0)
-  }
+  let visible = false
+  let palette: Palette | undefined
+  const loop = createNeuralFrameLoop({
+    request: (callback) => requestAnimationFrame(callback),
+    cancel: (id) => cancelAnimationFrame(id),
+    draw: (dt) => {
+      if (!canvas) return
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+      const rect = canvas.getBoundingClientRect()
+      palette ??= readPalette(canvas)
+      draw(ctx, rect.width, rect.height, dt, palette)
+    },
+  })
+  const sync = () => loop.update({ motion: motion(), visible, hidden: document.hidden })
 
   onMount(() => {
     const el = canvas
@@ -164,31 +157,37 @@ function useCanvasLoop(draw: (ctx: CanvasRenderingContext2D, width: number, heig
     fitCanvas(el)
     const resize = new ResizeObserver(() => {
       fitCanvas(el)
-      if (!motion()) drawStatic()
+      loop.redraw()
     })
     resize.observe(el)
     const io = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting
-      if (visible) last = performance.now()
+      sync()
     })
     io.observe(el)
+    const refreshPalette = () => {
+      palette = undefined
+      loop.redraw()
+    }
+    const theme = new MutationObserver(refreshPalette)
+    theme.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "data-color-scheme", "style", "class"],
+    })
+    const scheme = window.matchMedia("(prefers-color-scheme: dark)")
+    scheme.addEventListener("change", refreshPalette)
+    document.addEventListener("visibilitychange", sync)
     onCleanup(() => {
       resize.disconnect()
       io.disconnect()
+      theme.disconnect()
+      scheme.removeEventListener("change", refreshPalette)
+      document.removeEventListener("visibilitychange", sync)
+      loop.dispose()
     })
   })
 
-  createEffect(() => {
-    if (motion()) {
-      last = performance.now()
-      raf = requestAnimationFrame(tick)
-      onCleanup(() => cancelAnimationFrame(raf))
-      return
-    }
-    cancelAnimationFrame(raf)
-    drawStatic()
-  })
-
+  createEffect(sync)
   return (el: HTMLCanvasElement) => {
     canvas = el
   }
@@ -219,11 +218,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
   const links = buildLinks(nodes, 0.3)
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
-  let palette: Palette | undefined
-
-  const ref = useCanvasLoop((ctx, width, height, dt) => {
-    const canvas = ctx.canvas as HTMLCanvasElement
-    palette ??= readPalette(canvas)
+  const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
     spawnPulses(activity, cursor, nodes, links, palette, pulses, 96)
@@ -287,12 +282,9 @@ export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: str
   const links = nodes.slice(0, -1).map((_, index) => [index, index + 1] as [number, number])
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
-  let palette: Palette | undefined
   let label: { text: string; until: number } | undefined
 
-  const ref = useCanvasLoop((ctx, width, height, dt) => {
-    const canvas = ctx.canvas as HTMLCanvasElement
-    palette ??= readPalette(canvas)
+  const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
     spawnPulses(activity, cursor, nodes, links, palette, pulses, 32)
@@ -356,11 +348,7 @@ export const NeuralAxon: Component<{ sessionIDs?: readonly string[]; class?: str
   const links = nodes.slice(0, -1).map((_, index) => [index, index + 1] as [number, number])
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
-  let palette: Palette | undefined
-
-  const ref = useCanvasLoop((ctx, width, height, dt) => {
-    const canvas = ctx.canvas as HTMLCanvasElement
-    palette ??= readPalette(canvas)
+  const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
     spawnPulses(activity, cursor, nodes, links, palette, pulses, 32)
@@ -411,11 +399,7 @@ export const NeuralAxon: Component<{ sessionIDs?: readonly string[]; class?: str
 
 export const NeuralDot: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
   const activity = getSharedNeuralActivity()
-  let palette: Palette | undefined
-
-  const ref = useCanvasLoop((ctx, width, height, dt) => {
-    const canvas = ctx.canvas as HTMLCanvasElement
-    palette ??= readPalette(canvas)
+  const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const now = performance.now() / 1000
     const breathe = 0.5 + 0.5 * Math.sin(now * (0.8 + energy * 2.4))

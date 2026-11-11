@@ -78,8 +78,9 @@ export class NeuralActivity {
   private pulseListeners = new Set<(level: number) => void>()
   private pulseTimer: ReturnType<typeof setInterval> | undefined
 
-  constructor() {
-    // A slow copy of the level for text and dots, updated a few times a second.
+  private startPulse() {
+    if (this.pulseTimer) return
+    // Canvases sample lazily. Only a live text subscriber needs a pulse timer.
     this.pulseTimer = setInterval(() => {
       const level = Math.round(this.level() * 20) / 20
       if (level !== this.pulseValue) {
@@ -94,18 +95,21 @@ export class NeuralActivity {
   // Rounded level for display, updated a few times a second. Subscribe to
   // be told when it changes; canvases read level() every frame instead.
   get pulse() {
-    return this.pulseValue
+    return Math.round(this.level() * 20) / 20
   }
 
   subscribePulse(listener: (level: number) => void): () => void {
     this.pulseListeners.add(listener)
+    this.startPulse()
     return () => {
       this.pulseListeners.delete(listener)
+      if (this.pulseListeners.size === 0) this.dispose()
     }
   }
 
   // The newest discrete action, such as a tool's name, until the network cools down.
   get latest() {
+    if (this.pulse === 0) this.latestValue = undefined
     return this.latestValue
   }
 

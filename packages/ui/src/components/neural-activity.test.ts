@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import type { OrchestraEvent } from "@orchestra/client"
 import { NeuralActivity, neuralEnergyFloor } from "./neural-activity"
 
@@ -104,4 +104,27 @@ describe("neuralEnergyFloor", () => {
     expect(neuralEnergyFloor(1)).toBeCloseTo(0.18, 5)
     expect(neuralEnergyFloor(3)).toBeCloseTo(0.3, 5)
   })
+})
+
+test("neural canvases need no activity timer; text subscribers own one shared timer", () => {
+  const interval = spyOn(globalThis, "setInterval")
+  const clear = spyOn(globalThis, "clearInterval")
+  const activity = new NeuralActivity()
+  try {
+    expect(interval).not.toHaveBeenCalled()
+    activity.take(event("session.tool.called", { sessionID: SESSION, id: "lazy-call" }))
+    expect(activity.pulse).toBeGreaterThan(0)
+    expect(interval).not.toHaveBeenCalled()
+    const first = activity.subscribePulse(() => undefined)
+    const second = activity.subscribePulse(() => undefined)
+    expect(interval).toHaveBeenCalledTimes(1)
+    first()
+    expect(clear).not.toHaveBeenCalled()
+    second()
+    expect(clear).toHaveBeenCalledTimes(1)
+  } finally {
+    activity.dispose()
+    interval.mockRestore()
+    clear.mockRestore()
+  }
 })
