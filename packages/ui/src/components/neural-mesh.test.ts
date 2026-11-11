@@ -14,6 +14,7 @@ test("TUI mesh cells stay on the lattice, keep node endpoints clear and record b
   const pairs = mesh.edges.map((edge) => [edge.from, edge.to].sort((a, b) => a - b).join(":"))
 
   expect(new Set(pairs).size).toBe(mesh.edges.length)
+
   for (const node of mesh.nodes) {
     expect(Number.isInteger(node.x) && Number.isInteger(node.y)).toBe(true)
     expect(node.x >= 0 && node.x < 100 && node.y >= 0 && node.y < 40).toBe(true)
@@ -21,6 +22,7 @@ test("TUI mesh cells stay on the lattice, keep node endpoints clear and record b
       mesh.edges.filter((edge) => mesh.nodes[edge.from] === node || mesh.nodes[edge.to] === node).length,
     )
   }
+
   for (const edge of mesh.edges) {
     const from = mesh.nodes[edge.from]
     const to = mesh.nodes[edge.to]

@@ -8,6 +8,7 @@ test("the TUI idle header never changes with the clock", () => {
 
 test("all eight bands follow the TUI harmonics and bounds", () => {
   expect(tuiAudioBands(true, 0)).toEqual([0.87, 1, 1, 0.793, 0.714, 0.933, 0.605, 0.232])
+
   for (const tick of [1, 20, 100, 9999]) {
     const bands = tuiAudioBands(true, tick)
 

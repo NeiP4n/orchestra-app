@@ -40,8 +40,7 @@ export class NeuralMeshActivity {
     if (known !== undefined) return known
     const taken = new Set(this.hubs.values())
     const candidates = this.nodes
-      .map((node, index) => ({ index, degree: node.degree }))
-      .filter((node) => !taken.has(node.index))
+      .flatMap((node, index) => (taken.has(index) ? [] : [{ index, degree: node.degree }]))
       .sort((a, b) => b.degree - a.degree)
       .slice(0, 6)
     const selected = candidates[hash(sessionID) % Math.max(1, candidates.length)]?.index ?? 0
@@ -61,7 +60,7 @@ export class NeuralMeshActivity {
 
       if (to === undefined) {
         const hubs = new Set(this.hubs.values())
-        const free = this.nodes.map((_, index) => index).filter((index) => index !== hub && !hubs.has(index))
+        const free = this.nodes.flatMap((_, index) => (index !== hub && !hubs.has(index) ? [index] : []))
         to = free[hash(label) % Math.max(1, free.length)] ?? hub
         this.tools.set(label, to)
       }

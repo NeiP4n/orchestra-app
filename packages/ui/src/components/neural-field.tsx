@@ -256,6 +256,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
       pulses.length = 0
       meshKey = key
     }
+
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
     const fresh = activity.since(cursor.value)
@@ -270,6 +271,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
       for (const [a, b] of selected) {
         pulses.push({ from: event.hub, to: a === event.hub ? b : a, t: 0, color: colorFor(event.kind, palette) })
       }
+
       if (pulses.length > 96) pulses.splice(0, pulses.length - 96)
     }
     signals.step(dt, energy, cols, rows)
