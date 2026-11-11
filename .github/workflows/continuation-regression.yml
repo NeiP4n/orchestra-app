@@ -62,7 +62,13 @@ jobs:
           node-version: "24.15"
       - name: Refresh browser runtime package indexes
         if: runner.os == 'Linux'
-        run: sudo apt-get update
+        run: |
+          # The runner's first mirror intermittently fails DNS; retain the
+          # official archive/security fallbacks and all required dependencies.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|azure.archive.ubuntu.com|d' /etc/apt/apt-mirrors.txt
+          fi
+          sudo apt-get update
       - name: Install focused browser
         working-directory: packages/app
         run: bun x playwright install --with-deps chromium
