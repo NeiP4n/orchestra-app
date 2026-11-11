@@ -92,9 +92,10 @@ export function ProjectTemplatesSimple(props: {
       setReason()
       setRefreshFailed(false)
       if (kind === "save" && !props.canSave) return
+      if (kind === "save" && id === undefined) await refresh()
       const result = kind === "save" ? await props.access.prepareSave(id) : await props.access.prepareCreate(id!)
       setPrepared({ kind, updating: kind === "save" && id !== undefined, ...result })
-      setCursor("confirm")
+      setCursor(collisions().length ? "replace-" + collisions()[0]!.id : "confirm")
     }, kind)
   const confirm = () =>
     run(async () => {
@@ -124,8 +125,14 @@ export function ProjectTemplatesSimple(props: {
         setRefreshFailed(true)
       }
     })
+  const collisions = () => {
+    const current = prepared()
+    return current?.kind === "save" && !current.updating
+      ? templates().filter((row) => row.name === current.name)
+      : []
+  }
   const actions = () => prepared()
-    ? ["confirm", "cancel", "details"]
+    ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
     : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : [])])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
@@ -136,7 +143,8 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (id === "confirm") void confirm()
+    if (id.startsWith("replace-") && collisions().some((row) => row.id === id.slice(8))) void prepare("save", id.slice(8))
+    else if (id === "confirm") void confirm()
     else if (id === "cancel") cancel()
     else if (id === "details") setDetails(!details())
     else if (!prepared() && id === "save") void prepare("save")
@@ -228,8 +236,12 @@ export function ProjectTemplatesSimple(props: {
             <Show when={current().omittedLinks?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.")}</text>
             </Show>
+            <Show when={collisions().length}>
+              <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("A template with this name already exists. Update it or save a separate copy.")}</text>
+              <For each={collisions()}>{(row) => <Action id={"replace-" + row.id} label={tr("Update existing template") + (collisions().length > 1 ? " · " + row.id : "")} />}</For>
+            </Show>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? (current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : "Save")) : tr("Create")} />
+              <Action id="confirm" label={current().kind === "save" ? (current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr("Create")} />
               <Action id="cancel" label={tr("Cancel")} />
               <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>

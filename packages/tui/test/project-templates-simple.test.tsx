@@ -144,3 +144,40 @@ test("confirmation retries the same operation after partial failure and refresh 
     app.renderer.destroy()
   }
 })
+
+test("plain Save offers an explicit same-name update and never overwrites before review", async () => {
+  const prepared: Array<string | undefined> = [], saved: string[] = []
+  let keys: { move: (delta: number) => void; activate: () => void } | undefined
+  const access: ProjectTemplatesAccess = {
+    list: async () => [{id:"existing",name:"Фабрика"}],
+    prepareSave: async (id) => { prepared.push(id); return {token:id ? "update" : "new",name:"Фабрика",details:"Точный новый бандл"} },
+    confirmSave: async (token) => { saved.push(token) },
+    prepareCreate: async () => {throw Error("must not create")},
+    confirmCreate: async () => {throw Error("must not create")},
+  }
+  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple access={access} canSave={true} keys={(value)=>{keys=value}} /></ThemeProvider></ConfigProvider></TestTuiContexts>,{width:100,height:30})
+  app.renderer.start()
+  const click = async (id:string) => {
+    await app.waitFor(()=>!!app.renderer.root.findDescendantById(id))
+    const box=app.renderer.root.findDescendantById(id)!
+    await app.mockMouse.click(box.x+1,box.y)
+    await app.renderOnce()
+  }
+  try {
+    await app.waitForFrame(frame=>frame.includes("Фабрика"))
+    await click("project-templates.save")
+    await app.waitForFrame(frame=>frame.includes("Обновить существующий шаблон"))
+    expect(app.captureCharFrame()).toContain("Сохранить отдельную копию")
+    expect(prepared).toEqual([undefined])
+    expect(saved).toEqual([])
+    if(process.env.CAPTURE_COLLISION) await Bun.write("/tmp/template-collision.spans.json",JSON.stringify(app.captureSpans()))
+    await click("project-templates.replace-existing")
+    await app.waitForFrame(frame=>frame.includes("Обновить «Фабрика»"))
+    expect(prepared).toEqual([undefined,"existing"])
+    expect(saved).toEqual([])
+    await click("project-templates.confirm")
+    await app.waitForFrame(frame=>frame.includes("Шаблон обновлён"))
+    expect(saved).toEqual(["update"])
+    expect(keys).toBeDefined()
+  } finally {app.renderer.destroy()}
+})
