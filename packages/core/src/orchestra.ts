@@ -26,6 +26,7 @@ import type { Session as SessionSchema } from "@orchestra/schema/session"
 import { AbsolutePath } from "./schema.js"
 import { Bus } from "./bus.js"
 import { KV } from "./kv.js"
+import { RuleLessons } from "./rule-lessons.js"
 import { Rules } from "./rules.js"
 import { Session } from "./session.js"
 import { SessionActivation } from "./session/activation.js"
@@ -2832,6 +2833,7 @@ const layer: Layer.Layer<
                 yield* kv.remove(PROJECT_TEMPLATE + id)
                 // Import manifests and requirements are exact project records, not browser
                 // profiles or shared template receipts. Never scan by an ID prefix here.
+                yield* RuleLessons.forgetProject(kv, id)
                 yield* kv.remove("orchestra/project-import/" + id)
                 yield* kv.remove("orchestra/template-browsers/" + id)
                 yield* kv.remove("orchestra/template-requirements/" + id)

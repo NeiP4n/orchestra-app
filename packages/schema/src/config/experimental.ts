@@ -12,6 +12,9 @@ export class Info extends Schema.Class<Info>("ConfigExperimental.Info")({
     description:
       "Leave old, bulky tool output out of model requests once they grow large, keeping the full history. Defaults to true; set it to false to send the whole history.",
   }),
+  rule_lessons: Schema.Boolean.pipe(optional).annotate({
+    description: "Remember up to three project-local reminders after repeated rule violations. Defaults to true. Set false to stop learning and injecting reminders, without changing rule enforcement.",
+  }),
   subagent_depth: NonNegativeInt.pipe(optional).annotate({
     description: "Maximum subagent nesting depth. Defaults to 1.",
   }),

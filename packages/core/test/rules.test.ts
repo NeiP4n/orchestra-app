@@ -374,3 +374,47 @@ describe("scheduled request rule lifecycle", () => {
     expect(gate).toBeLessThan(directives)
   }))
 })
+
+
+it.live("request-time lessons stay bounded feedback, toggle immediately, and never replace current enforcement", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service
+    const project = "prj_lessons_flow"
+    const scope = Rules.projectScope(project)
+    const scopes = { project, societies: [] }
+    const id = "ses_lessons_flow"
+    const added = yield* Rules.add(kv, scope, { text: "deny tool unsafe-example", by: "operator" })
+    expect(added.rule).toBeDefined()
+    const first = yield* Rules.loadCurrent(kv, scopes, id)
+    expect(first.block).not.toContain("# Rule lessons")
+    for (let i = 0; i < 2; i++) {
+      expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toContain("Rule check")
+      const loaded = yield* Rules.loadCurrent(kv, scopes, id)
+      expect(loaded.block.includes("# Rule lessons")).toBe(i === 1)
+      expect(loaded.entries).toEqual(first.entries)
+    }
+    expect((yield* Rules.loadCurrent(kv, scopes, id, false)).block).not.toContain("# Rule lessons")
+    expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toContain("Rule check")
+    expect((yield* Rules.loadCurrent(kv, scopes, id)).block).toContain("# Rule lessons")
+    yield* Rules.remove(kv, scope, added.rule!.id, { operator: true })
+    const removed = yield* Rules.loadCurrent(kv, scopes, id)
+    expect(removed.block).not.toContain("unsafe-example")
+    expect(removed.block).not.toContain("# Rule lessons")
+    expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toBeUndefined()
+  }),
+)
+
+
+it.live("lesson storage failure does not remove loaded rules or open the permission gate", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service
+    const scopes = { project: "prj_lessons_unavailable", societies: [] }
+    const id = "ses_lessons_unavailable"
+    yield* Rules.add(kv, Rules.projectScope(scopes.project), { text: "deny tool unsafe-example", by: "operator" })
+    const broken = { ...kv, get: (key: string) => key.startsWith("rule-lessons/") ? Effect.die("lesson storage offline") : kv.get(key) }
+    const loaded = yield* Rules.loadCurrent(broken, scopes, id)
+    expect(loaded.block).toContain("deny tool unsafe-example")
+    expect(loaded.block).not.toContain("# Rule lessons")
+    expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toContain("Rule check")
+  }),
+)
