@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { realpath, lstat, mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { expect, test } from "bun:test"
@@ -39,7 +39,7 @@ const skills: V2.Skill[] = [
   },
 ]
 async function temporary(body: (root: string) => Promise<void>) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "process-skill-files-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "process-skill-files-")))
   try {
     await body(root)
   } finally {
@@ -177,7 +177,7 @@ test("publication verification is read-only and rejects missing owner marker or 
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Skill.node, KV.node])))
 it.live("recovers the live definitions checkpoint and repeats only exact receipt-owned state", () =>
   Effect.acquireRelease(
-    Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "process-receipt-live-"))),
+    Effect.promise(async () => realpath(await mkdtemp(path.join(os.tmpdir(), "process-receipt-live-")))),
     (root) => Effect.promise(() => rm(root, { recursive: true, force: true })),
   ).pipe(
     Effect.flatMap((root) =>
@@ -220,7 +220,7 @@ it.live(
   "installs files and definitions while unpublished, then exposes them only when the owning receipt is published",
   () =>
     Effect.acquireRelease(
-      Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "process-skill-install-"))),
+      Effect.promise(async () => realpath(await mkdtemp(path.join(os.tmpdir(), "process-skill-install-")))),
       (root) => Effect.promise(() => rm(root, { recursive: true, force: true })),
     ).pipe(
       Effect.flatMap((root) =>

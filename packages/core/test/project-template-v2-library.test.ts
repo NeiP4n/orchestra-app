@@ -1,6 +1,6 @@
 import { Flock } from "@orchestra/util/flock"
 import { expect, test } from "bun:test"
-import { mkdtemp, rm, mkdir, writeFile, readFile, readdir, symlink, link } from "node:fs/promises"
+import { realpath, mkdtemp, rm, mkdir, writeFile, readFile, readdir, symlink, link } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { ProjectTemplateV2Library as L } from "../src/project-template-v2-library"
@@ -8,7 +8,7 @@ import { ProjectTemplateFiles as Files } from "../src/project-template-files"
 import { ProjectTemplateV2 as V2 } from "../src/project-template-v2"
 import { processFixture } from "./project-template-v2.test"
 test("process capture bytes survive actual library save/restart/export/remember field-for-field", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "v2-library-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-library-")))
   try {
     const p = V2.preview(JSON.stringify(processFixture())); if (!p.ok) throw Error(p.error)
     const first = L.local(root), saved = await first.saveSerialized(p.value.text, "factory", p.value.digest)
@@ -27,7 +27,7 @@ test("process capture bytes survive actual library save/restart/export/remember 
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 test("both codecs reject extra source files, links and changed reviewed bytes", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "v2-files-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-files-")))
   try {
     const p = V2.preview(JSON.stringify(processFixture())); if (!p.ok) throw Error(p.error)
     await expect(Files.saveWithCodec(root, "wrong", p.value.text, "wrong", V2)).rejects.toThrow("changed after preview")
@@ -44,7 +44,7 @@ test("both codecs reject extra source files, links and changed reviewed bytes", 
 })
 
 test("process library rejects Windows device directory names before writing", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "v2-names-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-names-")))
   try {
     const p = V2.preview(JSON.stringify(processFixture())); if (!p.ok) throw Error(p.error)
     for (const name of ["con", "nul", "prn", "aux", "com1", "lpt9"]) await expect(L.local(root).saveSerialized(p.value.text, name, p.value.digest)).rejects.toThrow()
@@ -53,7 +53,7 @@ test("process library rejects Windows device directory names before writing", as
 
 
 test("process library transfers only reviewed self-contained bytes between separate installations", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "v2-transfer-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-transfer-")))
   try {
     const source = path.join(root, "laptop-a"), destination = path.join(root, "laptop-b"), transfer = path.join(root, "transfer")
     for (const directory of [source, destination, transfer]) await mkdir(directory)
@@ -81,7 +81,7 @@ test("process library transfers only reviewed self-contained bytes between separ
 })
 
 test("reviewed update preserves one template identity, refuses stale review, and survives retry", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "v2-update-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-update-")))
   Flock.setGlobal({ state: path.join(root, "state") })
   try {
     const library = L.local(root), source = V2.preview(JSON.stringify(processFixture()))
@@ -103,7 +103,7 @@ test("reviewed update preserves one template identity, refuses stale review, and
 })
 
 test("two different updates from the same reviewed base cannot both replace the template", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "v2-update-race-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "v2-update-race-")))
   Flock.setGlobal({ state: path.join(root, "state") })
   try {
     const library = L.local(root), source = V2.preview(JSON.stringify(processFixture()))

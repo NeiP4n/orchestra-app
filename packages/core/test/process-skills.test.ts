@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { realpath, mkdtemp, writeFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Config } from "@orchestra/core/config"
@@ -55,7 +55,7 @@ const registry: ProcessSkills.Registry = {
 describe("Process skill assignments", () => {
   it.live("reloads reviewed definitions from KV, applies policy and never scans unlisted files", () =>
     Effect.acquireRelease(
-      Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "process-definitions-"))),
+      Effect.promise(async () => realpath(await mkdtemp(path.join(os.tmpdir(), "process-definitions-")))),
       (root) => Effect.promise(() => rm(root, { recursive: true, force: true })),
     ).pipe(
       Effect.flatMap((root) =>

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises"
+import { realpath, mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { LegacySkillExportInventory as Inventory } from "../src/legacy-skill-export-inventory"
@@ -9,7 +9,7 @@ const metadata = { "orchestra/export": { version: 1, files: ["SKILL.md", "guide.
 const content = "# Work skill\nRead guide.md\n"
 
 test("owning legacy inventory captures exact explicit files and source session availability only", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "legacy-inventory-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "legacy-inventory-")))
   try {
     const directory = path.join(root, "project"), skillRoot = path.join(directory, "skills", "review")
     await mkdir(skillRoot, { recursive: true })
@@ -50,7 +50,7 @@ test("legacy incomplete project inventory stays visibly empty and never adopts g
 })
 
 test("legacy dependency definitions cannot widen source-session catalog visibility", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "legacy-dependencies-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "legacy-dependencies-")))
   try {
     const skillRoot = path.join(root, "skills", "review")
     await mkdir(skillRoot, { recursive: true })

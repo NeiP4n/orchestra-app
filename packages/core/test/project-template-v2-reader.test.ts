@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { realpath, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -9,7 +9,7 @@ import { ProjectTemplateV2Library as Library } from "../src/project-template-v2-
 import { processFixture } from "./project-template-v2.test"
 
 test("passive live reader captures owned metadata, model snapshots and actual skill bytes into disk library", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "process-reader-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "process-reader-")))
   try {
     await writeFile(path.join(root, "SKILL.md"), "# Offer skill\nCheck the request first.\n")
     const values = new Map<string, unknown>([["orchestra/project/prj_a", { id: "prj_a", name: "Factory", directory: root, main: "ses_main", created: 1 }], ["orchestra/owner/ses_main", "prj_a"], ["rules/project:prj_a", [{ id: "rule", text: "Ask before publishing.", by: "operator", at: 1 }]]])
