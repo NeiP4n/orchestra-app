@@ -26050,12 +26050,12 @@
               "context_governor": {
                 "type": "boolean"
               },
-              "neural_functional_effects": {
-                "type": "boolean"
-              },
               "subagent_depth": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "neural_functional_effects": {
+                "type": "boolean"
               },
               "policies": {
                 "type": "array",

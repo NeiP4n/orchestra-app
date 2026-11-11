@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test"
 import { mkdir } from "node:fs/promises"
+import path from "node:path"
 import { createTestRenderer, ManualClock } from "@opentui/core/testing"
 import type { OrchestraEvent } from "@orchestra/client"
 import { resolveThemeDocument } from "@orchestra/theme/tui"
@@ -17,7 +18,6 @@ for (const themeName of ["sculk", "orchestra"] as const) {
       const app = await createTestRenderer({ width: 90, height: 18, useThread: false, clock })
       app.renderer.pause()
       const theme = resolveThemeDocument(themeName === "sculk" ? getSculkTheme() : getOrchestraTheme(), mode)
-      app.renderer.root.backgroundColor = theme.background.base
       const activity = new NeuralActivity()
       const canvas = new NeuralCanvasRenderable(app.renderer, {
         width: 90,
@@ -43,8 +43,8 @@ for (const themeName of ["sculk", "orchestra"] as const) {
         expect(app.captureCharFrame()).toContain("Agent A")
         const directory = process.env.ORCHESTRA_VISUAL_DIR
         if (directory) {
-          await mkdir(directory, { recursive: true })
-          await Bun.write(`${directory}/wait-${themeName}-${mode}.json`, JSON.stringify(app.captureSpans()))
+          await mkdir(path.resolve(directory), { recursive: true })
+          await Bun.write(path.join(path.resolve(directory), `wait-${themeName}-${mode}.json`), JSON.stringify(app.captureSpans()))
         }
         activity.take(event("permission.replied", "ses_a"))
         await app.renderOnce()
