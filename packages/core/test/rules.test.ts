@@ -374,3 +374,26 @@ describe("scheduled request rule lifecycle", () => {
     expect(gate).toBeLessThan(directives)
   }))
 })
+
+
+it.live("deduplicates only byte-identical prompt texts while retaining every enforcement entry and stored scope", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service
+    const text = "Never edit generated fixtures without an operator instruction."
+    const scopes = [Rules.societyScope("Dedup"), Rules.projectScope("prj_dedup"), Rules.roleScope("prj_dedup", "team-developer"), Rules.sessionScope("ses_dedup"), Rules.projectDefaultsScope("prj_dedup")]
+    for (const scope of scopes) yield* Rules.add(kv, scope, { text, by: scope === scopes[0] ? "operator" : "team-developer" })
+    const similar = "Never edit generated fixtures without an Operator instruction."
+    yield* Rules.add(kv, Rules.orchestratorScope("prj_dedup"), { text: similar, by: "operator" })
+    const loaded = yield* Rules.loadCurrent(kv, { societies: ["Dedup"], project: "prj_dedup", orchestrator: true, role: "team-developer", session: "ses_dedup" }, "ses_dedup")
+    expect(loaded.block.split(text).length - 1).toBe(1)
+    expect(loaded.block).toContain("[Society, Project, Role, Session, Defaults copy]")
+    expect(loaded.block).toContain(similar)
+    expect(loaded.entries.filter(entry => entry.text === text)).toHaveLength(5)
+    expect(RuleEnforce.recall("ses_dedup")).toEqual(loaded.entries)
+    expect(loaded.entries[0]?.by).toBe("operator")
+    for (const scope of scopes) expect((yield* Rules.listStrict(kv, scope)).some(rule => rule.text === text)).toBe(true)
+    const former = ["Society", "Project", "Role", "Session", "Defaults copy"].map(title => `- [${title}] ${text}`).join("\n")
+    const now = loaded.block.split("\n").find(line => line.includes(text))!
+    expect(now.length).toBeLessThan(former.length)
+  }),
+)
