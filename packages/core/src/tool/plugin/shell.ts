@@ -22,6 +22,7 @@ import { NonNegativeInt } from "../../schema.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
 import { Shell } from "../../shell.js"
+import { ShellInPlacePaths } from "../../shell/in-place-paths.js"
 import { ShellParse } from "../../shell/parse.js"
 import { ShellSelect } from "../../shell/select.js"
 import { ShellResult } from "../../shell/result.js"
@@ -173,6 +174,7 @@ export const Plugin = {
           kind: "directory",
         }),
       )
+      yield* plots.guard({ sessionID: context.sessionID, files: ShellInPlacePaths.targets(invocation.command, invocation.shell, target.absolute) })
       const caller = yield* sessions.get(context.sessionID)
       yield* Plot.guardShell(plots, { sessionID: context.sessionID, directories: [caller.location.directory, target.absolute, ...directories.map(item => item.absolute)] })
       yield* access.authorizeExternal([target, ...directories], context)
