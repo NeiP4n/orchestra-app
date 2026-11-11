@@ -1,12 +1,16 @@
 import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { freeModel, provider } from "./fixture/catalog"
-import { expect, test } from "bun:test"
+import { beforeAll, expect, test } from "bun:test"
 import { SessionOwnerMetadataKey } from "@orchestra/schema/orchestra"
 import { SESSION_SIDEBAR_COMPACT_WIDTH } from "../src/ui/layout"
 import { createAppFixture } from "./fixture/app"
 import { directory, json } from "./fixture/tui-client"
 import { tmpdir } from "./fixture/fixture"
+
+// Load the app before test timing starts. The focused CI run is a cold process;
+// parsing the whole app graph is setup, not the Browser 2 deletion under test.
+beforeAll(async () => { await import("../src/app") })
 
 const location = { directory, project: { id: "project", directory, canonical: directory } }
 const project = { id: "prj_demo", name: "Demo", directory, created: 0 }
