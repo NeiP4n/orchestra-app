@@ -4705,6 +4705,7 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
     readonly chat?: string | undefined
     readonly mode?: "headless" | "window" | "capture" | undefined
   }>
+  readonly templateID?: string | undefined
 }
 export type OrchestraProjectTemplatePrepareSaveOutput = {
   readonly token: string

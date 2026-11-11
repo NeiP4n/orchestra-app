@@ -3358,7 +3358,7 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: `/api/orchestra/project-template/prepare-save`,
-              body: { projectID: input["projectID"], browsers: input["browsers"] },
+              body: { projectID: input["projectID"], browsers: input["browsers"], templateID: input["templateID"] },
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,

@@ -78,7 +78,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
     const templateOperation = <A>(action:()=>Promise<A>)=>Effect.tryPromise({try:action,catch:error=>new InvalidRequestError(templateError(error))})
     return handlers
       .handle("orchestra.projectTemplate.list",()=>templateOperation(()=>operator.list()))
-      .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation(()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers)))
+      .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation(()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
       .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation(()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
       .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation(()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory)))
       .handle("orchestra.projectTemplate.confirmCreate",ctx=>templateOperation(()=>operator.confirmCreate(ctx.payload.token)))

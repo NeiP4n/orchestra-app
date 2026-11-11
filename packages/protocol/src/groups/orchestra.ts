@@ -36,7 +36,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   )
   .add(
     HttpApiEndpoint.post("orchestra.projectTemplate.prepareSave", "/api/orchestra/project-template/prepare-save", {
-      payload: Schema.Struct({ projectID: Orchestra.ProjectID, browsers: Schema.Array(TemplateBrowserInput) }),
+      payload: Schema.Struct({ projectID: Orchestra.ProjectID, browsers: Schema.Array(TemplateBrowserInput), templateID: Schema.optional(Schema.String) }),
       success: TemplatePrepared,
       error: InvalidRequestError,
     }),
