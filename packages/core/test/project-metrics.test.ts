@@ -89,3 +89,18 @@ test("metrics append is bounded and linked files cannot redirect it", async () =
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test("hardlinked metrics output cannot modify another file", async () => {
+  const { link, writeFile } = await import("node:fs/promises")
+  const dir = await mkdtemp(path.join(os.tmpdir(), "metrics-hardlink-"))
+  const outside = path.join(dir, "untouched.txt")
+  try {
+    await mkdir(path.join(dir, ".orchestra"))
+    await writeFile(outside, "unchanged")
+    await link(outside, path.join(dir, ".orchestra", "metrics.jsonl"))
+    await expect(M.append(dir, receipt())).rejects.toThrow("regular file")
+    expect(await readFile(outside, "utf8")).toBe("unchanged")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

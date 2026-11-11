@@ -96,8 +96,7 @@ const fakeDisplaySocket = (display: string): string => {
   const dir = "/tmp/.X11-unix"
   mkdirSync(dir, { recursive: true })
   const socket = path.join(dir, `X${display.slice(1)}`)
-  if (existsSync(socket)) throw new Error(`test display ${display} is already in use (socket ${socket} exists)`)
-  writeFileSync(socket, "")
+  writeFileSync(socket, "", { flag: "wx", mode: 0o600 })
   return socket
 }
 
