@@ -61,7 +61,7 @@ for(const [chat,reason] of [["ses_deleted","missing"],["ses_child","child"],["se
   if(!old.ok) expect(old.diagnostic).toEqual({stage:"base-browsers",reasonCode:"ownership-invalid"})
   const strict=await Effect.runPromise(Reader.capture(f.stores,f.p2.id,metadata,f.linked)).then(()=>undefined,e=>e)
   expect(templateDiagnosticOf(strict)).toEqual({stage:"base-browsers",reasonCode:`browser-chat-${reason}`})
-  expect(templateError(strict).kind).toBe(`TEMPLATE_BROWSER_CHAT_${reason.toUpperCase()}`)
+  expect(templateError(strict).kind).toBe(({missing:"TEMPLATE_BROWSER_CHAT_MISSING",child:"TEMPLATE_BROWSER_CHAT_CHILD",foreign:"TEMPLATE_BROWSER_CHAT_FOREIGN",unlisted:"TEMPLATE_BROWSER_CHAT_UNLISTED"} as const)[reason])
   const review:Reader.BrowserBindingIssue[]=[]
   const source=await Effect.runPromise(Reader.readSource(f.stores,f.p2.id,f.linked,review))
   expect(review).toEqual([{browser:1,reason}])
