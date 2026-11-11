@@ -207,6 +207,10 @@ const layer = Layer.effect(
         }
         // `available` is ordered newest release first, so this is the newest model that can answer text.
         const textModels = value.available.filter((model) => supportsText(model))
+        // A fresh install uses the public free route, never an upstream vendor
+        // selected just because its catalog release date sorts first.
+        const anonymous = textModels.find((model) => model.providerID === "kilo-free" && model.id === "kilo-auto/free")
+        if (anonymous) return anonymous
         const functional = textModels.find((model) => {
           if (model.cost.length > 0 && model.cost.every((cost) => cost.input === 0)) return true
           const key = model.settings?.apiKey

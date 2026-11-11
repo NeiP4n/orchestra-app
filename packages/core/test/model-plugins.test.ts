@@ -467,3 +467,32 @@ it.effect(
       expect(yield* models.get(custom, modelID)).toMatchObject({ limit: { context: 32_768 } })
     }),
 )
+
+it.effect("fresh model selection prefers anonymous Kilo while an explicit selection still wins", () =>
+  Effect.gen(function* () {
+    const plugins = yield* Plugin.Service
+    const models = yield* Model.Service
+    const kilo = Provider.ID.make("kilo-free")
+    const free = Model.ID.make("kilo-auto/free")
+    const other = Provider.ID.make("catalog-vendor")
+    const chat = Model.ID.make("newest-chat")
+    const source: Plugin.Generation = {
+      id: "default-route-source",
+      revision: "1",
+      effect: (ctx) => ctx.provider.transform((editor) => {
+        editor.add({ info: { ...Provider.Info.empty(other), activation: "enabled" }, models: [{ ...Model.Info.default(other, chat), time: { released: 9999999999999 } }] })
+        editor.add({ info: { ...Provider.Info.empty(kilo), activation: "enabled" }, models: [Model.Info.default(kilo, free)] })
+      }).pipe(Effect.asVoid),
+    }
+    yield* plugins.activate([source])
+    expect(yield* models.default()).toMatchObject({ providerID: kilo, id: free })
+    const selected: Plugin.Generation = {
+      id: "explicit-model-choice",
+      revision: "1",
+      effect: (ctx) => ctx.model.transform((editor) => editor.default.set(other, chat)).pipe(Effect.asVoid),
+    }
+    yield* plugins.activate([source, selected])
+    expect(yield* models.default()).toMatchObject({ providerID: other, id: chat })
+    yield* plugins.activate([])
+  }),
+)
