@@ -1814,7 +1814,7 @@ const layer: Layer.Layer<
             })
           if (event.type === SessionEvent.Execution.Failed.type)
             return report(event.data.sessionID, "failed", `Run failed: ${event.data.error.message}`)
-          if (event.data.reason === "shutdown") return Effect.void
+          if (event.data.reason === "shutdown" || event.data.reason === "pause") return Effect.void
           return report(event.data.sessionID, "stopped", `Run was interrupted (${event.data.reason}).`)
         }),
         Effect.forkScoped({ startImmediately: true }),

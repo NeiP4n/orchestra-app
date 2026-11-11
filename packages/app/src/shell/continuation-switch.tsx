@@ -1,5 +1,5 @@
 import { createContinuationControl, type ContinuationAccess } from "@orchestra/client/solid"
-import { createMemo, Show } from "solid-js"
+import { createMemo, createEffect, createRoot, on, Show } from "solid-js"
 import { useLayout } from "@/shell/state/layout"
 import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal, useServerCtx } from "@/runtime/server/runtime"
@@ -61,7 +61,10 @@ export function ContinuationSwitchConnected() {
             get: () => ctx.sdk.api.config.continuation.get(),
             set: (value) => ctx.sdk.api.config.continuation.set(value),
             onState: (receive) => ctx.sdk.event.on("config.continuation.updated", (event) => receive(event.data)),
-            onReconnect: (refresh) => ctx.sdk.event.on("server.connected", refresh),
+            onReconnect: (refresh) => createRoot(dispose => {
+              createEffect(on(ctx.sdk.connection.status, status => { if (status === "connected") refresh() }, { defer: true }))
+              return dispose
+            }),
           }}
         />
       )}
