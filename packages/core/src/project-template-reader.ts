@@ -1,6 +1,7 @@
+import { TemplateStageError, type TemplateStage } from "./project-template-errors.js"
 export * as ProjectTemplateReader from "./project-template-reader.js"
 
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import { Trigger } from "./trigger.js"
 import { ProjectTemplateSource } from "./project-template-source.js"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -36,6 +37,7 @@ export function readSource(
   projectID: string,
   linked: Pick<ProjectTemplateSource.Source, "browsers" | "vault" | "selectedGlobalSlotIDs" | "providers" | "mcp">,
 ) {
+  let stage: TemplateStage = "base-project"
   return Effect.gen(function* () {
     const raw = yield* stores.kv.get(`orchestra/project/${projectID}`)
     const project = Schema.decodeUnknownSync(Orchestra.Project)(raw)
@@ -54,6 +56,7 @@ export function readSource(
         } while (after)
         return entries
       })
+    stage = "base-sessions"
     const owned = yield* scan("orchestra/owner/")
     const projects = (yield* scan("orchestra/project/")).map((row) =>
       Schema.decodeUnknownSync(Orchestra.Project)(row.value),
@@ -91,6 +94,7 @@ export function readSource(
           : undefined,
       })
     }
+    stage = "base-rules"
     const roleRows = yield* scan(`rules/role:${projectID}:`)
     const scopes: {
       key: string
@@ -124,6 +128,7 @@ export function readSource(
         })
       }
     }
+    stage = "base-schedules"
     const schedules: Trigger.Info[] = []
     for (const row of yield* scan(Trigger.PREFIX + projectID + "/")) {
       const trigger = Trigger.parse(row.value)
@@ -132,10 +137,11 @@ export function readSource(
     }
     // Re-read the identity at closeout. Concurrent metadata edits still require the eventual
     // confirm adapter to recapture and compare the exact canonical digest before committing.
+    stage = "source-stability"
     const final = yield* stores.kv.get(`orchestra/project/${projectID}`)
     if (JSON.stringify(final) !== JSON.stringify(raw)) throw Error("Project changed during capture.")
     return { project, sessions, ownedSessionIDs: ids, rules, schedules, ...linked } satisfies ProjectTemplateSource.Source
-  })
+  }).pipe(Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(new TemplateStageError(stage, Cause.squash(cause)))))
 }
 
 /** Existing v1 capture remains a strict projection of the same passive owned source. */
@@ -148,7 +154,7 @@ export function capture(
   return Effect.gen(function* () {
     const source = yield* readSource(stores, projectID, linked)
     const result = ProjectTemplateSource.capture(source, metadata)
-    if (!result.ok) throw Error(result.error)
+    if (!result.ok) throw new TemplateStageError(result.diagnostic?.stage ?? "base-schema", new Error(result.error), result.diagnostic?.reasonCode)
     return result.value
   })
 }

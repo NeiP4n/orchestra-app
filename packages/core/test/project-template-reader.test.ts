@@ -1,3 +1,4 @@
+import { TemplateStageError, templateDiagnosticOf } from "../src/project-template-errors"
 import { expect, test } from "bun:test"
 import { Effect } from "effect"
 import { ProjectTemplateReader } from "../src/project-template-reader"
@@ -116,6 +117,6 @@ test("a claimed main that is missing, a child, or belongs to another owner still
     if (state === "missing") f.sessions.delete("ses_main")
     else if (state === "child") f.sessions.get("ses_main")!.parentID = "ses_parent"
     else f.values.set("orchestra/owner/ses_main", "prj_b")
-    await expect(Effect.runPromise(ProjectTemplateReader.capture(f.stores, "prj_a", metadata, linked))).rejects.toThrow(state === "missing" ? "Project main session is missing" : state === "child" ? "Project main session points to a child task" : "Project main session belongs to another project")
+    await expect(Effect.runPromise(ProjectTemplateReader.capture(f.stores, "prj_a", metadata, linked)).catch((error) => { expect(templateDiagnosticOf(error)?.stage).toBe("base-sessions"); throw error instanceof TemplateStageError ? error.original : error })).rejects.toThrow(state === "missing" ? "Project main session is missing" : state === "child" ? "Project main session points to a child task" : "Project main session belongs to another project")
   }
 })

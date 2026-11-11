@@ -1,3 +1,4 @@
+import { templateCapture, templateDiagnosticOf, type TemplateDiagnostic } from "./project-template-errors.js"
 export * as ProjectTemplate from "./project-template.js"
 
 import { createHash } from "node:crypto"
@@ -32,7 +33,7 @@ export interface Bundle {
   providers: { id: string; endpoint: string | null; credentialSlots: string[] }[]
   mcp: { name: string; catalog: string; credentialSlots: string[] }[]
 }
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string; diagnostic?: TemplateDiagnostic }
 export const MAX_BYTES = 262_144
 export const EXCLUDED = ["chats and session transcripts", "page text, DOM, screenshots, downloads and history", "cookies, profiles, logins, keys and credential bindings", "databases, memory, notes, lessons, metrics, tasks and logs", "runtime IDs, absolute paths, counters, permissions and grants", "MCP commands, arguments, environment values and startup scripts"] as const
 export const WARNINGS = [
@@ -75,25 +76,25 @@ export function parse(serialized: string): Result<Bundle> {
   if (Buffer.byteLength(serialized) > MAX_BYTES) return { ok: false, error: "Project template exceeds the size limit." }
   try {
     const raw: unknown = JSON.parse(serialized)
-    const data = object(raw, ['format', 'version', 'name', 'description', 'minOrchestraVersion', 'variables', 'vault', 'sessions', 'browsers', 'rules', 'schedules', 'providers', 'mcp', ...(raw && typeof raw === 'object' && Object.hasOwn(raw, 'mainSession') ? ['mainSession'] : [])])
+    const data = templateCapture("base-schema", () => object(raw, ['format', 'version', 'name', 'description', 'minOrchestraVersion', 'variables', 'vault', 'sessions', 'browsers', 'rules', 'schedules', 'providers', 'mcp', ...(raw && typeof raw === 'object' && Object.hasOwn(raw, 'mainSession') ? ['mainSession'] : [])]))
     if (data.format !== 'orchestra.project-template' || data.version !== 1) invalid()
     const variables = object(data.variables, ['projectName', 'folder']); if (variables.folder !== '${projectFolder}') invalid()
     const vault = object(data.vault, ['local', 'globalRequirements'])
-    const local = array(vault.local, 100).map((v) => { const row = object(v, ['name', 'type', 'label']); return { name: slot(row.name), type: choice(row.type, ['login', 'api-key', 'password']), label: text(row.label, 160) } })
+    const local = templateCapture("base-vault", () => array(vault.local, 100).map((v) => { const row = object(v, ['name', 'type', 'label']); return { name: slot(row.name), type: choice(row.type, ['login', 'api-key', 'password']), label: text(row.label, 160) } }))
     unique(local.map((row) => row.name))
     const globalRequirements = array(vault.globalRequirements, 100).map(slot); unique(globalRequirements)
     if (globalRequirements.some((name) => local.some((row) => row.name === name))) invalid()
-    const sessions = array(data.sessions, 100).map((v) => {
+    const sessions = templateCapture("base-sessions", () => array(data.sessions, 100).map((v) => {
       const row = object(v, ['slot', 'title', 'role', 'model']), model = row.model === null ? null : object(row.model, ['provider', 'id', 'variant'])
       return { slot: slot(row.slot), title: text(row.title, 160), role: row.role === null ? null : id(row.role), model: model === null ? null : { provider: id(model.provider), id: id(model.id), variant: model.variant === null ? null : id(model.variant) } }
-    }); unique(sessions.map((row) => row.slot))
-    const browsers = array(data.browsers, 50).map((v) => { const linked = !!v && typeof v === 'object' && Object.hasOwn(v, 'session'); const row = object(v, ['slot', 'name', 'mode', 'links', ...(linked ? ['session'] : [])]), links = array(row.links, 100).map(url); unique(links); return { slot: slot(row.slot), name: text(row.name, 160), mode: choice(row.mode, ['headless', 'window', 'capture']), links, ...(linked ? { session: slot(row.session) } : {}) } }); unique(browsers.map((row) => row.slot))
+    })); unique(sessions.map((row) => row.slot))
+    const browsers = templateCapture("base-browsers", () => array(data.browsers, 50).map((v) => { const linked = !!v && typeof v === 'object' && Object.hasOwn(v, 'session'); const row = object(v, ['slot', 'name', 'mode', 'links', ...(linked ? ['session'] : [])]), links = array(row.links, 100).map(url); unique(links); return { slot: slot(row.slot), name: text(row.name, 160), mode: choice(row.mode, ['headless', 'window', 'capture']), links, ...(linked ? { session: slot(row.session) } : {}) } })); unique(browsers.map((row) => row.slot))
     const sessionNames = new Set(sessions.map((row) => row.slot)), browserNames = new Set(browsers.map((row) => row.slot))
     if (browsers.some((browser) => browser.session && !sessionNames.has(browser.session))) invalid()
     const mainSession = data.mainSession === undefined ? undefined : slot(data.mainSession)
     if (mainSession && !sessionNames.has(mainSession)) invalid()
     const sessionRef = (v: unknown) => { const s = slot(v); if (!sessionNames.has(s)) invalid(); return s }
-    const rules: Bundle['rules'] = array(data.rules, 100).map((v) => {
+    const rules: Bundle['rules'] = templateCapture("base-rules", () => array(data.rules, 100).map((v) => {
       const hasScope = !!v && typeof v === "object" && Object.hasOwn(v, "scope")
       const hasRole = !!v && typeof v === "object" && Object.hasOwn(v, "role")
       const row = object(v, ['session', 'text', ...(hasScope ? ['scope'] : []), ...(hasRole ? ['role'] : [])])
@@ -104,8 +105,8 @@ export function parse(serialized: string): Result<Bundle> {
       if (scope === 'role') { if (!hasRole) invalid(); return { session: null, text: ruleText, scope, role: id(row.role) } }
       if (hasRole) invalid()
       return { session, text: ruleText, scope }
-    })
-    const schedules: Bundle['schedules'] = array(data.schedules, 20).map((v) => {
+    }))
+    const schedules: Bundle['schedules'] = templateCapture("base-schedules", () => array(data.schedules, 20).map((v) => {
       const structured = !!v && typeof v === 'object' && Object.hasOwn(v, 'structuredCondition')
       const row = object(v, ['slot', 'source', 'instruction', 'maxPerHour', 'maxPerDay', 'missedPolicy', ...(structured ? ['structuredCondition'] : [])]), kind = (row.source as { kind?: unknown } | null)?.kind
       let source: Bundle['schedules'][number]['source']
@@ -122,19 +123,21 @@ export function parse(serialized: string): Result<Bundle> {
       }
       if (structured && row.structuredCondition !== true) invalid()
       return { ...(structured ? { structuredCondition: true as const } : {}), slot: slot(row.slot), source, instruction: text(row.instruction), maxPerHour: cap(row.maxPerHour, 12), maxPerDay: cap(row.maxPerDay, 100), missedPolicy: choice(row.missedPolicy, ['skip', 'run-once', 'catch-up']) }
-    }); unique(schedules.map((row) => row.slot))
-    const providers = array(data.providers, 30).map((v) => { const row = object(v, ['id', 'endpoint', 'credentialSlots']); return { id: id(row.id), endpoint: row.endpoint === null ? null : url(row.endpoint), credentialSlots: slots(row.credentialSlots) } }); unique(providers.map((row) => row.id))
-    const mcp = array(data.mcp, 50).map((v) => { const row = object(v, ['name', 'catalog', 'credentialSlots']); return { name: slot(row.name), catalog: slot(row.catalog), credentialSlots: slots(row.credentialSlots) } }); unique(mcp.map((row) => row.name))
+    })); unique(schedules.map((row) => row.slot))
+    const providers = templateCapture("base-integrations", () => array(data.providers, 30).map((v) => { const row = object(v, ['id', 'endpoint', 'credentialSlots']); return { id: id(row.id), endpoint: row.endpoint === null ? null : url(row.endpoint), credentialSlots: slots(row.credentialSlots) } })); unique(providers.map((row) => row.id))
+    const mcp = templateCapture("base-integrations", () => array(data.mcp, 50).map((v) => { const row = object(v, ['name', 'catalog', 'credentialSlots']); return { name: slot(row.name), catalog: slot(row.catalog), credentialSlots: slots(row.credentialSlots) } })); unique(mcp.map((row) => row.name))
     const declared = new Set([...local.map((row) => row.name), ...globalRequirements]); if ([...mcp, ...providers].some((row) => row.credentialSlots.some((name) => !declared.has(name)))) invalid()
     return { ok: true, value: { format: 'orchestra.project-template', version: 1, name: text(data.name, 160), description: text(data.description, 2048), minOrchestraVersion: version(data.minOrchestraVersion), variables: { projectName: text(variables.projectName, 160), folder: '${projectFolder}' }, ...(mainSession ? { mainSession } : {}), vault: { local, globalRequirements }, sessions, browsers, rules, schedules, providers, mcp } }
   } catch (error) {
-    const message = error instanceof Error ? error.message : ''
-    return { ok: false, error: ['Secret-like value detected.', 'Absolute paths are not portable.', 'Saved URLs require HTTP(S)'].some((s) => message.startsWith(s)) ? message : 'Invalid project template configuration or unsupported fields.' }
+    const diagnostic = templateDiagnosticOf(error)
+    const original = error instanceof Error && "original" in error ? error.original : error
+    const message = original instanceof Error ? original.message : ''
+    return { ok: false, ...(diagnostic ? { diagnostic } : {}), error: ['Secret-like value detected.', 'Absolute paths are not portable.', 'Saved URLs require HTTP(S)'].some((s) => message.startsWith(s)) ? message : 'Invalid project template configuration or unsupported fields.' }
   }
 }
 export function preview(serialized: string) {
   const parsed = parse(serialized); if (!parsed.ok) return parsed
   const bundle = parsed.value, text = JSON.stringify(bundle, null, 2) + '\n'
-  if (Buffer.byteLength(text) > MAX_BYTES) return { ok: false as const, error: 'Formatted template exceeds the size limit.' }
+  if (Buffer.byteLength(text) > MAX_BYTES) return { ok: false as const, diagnostic: undefined, error: 'Formatted template exceeds the size limit.' }
   return { ok: true as const, value: { bundle, text, digest: createHash('sha256').update(text).digest('hex'), counts: { sessions: bundle.sessions.length, browsers: bundle.browsers.length, links: bundle.browsers.reduce((n, row) => n + row.links.length, 0), rules: bundle.rules.length, schedules: bundle.schedules.length, providers: bundle.providers.length, mcp: bundle.mcp.length, localVaultSlots: bundle.vault.local.length, globalRequirements: bundle.vault.globalRequirements.length }, excluded: EXCLUDED, warnings: WARNINGS } }
 }

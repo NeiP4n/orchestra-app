@@ -1,15 +1,50 @@
-export type TemplateStage = "project" | "vault" | "browser-links" | "process-source" | "roles" | "playbook" | "skills" | "programs" | "library-read" | "library-write" | "reservation"
-export class TemplateStageError extends Error {
-  constructor(readonly stage: TemplateStage, readonly original: unknown) { super("Template stage failed") }
+export const templateStages = ["project", "vault", "browser-links", "process-source", "roles", "playbook", "skills", "programs", "library-read", "library-write", "reservation", "source-read", "session-models", "skill-graph", "skill-files", "source-stability", "base-project", "base-sessions", "base-browsers", "base-rules", "base-schedules", "base-vault", "base-integrations", "base-schema", "process-bindings", "process-roles", "process-playbook", "process-skills", "process-assignments", "process-models", "process-programs", "process-schema"] as const
+export type TemplateStage = typeof templateStages[number]
+export const templateReasons = ["read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "ownership-invalid", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
+export type TemplateReason = typeof templateReasons[number]
+export interface TemplateDiagnostic { stage: TemplateStage; reasonCode: TemplateReason }
+const diagnosticReason = (error: unknown): TemplateReason => {
+  if (!(error instanceof Error)) return "read-failed"
+  const code = (error as NodeJS.ErrnoException).code
+  if (["EACCES", "EPERM", "EROFS"].includes(code ?? "")) return "permission-denied"
+  if (code === "ENOENT") return "file-missing"
+  const message = error.message
+  if (message === "Absolute paths are not portable. No template was prepared.") return "path-not-portable"
+  if (message === "Secret-like value detected. No template was prepared.") return "secret-like"
+  if (message === "Skill dependencies contain a cycle.") return "dependency-cycle"
+  if (message === "An assigned skill definition is missing.") return "dependency-missing"
+  if (message === "Skill definition files cannot be captured safely. No template was prepared.") return "unsafe-file"
+  if (message === "Process definitions changed during capture. Review them again." || message === "Project changed during capture.") return "source-changed"
+  if (["Session fallback model metadata is damaged.", "Rule metadata is damaged.", "Session configuration changed during process capture."].includes(message)) return "metadata-invalid"
+  if (["Invalid project template configuration or unsupported fields.", "Invalid process template or unsupported fields."].includes(message)) return "schema-invalid"
+  if (["Project template exceeds the size limit.", "Formatted template exceeds the size limit.", "Process template exceeds the size limit.", "Formatted process template exceeds the size limit."].includes(message)) return "size-limit"
+  return "read-failed"
 }
-/** Stages are literals chosen by code, never exception text, paths or payloads. */
+export class TemplateStageError extends Error {
+  readonly reasonCode: TemplateReason
+  constructor(readonly stage: TemplateStage, readonly original: unknown, reasonCode?: TemplateReason) {
+    super("Template stage failed")
+    this.reasonCode = reasonCode ?? diagnosticReason(original)
+  }
+}
+/** Only code-owned literals cross the log boundary, never source text or exception fields. */
+export function templateDiagnosticOf(error: unknown): TemplateDiagnostic | undefined {
+  if (!(error instanceof TemplateStageError) || !templateStages.includes(error.stage) || !templateReasons.includes(error.reasonCode)) return
+  return { stage: error.stage, reasonCode: error.reasonCode }
+}
+export const templateStageOf = (error: unknown) => templateDiagnosticOf(error)?.stage
+export function templateCapture<A>(stage: TemplateStage, action: () => A): A {
+  try { return action() } catch (error) {
+    if (error instanceof TemplateStageError) throw error
+    throw new TemplateStageError(stage, error)
+  }
+}
 export async function templateStage<A>(stage: TemplateStage, action: () => Promise<A>): Promise<A> {
   try { return await action() } catch (error) {
     if (error instanceof TemplateStageError) throw error
     throw new TemplateStageError(stage, error)
   }
 }
-export const templateStageOf = (error: unknown) => error instanceof TemplateStageError ? error.stage : undefined
 
 /** Stable public reasons. Never serialize filesystem paths, URLs, submitted values or raw exceptions. */
 export const templateErrorMessages = {
