@@ -128,17 +128,17 @@ export function ProjectTemplatesSimple(props: {
         setMessage(current.kind === "save" ? "Template was not saved. Retry the same save." : "Could not finish. Confirm the same operation again to continue without creating a second copy.")
         return
       }
-      setMessage(
-        current.kind === "save"
-          ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
-          : current.kind === "import" ? "Template imported to the library. Nothing was started. Choose Create to make a new project." : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
-      )
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
       try {
         await refresh()
       } catch {
         setRefreshFailed(true)
       }
+      setMessage(
+        current.kind === "save"
+          ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
+          : current.kind === "import" ? "Template imported to the library. Nothing was started. Choose Create to make a new project." : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
+      )
     })
   const collisions = () => {
     const current = prepared()
