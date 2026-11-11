@@ -21,6 +21,9 @@ import { Persist, persisted } from "@/runtime/persistence/storage"
 import { Persistence } from "@/runtime/persistence/schema"
 import type { NewSessionWorkspaceController } from "./workspace/controller"
 import { NewSessionWordmark } from "./wordmark"
+import { NewSessionNetworkStatus } from "./network-status"
+import { NeuralField } from "@orchestra/ui/neural-field"
+import "./view.css"
 
 const providerTipDismissalDuration = 30 * 24 * 60 * 60 * 1000
 
@@ -55,17 +58,25 @@ export function NewSessionView(props: {
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
       <div
         data-component="new-session"
-        class="relative flex-1 min-h-0 overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]"
+        class="relative flex flex-col flex-1 min-h-0 overflow-hidden rounded-[10px] bg-v2-background-bg-base shadow-[var(--v2-elevation-raised)]"
       >
+        <div data-slot="new-session-network" class="pointer-events-none absolute inset-0 opacity-60" aria-hidden="true">
+          <NeuralField />
+        </div>
         <ComposerDropzone
           active={props.composer.state.drag === "active"}
           input={props.composer.model.selection.current()?.capabilities.input}
         />
-        <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
-          <div class={NEW_SESSION_CONTENT_WIDTH}>
-            <NewSessionWordmark />
-            <div class="mt-8 flex flex-col gap-8">
-              <Composer model={props.composer} />
+        <div data-slot="new-session-stage">
+          <div data-slot="new-session-column" class={NEW_SESSION_CONTENT_WIDTH}>
+            <div data-slot="new-session-logo-window">
+              <NewSessionWordmark />
+              <NewSessionNetworkStatus />
+            </div>
+            <div data-slot="new-session-controls" class="mt-4 flex flex-col gap-3">
+              <div data-slot="new-session-prompt">
+                <Composer model={props.composer} />
+              </div>
               <Show when={props.project.empty()}>
                 <PromptProjectAddButton controller={props.project} />
               </Show>
@@ -203,7 +214,7 @@ function NewSessionTips(props: {
 
   return (
     <Show when={presence.present()}>
-      <div class="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-10">
+      <div data-slot="new-session-tip-footer" class="pointer-events-none relative shrink-0 flex justify-center px-4 pb-4 pt-2">
         <div
           ref={setRef}
           data-component="new-session-tip"

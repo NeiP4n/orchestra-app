@@ -50,3 +50,7 @@
     }
   }
 }
+
+:root[data-motion="off"] [data-component="new-session-wordmark"] .wordmark-shimmer {
+  animation: none;
+}
