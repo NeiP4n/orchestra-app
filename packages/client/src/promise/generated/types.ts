@@ -14621,6 +14621,41 @@ export type RoomMeshRpcInput = {
 
 export type RoomMeshRpcOutput = RoomMeshRpcResponse
 
+export type OrchestraProjectTemplateExportFileInput = {
+  readonly templateID: { readonly templateID: string; readonly projectID: string }["templateID"]
+  readonly projectID: { readonly templateID: string; readonly projectID: string }["projectID"]
+}
+
+export type OrchestraProjectTemplateExportFileOutput = { path: string; warning: string }
+
+export type OrchestraProjectTemplatePrepareImportInput = { readonly path: { readonly path: string }["path"] }
+
+export type OrchestraProjectTemplatePrepareImportOutput = {
+  token: string
+  name: string
+  details: string
+  unresolvedRoles?: Array<string> | undefined
+  browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
+  triggerReview?:
+    | Array<{
+        schedule: number
+        browser?: number | undefined
+        reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  omittedLinks?:
+    | Array<{
+        browser: number
+        link: number
+        reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+
+export type OrchestraProjectTemplateConfirmImportInput = { readonly token: { readonly token: string }["token"] }
+
+export type OrchestraProjectTemplateConfirmImportOutput = { id: string; name: string }
+
 export type OrchestraProjectTemplateListOutput = Array<{ id: string; name: string }>
 
 export type OrchestraProjectTemplatePrepareSaveInput = {

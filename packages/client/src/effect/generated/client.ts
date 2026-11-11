@@ -395,6 +395,12 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectTemplateExportFileInput,
+  OrchestraProjectTemplateExportFileOutput,
+  OrchestraProjectTemplatePrepareImportInput,
+  OrchestraProjectTemplatePrepareImportOutput,
+  OrchestraProjectTemplateConfirmImportInput,
+  OrchestraProjectTemplateConfirmImportOutput,
   OrchestraProjectTemplateListOutput,
   OrchestraProjectTemplatePrepareSaveInput,
   OrchestraProjectTemplatePrepareSaveOutput,
@@ -2448,6 +2454,30 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   },
 })
 
+const EndpointOrchestraProjectTemplateExportFile =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateExportFileInput) =>
+    preserveEffect<OrchestraProjectTemplateExportFileOutput>()(
+      raw["orchestra.projectTemplate.exportFile"]({
+        payload: { templateID: input["templateID"], projectID: input["projectID"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointOrchestraProjectTemplatePrepareImport =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplatePrepareImportInput) =>
+    preserveEffect<OrchestraProjectTemplatePrepareImportOutput>()(
+      raw["orchestra.projectTemplate.prepareImport"]({ payload: { path: input["path"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointOrchestraProjectTemplateConfirmImport =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateConfirmImportInput) =>
+    preserveEffect<OrchestraProjectTemplateConfirmImportOutput>()(
+      raw["orchestra.projectTemplate.confirmImport"]({ payload: { token: input["token"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
 const EndpointOrchestraProjectTemplateList = (raw: RawClient["server.orchestra"]) => () =>
   preserveEffect<OrchestraProjectTemplateListOutput>()(
     raw["orchestra.projectTemplate.list"]({}).pipe(Effect.mapError(mapClientError)),
@@ -2754,6 +2784,9 @@ const EndpointOrchestraLinkList = (raw: RawClient["server.orchestra"]) => (input
 
 const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
   projectTemplate: {
+    exportFile: EndpointOrchestraProjectTemplateExportFile(raw),
+    prepareImport: EndpointOrchestraProjectTemplatePrepareImport(raw),
+    confirmImport: EndpointOrchestraProjectTemplateConfirmImport(raw),
     list: EndpointOrchestraProjectTemplateList(raw),
     prepareSave: EndpointOrchestraProjectTemplatePrepareSave(raw),
     confirmSave: EndpointOrchestraProjectTemplateConfirmSave(raw),

@@ -28,6 +28,12 @@ export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplate
   // open cannot silently export a different project's browser definitions.
   const saveOwners = new Map<string, string>()
   const access: ProjectTemplatesAccess = {
+    exportFile: templateID => {
+      const id=projectID();if(!id)throw Error("Open a project first.")
+      return client.api.orchestra.projectTemplate.exportFile({templateID,projectID:id})
+    },
+    prepareImport: path => client.api.orchestra.projectTemplate.prepareImport({path}),
+    confirmImport: token => client.api.orchestra.projectTemplate.confirmImport({token}),
     list: () => client.api.orchestra.projectTemplate.list(),
     prepareSave: async (templateID) => {
       const id = projectID()

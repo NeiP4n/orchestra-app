@@ -3,6 +3,8 @@ name: template-auto-regression
 on:
   pull_request:
     paths:
+      - 'packages/app/src/shell/template-files.tsx'
+      - 'packages/app/e2e/regression/template-files.spec.ts'
       - 'packages/core/src/project-template*'
       - 'packages/core/test/project-template*'
       - 'packages/server/src/handlers/orchestra.ts'
@@ -60,3 +62,29 @@ jobs:
         run: |
           bun test test/project-template*.test.* test/browser-chat*.test.* test/browser-sessions*.test.ts
           bun test test/project-tree.test.tsx --test-name-pattern "actual Browser 2"
+      - name: Setup browser runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.15"
+      - name: Refresh browser runtime package indexes
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
+      - name: Install focused browser
+        working-directory: packages/app
+        run: bun x playwright install --with-deps chromium
+      - name: Connected desktop, tablet and mobile template file flow
+        working-directory: packages/app
+        run: bun run test:e2e:built e2e/regression/template-files.spec.ts
+        env:
+          CI: true
+          PLAYWRIGHT_WORKERS: "1"
+      - name: Preserve template file UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: template-file-${{ matrix.os }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report

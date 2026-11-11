@@ -28,6 +28,16 @@ const TemplateBrowsers = Schema.Struct({
 const root = "/api/orchestra/project"
 
 export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
+  .add(HttpApiEndpoint.post("orchestra.projectTemplate.exportFile", "/api/orchestra/project-template/export-file", {
+    payload: Schema.Struct({ templateID: Schema.String, projectID: Orchestra.ProjectID }),
+    success: Schema.Struct({ path: Schema.String, warning: Schema.String }), error: InvalidRequestError,
+  }))
+  .add(HttpApiEndpoint.post("orchestra.projectTemplate.prepareImport", "/api/orchestra/project-template/prepare-import", {
+    payload: Schema.Struct({ path: Schema.String }), success: TemplatePrepared, error: InvalidRequestError,
+  }))
+  .add(HttpApiEndpoint.post("orchestra.projectTemplate.confirmImport", "/api/orchestra/project-template/confirm-import", {
+    payload: Schema.Struct({ token: Schema.String }), success: Schema.Struct({ id: Schema.String, name: Schema.String }), error: InvalidRequestError,
+  }))
   .add(
     HttpApiEndpoint.get("orchestra.projectTemplate.list", "/api/orchestra/project-template", {
       success: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),

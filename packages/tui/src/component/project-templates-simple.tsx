@@ -28,6 +28,9 @@ export interface ProjectTemplatesKeys {
  * Only confirmSave/confirmCreate may mutate, and only for the prepared operation they receive.
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
+  exportFile?: (templateID: string) => Promise<{ path: string; warning: string }>
+  prepareImport?: (path: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[] }>
+  confirmImport?: (token: string) => Promise<unknown>
   list: () => Promise<readonly { id: string; name: string }[]>
   prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean, acceptUnresolvedRoles?: boolean) => Promise<void>
@@ -57,11 +60,13 @@ export function ProjectTemplatesSimple(props: {
   const [cursor, setCursor] = createSignal("save")
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
+  const [importPath, setImportPath] = createSignal("")
+  const [exportPath, setExportPath] = createSignal("")
   const [message, setMessage] = createSignal("")
   const [reason, setReason] = createSignal<string>()
   const [refreshFailed, setRefreshFailed] = createSignal(false)
   const [prepared, setPrepared] = createSignal<{
-    kind: "save" | "create"
+    kind: "save" | "create" | "import"
     updating?: boolean
     token: string
     name: string
@@ -114,6 +119,7 @@ export function ProjectTemplatesSimple(props: {
           else if (current.browserBindings?.length) await props.access.confirmSave(current.token, !!current.omittedLinks?.length, true)
           else await props.access.confirmSave(current.token, !!current.omittedLinks?.length)
         }
+        else if(current.kind === "import") await props.access.confirmImport!(current.token)
         else await props.access.confirmCreate(current.token)
       } catch (error) {
         setReason(templateErrorKey(error))
@@ -125,7 +131,7 @@ export function ProjectTemplatesSimple(props: {
       setMessage(
         current.kind === "save"
           ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
-          : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
+          : current.kind === "import" ? "Template imported to the library. Nothing was started. Choose Create to make a new project." : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
       )
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
       try {
@@ -142,7 +148,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : [])])]
+    : [...(props.canSave ? ["save"] : []), ...(props.access.prepareImport ? ["import"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -152,7 +158,15 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (id.startsWith("replace-") && collisions().some((row) => row.id === id.slice(8))) void prepare("save", id.slice(8))
+    if (!prepared() && id === "import") void run(async()=>{
+      const result = await props.access.prepareImport!(importPath())
+      setPrepared({kind:"import",...result});setCursor("confirm");setDetails(false)
+    })
+    else if (!prepared() && id.startsWith("export-")) void run(async()=>{
+      const result = await props.access.exportFile!(id.slice(7))
+      setExportPath(result.path);setMessage("Template exported to the project folder. Do not commit this file to git. Review before sharing.")
+    })
+    else if (id.startsWith("replace-") && collisions().some((row) => row.id === id.slice(8))) void prepare("save", id.slice(8))
     else if (id === "confirm") void confirm()
     else if (id === "cancel") cancel()
     else if (id === "details") setDetails(!details())
@@ -205,6 +219,13 @@ export function ProjectTemplatesSimple(props: {
           <text fg={theme.text.muted} paddingLeft={3}>{tr("Open a project to save a template.")}</text>
         </Show>
       </box>
+      <Show when={props.access.prepareImport}>
+        <box flexDirection="column">
+          <text fg={theme.text.muted}>{tr("Template file path (.orchestra-template)")}</text>
+          <input id="project-templates.import-path" value={importPath()} placeholder={tr("Paste the full file path")} onInput={setImportPath} />
+          <Action id="import" label={tr("Import from file")} disabled={!importPath().trim() || !!prepared()} />
+        </box>
+      </Show>
       <box flexDirection="column" gap={1}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Saved templates · {count}", { count: templates().length })}</text>
         <Show when={templates().length === 0}>
@@ -218,6 +239,9 @@ export function ProjectTemplatesSimple(props: {
             <box flexDirection="column">
               <text fg={theme.text.base} paddingLeft={3} wrapMode="word">{template.name}</text>
               <Action id={`create-${template.id}`} label={tr("Create project from template")} disabled={!!prepared()} />
+              <Show when={props.canSave && props.access.exportFile}>
+                <Action id={`export-${template.id}`} label={tr("Export to file")} disabled={!!prepared()} />
+              </Show>
               <Show when={props.canSave}>
                 <Action id={`update-${template.id}`} label={tr("Update template from current project")} disabled={!!prepared()} />
               </Show>
@@ -229,7 +253,7 @@ export function ProjectTemplatesSimple(props: {
         {(current) => (
           <box flexDirection="column" gap={1} paddingTop={1}>
             <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
-              {current().kind === "save" ? tr(current().updating ? "Update" : "Save") : tr("Create")} «{current().name}»?{" "}
+              {current().kind === "save" ? tr(current().updating ? "Update" : "Save") : tr(current().kind === "import" ? "Import" : "Create")} «{current().name}»?{" "}
               {current().kind === "save"
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
@@ -239,7 +263,7 @@ export function ProjectTemplatesSimple(props: {
               <For each={collisions()}>{(row) => <Action id={"replace-" + row.id} label={tr("Update existing template") + (collisions().length > 1 ? " · " + row.id : "")} />}</For>
             </Show>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? (current().unresolvedRoles?.length ? tr("Save incomplete template") : current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr("Create")} />
+              <Action id="confirm" label={current().kind === "save" ? (current().unresolvedRoles?.length ? tr("Save incomplete template") : current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr(current().kind === "import" ? "Import" : "Create")} />
               <Action id="cancel" label={tr("Cancel")} />
               <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>
@@ -275,6 +299,7 @@ export function ProjectTemplatesSimple(props: {
           </box>
         )}
       </Show>
+      <Show when={exportPath()}><text fg={theme.text.base} wrapMode="word">{tr("File: {path}", {path:exportPath()})}</text></Show>
       <Show when={busy()}>
         <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
