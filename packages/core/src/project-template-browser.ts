@@ -1,9 +1,11 @@
 export * as ProjectTemplateBrowser from "./project-template-browser.js"
 
+import { unlinkedPath } from "./project-template-path.js"
+
 import { createHash } from "node:crypto"
 import { ProjectTemplateLinkReview as LinkReview } from "./project-template-link-review.js"
 import { constants } from "node:fs"
-import { lstat, open, realpath } from "node:fs/promises"
+import { lstat, open } from "node:fs/promises"
 import path from "node:path"
 import { ProjectTemplateSource } from "./project-template-source.js"
 
@@ -18,7 +20,7 @@ export interface Definition {
 }
 async function realDirectory(directory: string) {
   const info = await lstat(directory)
-  if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(directory)) !== path.resolve(directory))
+  if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(directory)))
     throw Error("Saved browser configuration cannot use linked directories.")
 }
 

@@ -1,5 +1,7 @@
 export * as ProjectTemplateLibrary from "./project-template-library.js"
 
+import { unlinkedPath } from "./project-template-path.js"
+
 import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
 import path from "node:path"
 import { Global } from "@orchestra/util/global"
@@ -24,7 +26,7 @@ export function local(parentDirectory = Global.Path.data) {
       throw Error("Template library requires an absolute application data directory.")
     const parent = await realpath(parentDirectory),
       info = await lstat(parentDirectory)
-    if (!info.isDirectory() || info.isSymbolicLink() || path.resolve(parentDirectory) !== parent)
+    if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(parentDirectory)))
       throw Error("Template library directory cannot use links.")
     const directory = path.join(parent, "project-templates")
     try {
@@ -33,7 +35,7 @@ export function local(parentDirectory = Global.Path.data) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
     }
     const current = await lstat(directory)
-    if (!current.isDirectory() || current.isSymbolicLink() || (await realpath(directory)) !== directory)
+    if (!current.isDirectory() || current.isSymbolicLink() || !(await unlinkedPath(directory)))
       throw Error("Template library directory cannot use links.")
     return directory
   }

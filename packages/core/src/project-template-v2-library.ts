@@ -1,5 +1,7 @@
 export * as ProjectTemplateV2Library from "./project-template-v2-library.js"
-import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
+
+import { unlinkedPath } from "./project-template-path.js"
+import { lstat, mkdir, readdir } from "node:fs/promises"
 import path from "node:path"
 import { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 import { ProjectTemplateFiles as Files } from "./project-template-files.js"
@@ -10,11 +12,11 @@ export function local(dataDirectory: string) {
   const folder = async () => {
     if (!path.isAbsolute(dataDirectory)) throw Error("Absolute application data directory required.")
     const parent = path.resolve(dataDirectory), stat = await lstat(parent)
-    if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(parent) !== parent) throw Error("Process library must not use links.")
+    if (!stat.isDirectory() || stat.isSymbolicLink() || !(await unlinkedPath(parent))) throw Error("Process library must not use links.")
     const root = path.join(parent, "process-templates")
     await mkdir(root, { recursive: true, mode: 0o700 })
     const info = await lstat(root)
-    if (!info.isDirectory() || info.isSymbolicLink() || await realpath(root) !== root) throw Error("Process library must not use links.")
+    if (!info.isDirectory() || info.isSymbolicLink() || !(await unlinkedPath(root))) throw Error("Process library must not use links.")
     return root
   }
   const preview = async (id: string) => Files.loadWithCodec(path.join(await folder(), name(id)), V2)
