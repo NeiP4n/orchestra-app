@@ -29,8 +29,8 @@ interface Save {
   digest: string
   text: string
   name: string
-  linkReview?: ProjectTemplateBrowser.Review
   previousDigest?: string
+  linkReview?: ProjectTemplateBrowser.Review
 }
 interface Create {
   kind: "create"

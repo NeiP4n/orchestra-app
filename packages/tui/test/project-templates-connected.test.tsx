@@ -14,6 +14,7 @@ import { json, directory } from "./fixture/tui-client"
 for (const templateID of ["factory", "process:factory"])
   test(`mounted connected screen uses generated HTTP actions and strictly persists reserved browser identities before completion (${templateID})`, async () => {
   await using temporary = await tmpdir()
+  const templateID = "factory"
   const calls: string[] = [],
     manifest = {
       importID: "pti_import",

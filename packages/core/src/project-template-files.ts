@@ -161,3 +161,8 @@ export function compare(existing: ProjectTemplate.Bundle, incoming: ProjectTempl
     return [...result, ...[...prior.keys()].filter((name) => !keys.has(name)).map((name) => ({ section, slot: name, status: 'preserve-existing' as const }))]
   })
 }
+
+/** Preserve the v1 reviewed-update API while process templates use their own codec. */
+export function replace(directory: string, serialized: string, previousDigest: string, reviewedDigest: string) {
+  return replaceWithCodec(directory, serialized, previousDigest, reviewedDigest, ProjectTemplate)
+}
