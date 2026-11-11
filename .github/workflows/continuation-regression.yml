@@ -16,6 +16,7 @@ on:
       - 'packages/tui/test/continuation-switch.test.tsx'
       - 'packages/app/src/shell/continuation-switch.tsx'
       - 'packages/app/test-browser/continuation-switch.test.tsx'
+      - 'packages/app/e2e/regression/continuation-switch.spec.ts'
       - 'packages/client/src/solid/continuation.ts'
       - '.github/workflows/continuation-regression.yml'
   workflow_dispatch:
@@ -55,3 +56,26 @@ jobs:
       - name: Shared web controller failure and stale response handling
         working-directory: packages/app
         run: bun test --conditions=browser --preload ./happydom.ts ./test-browser/continuation-switch.test.tsx
+      - name: Setup browser runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.15"
+      - name: Install focused browser
+        working-directory: packages/app
+        run: bun x playwright install --with-deps chromium
+      - name: Connected desktop and mobile shell pause flow
+        working-directory: packages/app
+        run: bun run test:e2e:built e2e/regression/continuation-switch.spec.ts
+        env:
+          CI: true
+          PLAYWRIGHT_WORKERS: "1"
+      - name: Preserve focused shell evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: continuation-${{ matrix.os }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report
