@@ -802,3 +802,20 @@ it.live(
     }),
   15000,
 )
+
+it.live(
+  "repeated empty stops exhaust bounded recovery instead of looping or succeeding",
+  () => Effect.gen(function* () {
+    yield* seed({ sessionID: mainSession, model: "worker" })
+    const llm = yield* TestLLM.Service
+    yield* llm.push(TestLLM.stop(), TestLLM.stop(), TestLLM.stop())
+    const result = yield* drainPrompt(mainSession, "Do the work")
+    expect(Exit.isFailure(result.exit)).toBe(true)
+    expect(result.requested).toEqual(["worker", "worker", "sonnet-5"])
+    const assistants = result.messages.filter((message) => message.type === "assistant")
+    expect(assistants).toHaveLength(3)
+    expect(assistants.every((message) => message.error !== undefined)).toBe(true)
+    expect(assistants.some((message) => message.finish === "stop")).toBe(false)
+  }),
+  15000,
+)
