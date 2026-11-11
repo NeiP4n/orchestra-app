@@ -150,6 +150,7 @@ import { modelErrorText, withModelWarmup } from "../../util/model-error"
 import { OutlineRail } from "./outline-view"
 import { useT } from "../../util/i18n"
 import { rowsAfter, rowsBefore, rowWeight } from "./mount-budget"
+import { completionNoticeRole, toolRowRole } from "./notice-color"
 export { InlineToolRow } from "./message-parts"
 export { toolDisplay } from "./message-parts"
 
@@ -2304,9 +2305,10 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
   const heading = () => `${state() === "completed" ? "↳" : "!"} ${actor()} ${status()}`
   const suffix = () => Locale.truncateWidth(` · ${description()}`, Math.max(0, ctx.width - 3 - stringWidth(heading())))
   const color = () => {
-    if (state() === "error") return theme.text.feedback.error.base
-    if (state() === "cancelled") return theme.text.feedback.warning.base
-    if (hover() && childID()) return theme.text.base
+    const role = completionNoticeRole({ state: state(), hovering: hover() && Boolean(childID()) })
+    if (role === "error") return theme.text.feedback.error.base
+    if (role === "warning") return theme.text.feedback.warning.base
+    if (role === "text") return theme.text.base
     return theme.text.feedback.info.base
   }
   return (
@@ -3023,9 +3025,10 @@ function InlineTool(props: {
   const clickable = createMemo(() => Boolean(props.onClick || failed()))
   const fg = createMemo(() => {
     if (props.color) return props.color
-    if (permission()) return theme.text.feedback.warning.base
-    if (failed()) return theme.text.feedback.error.base
-    if (hover() && props.onClick) return theme.text.base
+    const role = toolRowRole({ permission: Boolean(permission()), failed: failed(), hovering: Boolean(hover() && props.onClick) })
+    if (role === "warning") return theme.text.feedback.warning.base
+    if (role === "error") return theme.text.feedback.error.base
+    if (role === "text") return theme.text.base
     return theme.text.muted
   })
 

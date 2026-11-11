@@ -20,9 +20,9 @@
           "$hovered": "$text.base"
         },
         "destructive": {
-          "base": "$hue.orange.200",
-          "$hovered": "$hue.orange.100",
-          "$focused": "$hue.orange.100",
+          "base": "$hue.red.200",
+          "$hovered": "$hue.red.100",
+          "$focused": "$hue.red.100",
           "$disabled": "$hue.neutral.400"
         }
       },
@@ -79,7 +79,7 @@
         },
         "destructive": {
           "base": "transparent",
-          "$hovered": "$hue.orange.800"
+          "$hovered": "$hue.red.800"
         }
       },
       "formfield": {
@@ -109,7 +109,7 @@
     "diff": {
       "text": {
         "added": "$hue.cyan.200",
-        "removed": "$hue.orange.200",
+        "removed": "$hue.red.200",
         "context": "$hue.gray.300",
         "hunkHeader": "$hue.cyan.300"
       },
@@ -120,7 +120,7 @@
       },
       "highlight": {
         "added": "$hue.cyan.100",
-        "removed": "$hue.orange.100"
+        "removed": "$hue.red.100"
       },
       "lineNumber": {
         "text": "$hue.gray.400",
@@ -134,7 +134,7 @@
       "comment": "$hue.neutral.400",
       "keyword": "$hue.accent.200",
       "function": "$hue.interactive.200",
-      "variable": "$hue.red.200",
+      "variable": "$hue.orange.200",
       "string": "$hue.green.200",
       "number": "#f5a742",
       "type": "#e5c07b",
@@ -181,7 +181,17 @@
         "800": "#ffffff",
         "900": "#ffffff"
       },
-      "red": "$hue.orange",
+      "red": {
+        "100": "#7a0f14",
+        "200": "#c0262d",
+        "300": "#d4474d",
+        "400": "#e06b70",
+        "500": "#ea9094",
+        "600": "#f2b5b8",
+        "700": "#f8d3d5",
+        "800": "#fcebec",
+        "900": "#fff6f6"
+      },
       "orange": {
         "100": "#6b3f00",
         "200": "#b86e00",
@@ -217,6 +227,7 @@
       "gray"
     ],
     "text": {
+      "muted": "$hue.neutral.300",
       "action": {
         "primary": {
           "$focused": "$hue.neutral.900"
@@ -257,7 +268,17 @@
         "800": "#0a0a0a",
         "900": "#030303"
       },
-      "red": "$hue.orange",
+      "red": {
+        "100": "#ffd0d0",
+        "200": "#ff6b6b",
+        "300": "#e04f55",
+        "400": "#b83a42",
+        "500": "#8f2c33",
+        "600": "#6a2026",
+        "700": "#47161a",
+        "800": "#2a0d0f",
+        "900": "#150607"
+      },
       "orange": {
         "100": "#ffe2a8",
         "200": "#ffb454",
