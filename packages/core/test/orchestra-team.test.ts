@@ -36,6 +36,9 @@ import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionExecution } from "@orchestra/core/session/execution"
 import { SessionMessage } from "@orchestra/core/session/message"
 import { SessionStore } from "@orchestra/core/session/store"
+import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
+import { Rules } from "@orchestra/core/rules"
+import { ProjectTable } from "@orchestra/core/project/sql"
 import { SessionTable } from "@orchestra/core/session/sql"
 import { eq } from "drizzle-orm"
 import { Trigger } from "@orchestra/core/trigger"
@@ -542,7 +545,7 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   ),
 
-  it.live("forgetting a project releases its task reservation and cancels only its queued input", () =>
+  it.live("deleting a project removes owned sessions and reservations while preserving another project", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-forget-tasks-")))
       const orchestra = yield* Orchestra.Service
@@ -574,12 +577,12 @@ describe("Orchestra team", () => {
 
       yield* orchestra.remove(project.id)
 
-      // Forgetting coordination records does not delete the session or its persisted history.
-      yield* untilNoPending(worker.id)
-      expect(yield* sessions.get(worker.id)).toMatchObject({ id: worker.id })
-      expect(yield* sessions.get(project.main!)).toMatchObject({ id: project.main })
+      // Revised deletion contract: owned session history is deleted, not orphaned.
+      const store = yield* SessionStore.Service
+      expect(yield* store.get(worker.id)).toBeUndefined()
+      expect(yield* store.get(project.main!)).toBeUndefined()
       expect(yield* orchestra.owners()).not.toHaveProperty(worker.id)
-      expect((yield* sessions.inbox(worker.id)).some((item) => item.type === "user")).toBe(false)
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
 
       // Reservations and queued work belonging to a different project survive.
       expect(yield* orchestra.pending(otherWorker.id)).toBeNumber()
@@ -618,6 +621,81 @@ describe("Orchestra team", () => {
       yield* Effect.sleep("50 millis")
       expect(yield* kv.get(Trigger.key(first.id, owned.id))).toBeUndefined()
       ScheduleView.remove(foreign.id)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion removes exact owned history and rules but preserves foreign same-directory chats and SQL project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-foreign-")))
+      const orchestra = yield* Orchestra.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service, kv = yield* KV.Service
+      const { db } = yield* Database.Service
+      const project = yield* orchestra.create({ name: "Cleanup owned", directory: tmp.path })
+      const worker = yield* orchestra.createMember({ project, title: "Owned", agent: Orchestra.role("developer") })
+      const foreign = yield* sessions.create({ location: { directory: AbsolutePath.make(tmp.path) }, title: "Unclaimed personal history" })
+      const sqlRow = yield* db.select({ id: SessionTable.project_id }).from(SessionTable).where(eq(SessionTable.id, project.main!)).get().pipe(Effect.orDie)
+      expect(sqlRow).toBeDefined()
+      for (const scope of [Rules.projectScope(project.id), Rules.projectDefaultsScope(project.id), Rules.orchestratorScope(project.id)]) {
+        yield* kv.set("rules/" + scope, [{ id: "owned-rule", text: "Owned rule", by: "operator", at: 1 }])
+        yield* kv.set("rules/history/" + scope, [])
+      }
+      yield* kv.set("rules/project:foreign-project", [{ id: "foreign-rule", text: "Keep", by: "operator", at: 1 }])
+      yield* orchestra.remove(project.id)
+      expect(yield* store.get(project.main!)).toBeUndefined()
+      expect(yield* store.get(worker.id)).toBeUndefined()
+      expect((yield* store.get(foreign.id))?.title).toBe("Unclaimed personal history")
+      expect(yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, sqlRow!.id)).get().pipe(Effect.orDie)).toBeDefined()
+      expect(yield* db.select().from(SessionTable).where(eq(SessionTable.id, worker.id)).get().pipe(Effect.orDie)).toBeUndefined()
+      for (const scope of [Rules.projectScope(project.id), Rules.projectDefaultsScope(project.id), Rules.orchestratorScope(project.id)]) {
+        expect(yield* kv.get("rules/" + scope)).toBeUndefined()
+        expect(yield* kv.get("rules/history/" + scope)).toBeUndefined()
+      }
+      expect(yield* kv.get("rules/project:foreign-project")).toBeDefined()
+      const denied = yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Must not execute after deletion" }).pipe(Effect.exit)
+      expect(Exit.isFailure(denied)).toBe(true)
+      expect(yield* kv.get("orchestra/project-removal/" + project.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion retries a persisted cleanup receipt without discovering unrelated history", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-retry-")))
+      const orchestra = yield* Orchestra.Service, store = yield* SessionStore.Service, kv = yield* KV.Service
+      const project = yield* orchestra.create({ name: "Retry cleanup", directory: tmp.path })
+      const plan = { project, sessions: [project.main!], sqlProjects: [] }
+      yield* kv.set("orchestra/project-removal/" + project.id, JSON.parse(JSON.stringify(plan)))
+      expect((yield* orchestra.projects()).some(item => item.id === project.id)).toBe(false)
+      yield* orchestra.remove(project.id)
+      expect(yield* store.get(project.main!)).toBeUndefined()
+      expect(yield* kv.get("orchestra/project-removal/" + project.id)).toBeUndefined()
+      expect(yield* kv.get("orchestra/project/" + project.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion refuses a foreign child instead of recursively deleting another owner's history", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-child-")))
+      const orchestra = yield* Orchestra.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service
+      const project = yield* orchestra.create({ name: "Keep foreign child", directory: tmp.path })
+      const child = yield* sessions.create({ parentID: project.main!, title: "Foreign child", metadata: { [OrchestraSchema.SessionOwnerMetadataKey]: { projectID: "prj_foreign" } } })
+      const exit = yield* orchestra.remove(project.id).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* store.get(project.main!)).toBeDefined()
+      expect(yield* store.get(child.id)).toBeDefined()
+      expect((yield* orchestra.projects()).some(item => item.id === project.id)).toBe(true)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("deletion removes an unused SQL project only when no sessions remain", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-sql-")))
+      const orchestra = yield* Orchestra.Service
+      const { db } = yield* Database.Service
+      const project = yield* orchestra.create({ name: "Cleanup SQL", directory: tmp.path })
+      const row = yield* db.select({ id: SessionTable.project_id }).from(SessionTable).where(eq(SessionTable.id, project.main!)).get().pipe(Effect.orDie)
+      expect(row).toBeDefined()
+      yield* orchestra.remove(project.id)
+      expect(yield* db.select().from(SessionTable).where(eq(SessionTable.project_id, row!.id)).all().pipe(Effect.orDie)).toEqual([])
+      expect(yield* db.select().from(ProjectTable).where(eq(ProjectTable.id, row!.id)).get().pipe(Effect.orDie)).toBeUndefined()
     }).pipe(Effect.scoped),
   )
 

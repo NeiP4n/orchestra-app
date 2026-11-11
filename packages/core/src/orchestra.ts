@@ -1,6 +1,9 @@
 export * as Orchestra from "./orchestra.js"
 
 import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
+import { and, eq, inArray, notExists } from "drizzle-orm"
+import { SessionTable } from "./session/sql.js"
+import { ProjectTable } from "./project/sql.js"
 import { SessionHold } from "./session/hold.js"
 import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
 import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
@@ -272,6 +275,8 @@ const MOVE_PLAN = "orchestra/move-plan/"
 // The project that opened a session. Without it, every project in one directory would share one team.
 const OWNER = "orchestra/owner/"
 // Durable reservation for the main session being initialized. It bridges the KV/session-store write gap.
+const PROJECT_REMOVAL = "orchestra/project-removal/"
+const ProjectRemovalReceipt = Schema.Struct({ project: Orchestra.Project, sessions: Schema.Array(SessionID), sqlProjects: Schema.Array(CoreProject.ID) })
 const MAIN_INITIALIZING = "orchestra/main-initializing/"
 // Reports carry enough evidence to decide the next step without copying a whole worker session.
 const REPORT_LIMIT = 16_000
@@ -470,7 +475,7 @@ const layer: Layer.Layer<
         .toSorted((a, b) => a.created - b.created)
       const ready: Project[] = []
       for (const project of all) {
-        if (!(yield* importReady(project.id))) continue
+        if ((yield* kv.get(PROJECT_REMOVAL + project.id)) !== undefined || !(yield* importReady(project.id))) continue
         yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
         ready.push(project)
       }
@@ -479,7 +484,7 @@ const layer: Layer.Layer<
 
     const get = Effect.fnUntraced(function* (id: ProjectID) {
       const project = decodeProject(yield* kv.get(PROJECT + id))
-      if (Option.isNone(project) || !(yield* importReady(id))) return yield* new ProjectNotFoundError({ projectID: id })
+      if (Option.isNone(project) || (yield* kv.get(PROJECT_REMOVAL + id)) !== undefined || !(yield* importReady(id))) return yield* new ProjectNotFoundError({ projectID: id })
       return project.value
     })
 
@@ -2704,9 +2709,46 @@ const layer: Layer.Layer<
       remove: Effect.fn("Orchestra.remove")(function* (id) {
         yield* moveLocks.withLock(id)(
           Effect.gen(function* () {
-            yield* mainLocks.withLock(id)(
+            const cleanup = yield* mainLocks.withLock(id)(
               Effect.gen(function* () {
+                const plan = yield* Effect.gen(function* () {
+                const saved = yield* kv.get(PROJECT_REMOVAL + id)
+                if (saved !== undefined) {
+                  const decoded = Schema.decodeUnknownOption(ProjectRemovalReceipt)(saved)
+                  if (Option.isNone(decoded) || decoded.value.project.id !== id) return yield* Effect.die(new Error("Project removal receipt is invalid. No sessions were removed."))
+                  return decoded.value
+                }
                 const project = yield* get(id)
+                const all = yield* sessionStore.list()
+                const initialClaims = yield* owners()
+                const owned = new Set<string>()
+                for (const session of all) {
+                  const marker = initialClaims[session.id], metadata = Orchestra.sessionOwner(session.metadata)
+                  if (marker !== undefined && metadata !== undefined && marker !== metadata) continue
+                  const owner = marker ?? metadata
+                  if (owner === id || (owner === undefined && session.id === project.main && Federation.groupSupervisor(session.metadata) === undefined)) owned.add(session.id)
+                }
+                // Child lineage is evidence only while no explicit foreign/group binding conflicts.
+                for (let changed = true; changed;) {
+                  changed = false
+                  for (const session of all) {
+                    if (!session.parentID || !owned.has(session.parentID) || owned.has(session.id)) continue
+                    const marker = initialClaims[session.id], metadata = Orchestra.sessionOwner(session.metadata)
+                    if ((marker !== undefined && marker !== id) || (metadata !== undefined && metadata !== id) || Federation.groupSupervisor(session.metadata) !== undefined)
+                      return yield* Effect.die(new Error("Project deletion refused: an owned session has a foreign child. No session history was removed."))
+                    owned.add(session.id); changed = true
+                  }
+                }
+                const selected = all.filter(session => owned.has(session.id))
+                const ids = selected.map(session => session.id)
+                const sqlRows = ids.length ? yield* database.db.select({ projectID: SessionTable.project_id }).from(SessionTable).where(inArray(SessionTable.id, ids)).all().pipe(Effect.orDie) : []
+                const plan = { project, sessions: ids, sqlProjects: [...new Set(sqlRows.map(row => row.projectID))] }
+                // The receipt binds cleanup to exact IDs before project/owner records disappear.
+                // A retry can finish after an interruption without discovering chats by directory.
+                yield* kv.set(PROJECT_REMOVAL + id, JSON.parse(JSON.stringify(plan)) as Schema.Json)
+                return plan
+                })
+                const project = plan.project
                 // Stop only this project's scoped schedules before releasing its records.
                 // Never infer ownership from a browser URL or a shared directory.
                 const triggerEntries = (yield* scanAll(Trigger.PREFIX + String(id) + "/")).flatMap(entry => {
@@ -2726,7 +2768,7 @@ const layer: Layer.Layer<
                     sessions: BrowserRuntime.sessions(), triggers: remainingTriggers, stop: BrowserRuntime.stopPageWatcher,
                   }))
                 }
-                // Forgetting a project keeps its sessions, but outstanding task reservations
+                // Outstanding task reservations
                 // belong to the project lifecycle. Release only this project's tasks so a
                 // surviving worker can be claimed by another project instead of staying blocked.
                 // Lock project -> worker, matching dispatch(), and re-read each marker under lock
@@ -2778,6 +2820,11 @@ const layer: Layer.Layer<
                 yield* Effect.forEach(yield* scanAll(PROJECT_ROLE + id + "/"), entry => kv.remove(entry.key), { discard: true })
                 yield* PubSub.publish(changed, undefined)
                 yield* kv.remove(MOVE_PLAN + id)
+                yield* kv.remove(STAGE + id)
+                for (const scope of [Rules.projectScope(id), Rules.projectDefaultsScope(id), Rules.orchestratorScope(id)]) {
+                  yield* kv.remove("rules/" + scope)
+                  yield* kv.remove("rules/history/" + scope)
+                }
                 const reports = yield* scanAll(reportPrefix(id))
                 yield* Effect.forEach(reports, (entry) => kv.remove(entry.key), { discard: true })
                 const claims = yield* owners()
@@ -2786,8 +2833,34 @@ const layer: Layer.Layer<
                   (sessionID) => kv.remove(OWNER + sessionID),
                   { discard: true },
                 )
+                return plan
               }),
             )
+            // Never hold mainLocks while interrupting a running session: its final
+            // turn may need that lock. The project is already absent, so no new work can claim it.
+            const selected = new Set(cleanup.sessions)
+            for (const sessionID of cleanup.sessions) {
+              const session = yield* sessionStore.get(sessionID)
+              if (!session) continue
+              const marker = yield* kv.get(OWNER + sessionID)
+              const metadata = Orchestra.sessionOwner(session.metadata)
+              if ((marker !== undefined && marker !== id) || (metadata !== undefined && metadata !== id))
+                return yield* Effect.die(new Error("Project deletion paused: session ownership changed."))
+              const children = yield* sessionStore.list({ parentID: sessionID })
+              if (children.some(child => !selected.has(child.id))) return yield* Effect.die(new Error("Project deletion paused: a foreign child session was found."))
+              yield* sessions.remove(sessionID, { recursive: false }).pipe(Effect.catchTag("Session.NotFoundError", () => Effect.void))
+              yield* kv.remove(ACCESS + sessionID)
+              yield* kv.remove(CATEGORY + sessionID)
+            }
+            for (const sqlProjectID of cleanup.sqlProjects) {
+              // SQL projects are directory-level resources and can contain foreign chats.
+              // Guard in the DELETE statement itself, not with a racy read-before-delete.
+              yield* database.db.delete(ProjectTable).where(and(
+                eq(ProjectTable.id, sqlProjectID),
+                notExists(database.db.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.project_id, sqlProjectID))),
+              )).run().pipe(Effect.orDie)
+            }
+            yield* kv.remove(PROJECT_REMOVAL + id)
           }),
         )
       }),
@@ -2874,6 +2947,11 @@ const layer: Layer.Layer<
                 directory: move.value.to,
                 message: `Project "${project.name}" is moving to "${move.value.to}". Reopen it after the move before claiming sessions.`,
               })
+            for (const row of yield* scanAll(PROJECT_REMOVAL)) {
+              const pending = Schema.decodeUnknownOption(ProjectRemovalReceipt)(row.value)
+              if (Option.isSome(pending) && pending.value.sessions.includes(sessionID))
+                return yield* new ProjectMoveError({ projectID, sessionID, directory: project.directory, message: "This session is being deleted with its owning project and cannot be claimed." })
+            }
             yield* kv.set(OWNER + sessionID, projectID)
             const claimedSession = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
             if (claimedSession && claimedSession.metadata?.[SessionPlan.CONTEXT_KEY] === undefined) {
