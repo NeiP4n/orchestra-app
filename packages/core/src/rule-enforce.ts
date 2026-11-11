@@ -2,7 +2,7 @@ export * as RuleEnforce from "./rule-enforce.js"
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, posix } from "node:path"
 
 // Enforcement of the rulebook, in two layers.
 //
@@ -48,7 +48,11 @@ export function unavailableRefusal(sessionID: string, tool: string, input: unkno
 export const remember = (sessionID: string, entries: ReadonlyArray<Entry>) => {
   active.set(sessionID, entries)
   unavailable.delete(sessionID)
-  if (active.size > 500) active.delete(active.keys().next().value as string)
+  if (active.size > 500) {
+    const evicted = active.keys().next().value as string
+    active.delete(evicted)
+    unavailable.add(evicted)
+  }
 }
 export const recall = (sessionID: string): ReadonlyArray<Entry> => active.get(sessionID) ?? []
 
@@ -70,6 +74,11 @@ const FOR_ROLE = /\s+for\s+role\s+(\S+)\s*\.?$/i
 
 export const parse = (text: string): Directive | undefined => {
   const raw = text.trim()
+    .replace(/^запретить\s+инструмент\s+/i, "deny tool ")
+    .replace(/^запретить\s+команду\s+/i, "deny command ")
+    .replace(/^запретить\s+путь\s+/i, "deny path ")
+    .replace(/^только\s+роль\s+(\S+)\s+может\s+использовать\s+инструмент\s+/i, "only role $1 may use tool ")
+    .replace(/\s+для\s+роли\s+(\S+)$/i, " for role $1")
   let match = /^only\s+role\s+(\S+)\s+may\s+use\s+tool\s+(\S+?)\.?$/i.exec(raw)
   if (match) return { kind: "only", role: match[1]!, tool: match[2]! }
   const roleMatch = FOR_ROLE.exec(raw)
@@ -108,6 +117,19 @@ export const violation = (
 ): Entry | undefined => {
   if (EXEMPT.has(call.tool)) return undefined
   const ordered = [...entries].sort((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))
+  const applicable = ordered.filter(entry => {
+    const d = parse(entry.text)
+    return d && (!("role" in d) || !d.role || roleMatches(d.role, call.agent))
+  })
+  // Console PTYs and arbitrary code are not file-scoped sandboxes. Refuse
+  // them when an active hard boundary cannot be verified inside their code.
+  if (["console", "execute", "terminal", "subagent"].includes(call.tool)) {
+    const restricted = applicable.find(entry => {
+      const d = parse(entry.text)!
+      return d.kind === "path" || (d.kind === "command" && call.tool !== "subagent")
+    })
+    if (restricted) return restricted
+  }
   const command =
     typeof call.input === "object" && call.input !== null && typeof (call.input as { command?: unknown }).command === "string"
       ? String((call.input as { command: string }).command)
@@ -128,12 +150,50 @@ export const violation = (
           return entry
         break
       case "path":
-        if (pathsOf(call.input).some((item) => glob(directive.path).test(item.replaceAll("\\", "/"))) && (!forRole || roleMatches(directive.role!, call.agent)))
+        if (pathsOf(call.input).some((item) => pathMatches(directive.path, item)) && (!forRole || roleMatches(directive.role!, call.agent)))
           return entry
         break
     }
   }
   return undefined
+}
+
+/** Match the resolved resource and root-level glob form, with traversal collapsed.
+ * Case-insensitive matching preserves the existing conservative deny semantics. */
+export function pathMatches(pattern: string, value: string) {
+  const normalized = posix.normalize(value.replaceAll("\\", "/")).replace(/^\.\//, "")
+  const patterns = [pattern.replaceAll("\\", "/")]
+  if (patterns[0].startsWith("**/")) patterns.push(patterns[0].slice(3))
+  return patterns.some(p => glob(p).test(normalized))
+}
+
+/** Final resource-level check. This runs for nested tools too (patch, DoD,
+ * CodeMode), after their command/path was resolved but before permission. */
+export function permissionViolation(entries: ReadonlyArray<Entry>, call: { action: string; agent: string; resources: readonly string[]; transport?: string }): Entry | undefined {
+  for (const entry of [...entries].sort((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))) {
+    const directive = parse(entry.text)
+    if (!directive) continue
+    if ("role" in directive && directive.role && directive.kind !== "only" && !roleMatches(directive.role, call.agent)) continue
+    if (call.transport === "mcp" && (directive.kind === "path" || directive.kind === "command")) return entry
+    if (directive.kind === "command" && call.action === "shell" && call.resources.some(resource => directive.pattern.test(resource))) return entry
+    if (directive.kind === "path") {
+      // Arbitrary processes can read/write any file and cannot be checked by
+      // looking for a literal filename in their source. Fail closed here.
+      if (["shell", "execute", "console", "terminal", "subagent"].includes(call.action)) return entry
+      if (["read", "edit", "write", "external_directory"].includes(call.action) && call.resources.some(resource => pathMatches(directive.path, resource))) return entry
+    }
+    if (directive.kind === "tool" && glob(directive.tool).test(call.action)) return entry
+    if (directive.kind === "only" && glob(directive.tool).test(call.action) && !roleMatches(directive.role, call.agent)) return entry
+  }
+  return undefined
+}
+
+/** A shared preflight for code paths that inspect content before asking permission. */
+export function resourceRefusal(sessionID: string, call: { action: string; agent: string; resources: readonly string[]; metadata?: unknown; transport?: string }) {
+  const unavailable = unavailableRefusal(sessionID, call.action, call.metadata)
+  if (unavailable) return unavailable
+  const broken = permissionViolation(recall(sessionID), call)
+  return broken ? refusal(broken) : undefined
 }
 
 export const refusal = (entry: Entry) =>

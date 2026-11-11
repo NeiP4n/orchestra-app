@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import path from "node:path"
 import { Cause, Deferred, Effect, Fiber, Layer } from "effect"
 import { Agent } from "@orchestra/core/agent"
 import { Database } from "@orchestra/core/database/database"
@@ -7,6 +8,7 @@ import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { Bus } from "@orchestra/core/bus"
 import { Location } from "@orchestra/core/location"
 import { Permission } from "@orchestra/core/permission"
+import { RuleEnforce } from "@orchestra/core/rule-enforce"
 import { PluginHooks } from "@orchestra/core/plugin/hooks"
 import { Room } from "@orchestra/core/room"
 import { PermissionTable } from "@orchestra/core/permission/sql"
@@ -358,6 +360,32 @@ describe("Permission", () => {
       yield* Fiber.join(second.fiber)
       expect((yield* rooms.member(room.id, otherPhone.id))?.approvedPrograms).toBeUndefined()
       expect(yield* (yield* PermissionSaved.Service).list()).toEqual([])
+    }),
+  )
+
+  it.effect("resolved standing-rule resources deny nested commands and patch paths even after an allow hook", () =>
+    Effect.gen(function* () {
+      const id = Session.ID.make("ses_rule_final_guard")
+      yield* setup([{ action: "*", resource: "*", effect: "allow" }], id)
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("permission", "evaluate", event => Effect.sync(() => {
+        event.effect = "allow"
+      }))
+      const service = yield* Permission.Service
+      RuleEnforce.remember(String(id), [{ title: "Project", text: "deny command git push", by: "operator" }])
+      expect(yield* service.ask(assertion({ sessionID: id, action: "shell", resources: ["git push origin dev"] }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.ask(assertion({ sessionID: id, action: "shell", resources: ["git status"] }))).toMatchObject({ effect: "allow" })
+      RuleEnforce.remember(String(id), [{ title: "Project", text: "deny path **/.env", by: "operator" }])
+      expect(yield* service.ask(assertion({ sessionID: id, action: "edit", resources: ["safe/../.env"] }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.ask(assertion({ sessionID: id, action: "shell", resources: ["python decode.py"] }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.ask(assertion({ sessionID: id, action: "read", resources: ["src/index.ts"] }))).toMatchObject({ effect: "allow" })
+      RuleEnforce.remember(String(id), [{ title: "Project", text: "deny path " + path.resolve("/project", "private.txt").replaceAll("\\", "/"), by: "operator" }])
+      expect(yield* service.ask(assertion({ sessionID: id, action: "read", resources: ["private.txt"] }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.ask(assertion({ sessionID: id, action: "files_read", resources: ["*"], metadata: { transport: "mcp" } }))).toMatchObject({ effect: "deny" })
+      RuleEnforce.remember(String(id), [{ title: "Project", text: "deny command git push for role test", by: "operator" }])
+      expect(yield* service.ask(assertion({ sessionID: id, agent: undefined, action: "shell", resources: ["git push origin dev"] }))).toMatchObject({ effect: "deny" })
+      expect(yield* service.list()).toEqual([])
+      RuleEnforce.remember(String(id), [])
     }),
   )
 
