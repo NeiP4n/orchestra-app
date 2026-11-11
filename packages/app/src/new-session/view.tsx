@@ -214,7 +214,7 @@ function NewSessionTips(props: {
 
   return (
     <Show when={presence.present()}>
-      <div class="pointer-events-none relative shrink-0 flex justify-center px-4 pb-4 pt-2">
+      <div data-slot="new-session-tip-footer" class="pointer-events-none relative shrink-0 flex justify-center px-4 pb-4 pt-2">
         <div
           ref={setRef}
           data-component="new-session-tip"

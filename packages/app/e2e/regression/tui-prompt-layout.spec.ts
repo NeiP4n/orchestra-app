@@ -38,6 +38,16 @@ for (const viewport of [
     await submit.scrollIntoViewIfNeeded()
     await expect(submit).toBeVisible()
     await expect(submit).toBeEnabled()
+    // Visibility alone allows clipping by a scroll parent. The entire prompt,
+    // including its submit row, must fit above the separate tip footer.
+    const promptBounds = await page.locator('[data-slot="new-session-prompt"]').boundingBox()
+    const footerBounds = await page.locator('[data-slot="new-session-tip-footer"]').boundingBox()
+    const submitBounds = await submit.boundingBox()
+    if (!promptBounds || !footerBounds || !submitBounds) throw new Error("Prompt controls bounds are unavailable")
+    expect(promptBounds.y).toBeGreaterThanOrEqual(0)
+    expect(promptBounds.y + promptBounds.height).toBeLessThanOrEqual(footerBounds.y + 1)
+    expect(submitBounds.y + submitBounds.height).toBeLessThanOrEqual(footerBounds.y + 1)
+    expect(footerBounds.y + footerBounds.height).toBeLessThanOrEqual(viewport.height)
     await page.screenshot({
       path: info.outputPath(`tui-prompt-${viewport.width}x${viewport.height}.png`),
       fullPage: true,
