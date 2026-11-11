@@ -36,9 +36,9 @@ export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplate
       saveOwners.set(prepared.token, id)
       return prepared
     },
-    confirmSave: async (token, omitUnsafeLinks, omitInvalidBrowserBindings) => {
+    confirmSave: async (token, omitUnsafeLinks, omitInvalidBrowserBindings, acceptUnresolvedRoles) => {
       if (saveOwners.get(token) !== projectID()) throw Error("Project changed after preview.")
-      await client.api.orchestra.projectTemplate.confirmSave({ token, browsers: browsers(), omitUnsafeLinks, omitInvalidBrowserBindings })
+      await client.api.orchestra.projectTemplate.confirmSave({ token, browsers: browsers(), omitUnsafeLinks, omitInvalidBrowserBindings, acceptUnresolvedRoles })
     },
     prepareCreate: (templateID) =>
       client.api.orchestra.projectTemplate.prepareCreate({

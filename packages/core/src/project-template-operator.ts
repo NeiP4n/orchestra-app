@@ -31,6 +31,7 @@ interface Save {
   text: string
   name: string
   previousDigest?: string
+  unresolvedRoles?: string[]
   browserReview?: { issues: ProjectTemplateReader.BrowserBindingIssue[]; fingerprint: string }
   linkReview?: ProjectTemplateBrowser.Review
 }
@@ -199,6 +200,7 @@ export function make(deps: Deps) {
         digest: preview.digest,
         text: preview.text,
         name: preview.bundle.name,
+        ...(preview.bundle.version === 2 && preview.bundle.process.unresolvedRoles?.length ? { unresolvedRoles: preview.bundle.process.unresolvedRoles } : {}),
         linkReview: preview.linkReview,
         browserReview: preview.browserReview,
       }
@@ -214,16 +216,18 @@ export function make(deps: Deps) {
         details: preview.text,
         omittedLinks: preview.linkReview.issues,
         browserBindings: preview.browserReview.issues,
+        unresolvedRoles: value.unresolvedRoles ?? [],
         triggerReview: ProjectTemplateTriggerReview.review(
           { ...preview.bundle, version: 1 },
           preview.linkReview.issues,
         ),
       }
     },
-    confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false, omitInvalidBrowserBindings = false) =>
+    confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false, omitInvalidBrowserBindings = false, acceptUnresolvedRoles = false) =>
       Flock.withLock(token, async () => {
         const pending = await prepared(token)
         if (pending.kind !== "save") throw Error("Wrong operation kind.")
+        if (pending.unresolvedRoles?.length && !acceptUnresolvedRoles) throw Error("Unresolved source role definitions require review before saving.")
         if (pending.browserReview?.issues.length && !omitInvalidBrowserBindings) throw Error("Browser bindings require review before saving.")
         if (pending.linkReview?.issues.length && !omitUnsafeLinks)
           throw Error("Saved links contain nonportable parameters. Review before saving.")
@@ -266,6 +270,7 @@ export function make(deps: Deps) {
     prepareCreate: async (libraryID: string, settingsDirectory: string) => {
       if (!path.isAbsolute(settingsDirectory)) throw Error("A verified model settings directory is required.")
       const preview = await library.preview(libraryID)
+      if (preview.bundle.version === 2 && preview.bundle.process.unresolvedRoles?.length) throw Error("Unresolved source role definitions must be restored before creating a project.")
       const key =
         "orchestra/template-create-reservation/" +
         createHash("sha256")

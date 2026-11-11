@@ -29,8 +29,8 @@ export interface ProjectTemplatesKeys {
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
   list: () => Promise<readonly { id: string; name: string }[]>
-  prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
-  confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean) => Promise<void>
+  prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
+  confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean, acceptUnresolvedRoles?: boolean) => Promise<void>
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
@@ -63,7 +63,7 @@ export function ProjectTemplatesSimple(props: {
     token: string
     name: string
     details: string
-    browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]
+    unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]
     omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]
     triggerReview?: readonly ProjectTemplateTriggerReview.Item[]
   }>()
@@ -107,7 +107,8 @@ export function ProjectTemplatesSimple(props: {
       setPrepared()
       try {
         if (current.kind === "save") {
-          if (current.browserBindings?.length) await props.access.confirmSave(current.token, !!current.omittedLinks?.length, true)
+          if (current.unresolvedRoles?.length) await props.access.confirmSave(current.token, !!current.omittedLinks?.length, !!current.browserBindings?.length, true)
+          else if (current.browserBindings?.length) await props.access.confirmSave(current.token, !!current.omittedLinks?.length, true)
           else await props.access.confirmSave(current.token, !!current.omittedLinks?.length)
         }
         else await props.access.confirmCreate(current.token)
@@ -235,17 +236,22 @@ export function ProjectTemplatesSimple(props: {
               <For each={collisions()}>{(row) => <Action id={"replace-" + row.id} label={tr("Update existing template") + (collisions().length > 1 ? " · " + row.id : "")} />}</For>
             </Show>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? (current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr("Create")} />
+              <Action id="confirm" label={current().kind === "save" ? (current().unresolvedRoles?.length ? tr("Save incomplete template") : current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr("Create")} />
               <Action id="cancel" label={tr("Cancel")} />
               <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>
+            <Show when={!current().unresolvedRoles?.length}>
             <text fg={theme.text.muted} wrapMode="word">{tr(processTemplate(current().details)?.skillCount === 0
               ? "Roles, playbook and fallback models included. Legacy skills may be missing; skill folders are not copied. No automatic script execution."
               : processTemplate(current().details)
                 ? "Includes roles, assigned skills, playbook and model fallbacks. Scripts do not run automatically. No project data or global MCP settings."
                 : "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.")}</text>
+            </Show>
             <Show when={current().triggerReview?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.")}</text>
+            </Show>
+            <Show when={current().unresolvedRoles?.length}>
+              <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some source role definitions are unavailable. Save an incomplete template? Role references, rules and skill assignments are preserved. Creating a project is blocked until the source roles are restored. The original project is unchanged.")}</text>
             </Show>
             <For each={current().browserBindings}>{(issue) => <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Browser {browser}: old chat binding is unavailable. Save the browser and links without that binding? A new BrowserAgent will be created when first opened in the new project. The original project is unchanged.", { browser: issue.browser })}</text>}</For>
             <Show when={current().omittedLinks?.length}>
@@ -253,6 +259,7 @@ export function ProjectTemplatesSimple(props: {
             </Show>
             <Show when={details()}>
               <box flexDirection="column">
+                <For each={current().unresolvedRoles}>{role => <text fg={theme.text.muted} wrapMode="word">{tr("Unavailable role: {role}", { role })}</text>}</For>
                 <For each={current().triggerReview}>{(item) => <text fg={theme.text.muted} wrapMode="word">{tr("Trigger {schedule}: {reason}", { schedule: item.schedule, reason: tr(triggerReason[item.reason]) })}{item.browser ? " " + tr("Browser {browser}", { browser: item.browser }) : ""}</text>}</For>
                 <For each={current().omittedLinks}>{(issue) => <text fg={theme.text.muted} wrapMode="word">{tr("Browser {browser}, saved link {link}: {reason}", { browser: issue.browser, link: issue.link, reason: tr(linkReason[issue.reason]) })}</text>}</For>
                 <text fg={theme.text.muted} wrapMode="word">{current().details}</text>

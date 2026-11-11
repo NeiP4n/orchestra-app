@@ -14660,6 +14660,7 @@ export type OrchestraProjectTemplatePrepareSaveOutput = {
   token: string
   name: string
   details: string
+  unresolvedRoles?: Array<string> | undefined
   browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
   triggerReview?:
     | Array<{
@@ -14688,6 +14689,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
     }>
     readonly omitUnsafeLinks?: boolean | undefined
     readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
   }["token"]
   readonly browsers: {
     readonly token: string
@@ -14699,6 +14701,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
     }>
     readonly omitUnsafeLinks?: boolean | undefined
     readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
   }["browsers"]
   readonly omitUnsafeLinks?: {
     readonly token: string
@@ -14710,6 +14713,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
     }>
     readonly omitUnsafeLinks?: boolean | undefined
     readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
   }["omitUnsafeLinks"]
   readonly omitInvalidBrowserBindings?: {
     readonly token: string
@@ -14721,7 +14725,20 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
     }>
     readonly omitUnsafeLinks?: boolean | undefined
     readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
   }["omitInvalidBrowserBindings"]
+  readonly acceptUnresolvedRoles?: {
+    readonly token: string
+    readonly browsers: ReadonlyArray<{
+      readonly id: string
+      readonly name: string
+      readonly chat?: string | undefined
+      readonly mode?: "headless" | "window" | "capture" | undefined
+    }>
+    readonly omitUnsafeLinks?: boolean | undefined
+    readonly omitInvalidBrowserBindings?: boolean | undefined
+    readonly acceptUnresolvedRoles?: boolean | undefined
+  }["acceptUnresolvedRoles"]
 }
 
 export type OrchestraProjectTemplateConfirmSaveOutput = void
@@ -14735,6 +14752,7 @@ export type OrchestraProjectTemplatePrepareCreateOutput = {
   token: string
   name: string
   details: string
+  unresolvedRoles?: Array<string> | undefined
   browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
   triggerReview?:
     | Array<{
