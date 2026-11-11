@@ -2821,6 +2821,11 @@ const layer: Layer.Layer<
                 yield* kv.remove(PROJECT + id)
                 yield* kv.remove(TEAM_PLAN + id)
                 yield* kv.remove(PROJECT_TEMPLATE + id)
+                // Import manifests and requirements are exact project records, not browser
+                // profiles or shared template receipts. Never scan by an ID prefix here.
+                yield* kv.remove("orchestra/project-import/" + id)
+                yield* kv.remove("orchestra/template-browsers/" + id)
+                yield* kv.remove("orchestra/template-requirements/" + id)
                 yield* kv.remove("orchestra/process-skills/" + id)
                 yield* kv.remove("orchestra/process-skill-definitions/" + id)
                 yield* kv.remove(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)
