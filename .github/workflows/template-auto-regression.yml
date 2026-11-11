@@ -133,7 +133,7 @@ jobs:
           test "$(node -p "require('./node_modules/@playwright/test/package.json').version")" = "1.59.1"
           # The pinned official image includes the matching browsers and all
           # OS dependencies. Assert the binary exists before the same E2E.
-          node -e "const fs = require('node:fs'); const p = require('playwright'); if (!fs.existsSync(p.chromium.executablePath())) throw Error('Pinned browser missing')"
+          node -e "const fs = require('node:fs'); const p = require('@playwright/test'); if (!fs.existsSync(p.chromium.executablePath())) throw Error('Pinned browser missing')"
           bun x playwright install chromium
       - name: Connected desktop, tablet and mobile template file flow
         working-directory: packages/app
