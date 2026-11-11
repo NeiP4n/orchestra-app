@@ -43,62 +43,64 @@ const transport = SessionModelTransport.Service.of({
 })
 
 describe("SessionModelRequest HTTP hooks", () => {
-  it.effect("mirrors only the CodeMode schemas Zen requires without changing other providers", () =>
-    Effect.gen(function* () {
-      const registry = yield* Tool.Service
-      yield* registry.transform((editor) => {
-        editor.add({
-          name: "read",
-          description: "Read a test resource",
-          input: Schema.Struct({ text: Schema.String }),
-          execute: ({ text }) => Effect.succeed({ output: { text } }),
+  it.effect(
+    "mirrors only the CodeMode schemas Zen requires without changing other providers",
+    () =>
+      Effect.gen(function* () {
+        const registry = yield* Tool.Service
+        yield* registry.transform((editor) => {
+          editor.add({
+            name: "read",
+            description: "Read a test resource",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: ({ text }) => Effect.succeed({ output: { text } }),
+          })
+          editor.add({
+            name: "zen-browser",
+            description: "Drive a test browser",
+            input: Schema.Struct({ text: Schema.String }),
+            execute: ({ text }) => Effect.succeed({ output: { text } }),
+          })
         })
-        editor.add({
-          name: "zen-browser",
-          description: "Drive a test browser",
-          input: Schema.Struct({ text: Schema.String }),
-          execute: ({ text }) => Effect.succeed({ output: { text } }),
-        })
-      })
-      const tools = yield* registry.snapshot()
-      const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
-      const makeModel = (provider: string) => {
-        // OpenAIChat has a fixed route provider; only the model reference varies here because
-        // the request compatibility branch is keyed by the selected catalog provider.
-        const resolved = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "test-model" }), {
-          capabilities: { tools: true, input: ["text"], output: ["text"] },
-          cost: [],
-          limit: { context: 200_000, output: 32_000 },
-        })
-        return {
-          ...resolved,
-          ref: Model.Ref.make({ id: resolved.ref.id, providerID: Provider.ID.make(provider) }),
+        const tools = yield* registry.snapshot()
+        const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+        const makeModel = (provider: string) => {
+          // OpenAIChat has a fixed route provider; only the model reference varies here because
+          // the request compatibility branch is keyed by the selected catalog provider.
+          const resolved = SessionRunnerModel.resolved(OpenAIChat.route.model({ id: "test-model" }), {
+            capabilities: { tools: true, input: ["text"], output: ["text"] },
+            cost: [],
+            limit: { context: 200_000, output: 32_000 },
+          })
+          return {
+            ...resolved,
+            ref: Model.Ref.make({ id: resolved.ref.id, providerID: Provider.ID.make(provider) }),
+          }
         }
-      }
 
-      const zen = yield* requests.primary({
-        session,
-        agent: Agent.ID.make("build"),
-        model: makeModel("opencode"),
-        tools,
-        system: [],
-        messages: [],
-      })
-      expect(zen.request.tools?.map((tool) => tool.name)).toContain("read")
-      expect(zen.request.tools?.map((tool) => tool.name)).toContain("execute")
-      expect(zen.request.tools?.map((tool) => tool.name)).not.toContain("zen-browser")
+        const zen = yield* requests.primary({
+          session,
+          agent: Agent.ID.make("build"),
+          model: makeModel("opencode"),
+          tools,
+          system: [],
+          messages: [],
+        })
+        expect(zen.request.tools?.map((tool) => tool.name)).toContain("read")
+        expect(zen.request.tools?.map((tool) => tool.name)).toContain("execute")
+        expect(zen.request.tools?.map((tool) => tool.name)).not.toContain("zen-browser")
 
-      const other = yield* requests.primary({
-        session,
-        agent: Agent.ID.make("build"),
-        model: makeModel("test"),
-        tools,
-        system: [],
-        messages: [],
-      })
-      expect(other.request.tools?.map((tool) => tool.name)).toContain("execute")
-      expect(other.request.tools?.map((tool) => tool.name)).not.toContain("read")
-    }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+        const other = yield* requests.primary({
+          session,
+          agent: Agent.ID.make("build"),
+          model: makeModel("test"),
+          tools,
+          system: [],
+          messages: [],
+        })
+        expect(other.request.tools?.map((tool) => tool.name)).toContain("execute")
+        expect(other.request.tools?.map((tool) => tool.name)).not.toContain("read")
+      }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
   )
 
   it.effect("keeps a full OpenCode Zen mirror within its 128-tool limit for large CodeMode catalogs", () =>
