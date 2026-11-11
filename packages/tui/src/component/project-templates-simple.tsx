@@ -148,7 +148,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...(props.access.prepareImport ? ["import"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])])]
+    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -186,7 +186,9 @@ export function ProjectTemplatesSimple(props: {
   })
   createEffect(() => {
     const id = focused()
-    if (id) props.scrollIntoView?.(`project-templates.${id}`)
+    if (!id) return
+    props.scrollIntoView?.(`project-templates.${id}`)
+
   })
   const Action = (action: { id: string; label: string; disabled?: boolean }) => (
     <HoverAction
@@ -219,13 +221,14 @@ export function ProjectTemplatesSimple(props: {
           <text fg={theme.text.muted} paddingLeft={3}>{tr("Open a project to save a template.")}</text>
         </Show>
       </box>
-      <Show when={props.access.prepareImport}>
+      <Show when={props.access.prepareImport && !prepared()}>
         <box flexDirection="column">
           <text fg={theme.text.muted}>{tr("Template file path (.orchestra-template)")}</text>
           <input id="project-templates.import-path" value={importPath()} placeholder={tr("Paste the full file path")} onInput={setImportPath} />
           <Action id="import" label={tr("Import from file")} disabled={!importPath().trim() || !!prepared()} />
         </box>
       </Show>
+      <Show when={!prepared()}>
       <box flexDirection="column" gap={1}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Saved templates · {count}", { count: templates().length })}</text>
         <Show when={templates().length === 0}>
@@ -249,6 +252,7 @@ export function ProjectTemplatesSimple(props: {
           )}
         </For>
       </box>
+      </Show>
       <Show when={prepared()}>
         {(current) => (
           <box flexDirection="column" gap={1} paddingTop={1}>
