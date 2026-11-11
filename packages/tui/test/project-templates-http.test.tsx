@@ -62,7 +62,7 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         const View = () => {
           const pop = Keymap.use().mode.push("modal")
           onCleanup(pop)
-          seed = useNotes().importBrowserDefinitions({ importID: "pti_fixture", projectID: project.id, createdAt: 1, browsers: [{ id: "brw_fixture", name: "Whatsapp", chat: browser.id, mode: "window" }] })
+          seed = useNotes().importBrowserDefinitions({ importID: "pti_fixture", projectID: project.id, createdAt: 1, browsers: [{ id: "brw_fixture", name: "Whatsapp", chat: ordinary.id, mode: "window" }, { id: "brw_dedicated", name: "Dedicated", chat: browser.id, mode: "window" }] })
           return <RegistryPanel options={{ probe: () => true, terminalProbe: () => true, directory: source }} />
         }
         await using app = await renderLocal({
@@ -114,8 +114,13 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         const notes = JSON.parse(await readFile(path.join(app.state, "test/tui/browser-sessions.json"), "utf8"))
         expect(notes.projects[created.id][0].name).toBe("Whatsapp")
         expect(notes.projects[created.id][0].id).not.toBe("brw_fixture")
-        expect(notes.projects[created.id][0].chat).not.toBe(browser.id)
+        expect(notes.projects[created.id][0].chat).toBe(auto.id)
+        expect(notes.projects[created.id][0].chat).not.toBe(ordinary.id)
         const importedBrowser = (await call("/api/session/" + notes.projects[created.id][0].chat).pipe(Effect.runPromise)).body.data
-        expect(importedBrowser.agent).toBe("team-browser-agent")
+        expect(importedBrowser.agent).toBeUndefined()
+        const dedicated = notes.projects[created.id].find((row: { name: string }) => row.name === "Dedicated")
+        expect(dedicated.chat).not.toBe(browser.id)
+        const importedDedicated = (await call("/api/session/" + dedicated.chat).pipe(Effect.runPromise)).body.data
+        expect(importedDedicated.agent).toBe("team-browser-agent")
       })
 }), 30_000)

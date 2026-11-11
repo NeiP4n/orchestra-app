@@ -78,7 +78,14 @@ export function prepare(serialized: string, destination: Destination) {
   })
   const mainSlot = bundle.mainSession ?? (bundle.sessions.filter((row) => row.role === "orchestrator").length === 1 ? bundle.sessions.find((row) => row.role === "orchestrator")!.slot : undefined)
   if (mainSlot && bundle.sessions.find((row) => row.slot === mainSlot)?.role !== "orchestrator") throw Error("The destination main session must be an Orchestrator.")
-  if (bundle.browsers.some((row) => row.session && bundle.sessions.find((session) => session.slot === row.session)?.role !== "team-browser-agent")) throw Error("Browser slots require their own BrowserAgent session.")
+  // Legacy Browser UI may bind a chat while its role is still auto. It promotes
+  // that chat when opened. Preserve this configuration without silently pinning
+  // its role or granting browser execution; runtime BrowserAgent guards still apply.
+  if (bundle.browsers.some((row) => {
+    if (!row.session) return false
+    const session = bundle.sessions.find((session) => session.slot === row.session)
+    return !session || (session.role !== null && session.role !== "team-browser-agent")
+  })) throw Error("Browser slots require their own BrowserAgent or auto session.")
   if (new Set(bundle.browsers.flatMap((row) => row.session ? [row.session] : [])).size !== bundle.browsers.filter((row) => row.session).length) throw Error("A BrowserAgent session cannot be inherited by two browsers.")
   const browsers = bundle.browsers.map((row) => ({
     id: destination.browsers[row.slot],

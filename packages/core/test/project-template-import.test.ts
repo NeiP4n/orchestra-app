@@ -133,7 +133,7 @@ for (const bound of [false, true]) test(`browser watcher/interval survives omitt
   expect(plan.started).toBe(false)
 })
 
-test("ordinary auto role stays unpinned, but cannot replace required main or BrowserAgent roles", () => {
+test("ordinary auto role stays unpinned and its legacy browser link is remapped without authority", () => {
   const f = fixture()
   f.input.sessions.push({ slot: "auto", title: "Приветствие auto", role: null, model: null })
   f.input.mainSession = "main"
@@ -148,5 +148,10 @@ test("ordinary auto role stays unpinned, but cannot replace required main or Bro
   expect(prepare).toThrow("Orchestrator")
   f.input.mainSession = "main"
   f.input.browsers[0].session = "auto"
+  const plan = prepare()
+  expect(plan.browsers[0].chat).toBe("ses_auto_new")
+  expect(plan.sessions.find(row => row.id === "ses_auto_new")).toMatchObject({ role: null, inheritedPermissions: false, messages: [] })
+  f.input.sessions.find(row => row.slot === "auto")!.role = "build"
+  f.destination.availableRoles = new Set(["orchestrator", "build"])
   expect(prepare).toThrow("BrowserAgent")
 })
