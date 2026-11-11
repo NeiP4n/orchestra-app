@@ -39,10 +39,12 @@ export class NeuralMeshActivity {
 
     if (known !== undefined) return known
     const taken = new Set(this.hubs.values())
+
     const candidates = this.nodes
       .flatMap((node, index) => (taken.has(index) ? [] : [{ index, degree: node.degree }]))
       .sort((a, b) => b.degree - a.degree)
       .slice(0, 6)
+
     const selected = candidates[hash(sessionID) % Math.max(1, candidates.length)]?.index ?? 0
     this.hubs.set(sessionID, selected)
 
@@ -64,6 +66,7 @@ export class NeuralMeshActivity {
         to = free[hash(label) % Math.max(1, free.length)] ?? hub
         this.tools.set(label, to)
       }
+
       this.bridges.push({ call: signal.call, label, from: hub, to, at: 0, state: "travel", settled: 0, reached: 0 })
 
       if (this.bridges.length > 8) this.bridges.shift()

@@ -274,6 +274,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
 
       if (pulses.length > 96) pulses.splice(0, pulses.length - 96)
     }
+
     signals.step(dt, energy, cols, rows)
     background += dt * tempo * (0.8 + energy * 9)
 
@@ -306,6 +307,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
 
     for (let index = 0; index < mesh.edges.length; index++) {
       ctx.globalAlpha = 0.9 * (dt === 0 ? 0.8 : 0.55 + 0.45 * Math.sin((drift * 1000) / 1700 + index * 0.9))
+
       for (const [x, y] of mesh.edges[index].cells) {
         ctx.fillText("·", (x * width) / cols, (y * height) / rows)
       }
@@ -329,6 +331,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
           const [a, b] = onward[Math.floor(Math.random() * onward.length)]
           pulses.push({ from: pulse.to, to: a === pulse.to ? b : a, t: 0, color: pulse.color, hops: hops + 1 })
         }
+
         pulses.splice(i, 1)
         continue
       }
@@ -363,6 +366,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
     }
 
     ctx.lineWidth = 1
+
     for (const ripple of signals.ripples) {
       const node = nodes[ripple.from]
       const radius = (2 + ripple.age * 22) * 16
@@ -395,6 +399,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
         ctx.fillText(label, Math.max(0, Math.min(width - label.length * 8, px(to.x) + 16)), py(to.y))
       }
     }
+
     ctx.setLineDash([])
 
     ctx.globalAlpha = 1

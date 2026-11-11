@@ -62,6 +62,7 @@ export function paintNeuralHaze(
   for (let y = 0; y < rows; y++) {
     const glitch = effects?.glitches.find((item) => y >= item.y && y < item.y + item.height)
     const scan = effects?.scans.reduce((best, row) => Math.max(best, 1 - Math.abs(row * rows - y) / 2), 0) ?? 0
+
     for (let x = 0; x < cols; x++) {
       let warmth = scan * 0.45 + (glitch ? 0.12 : 0)
 

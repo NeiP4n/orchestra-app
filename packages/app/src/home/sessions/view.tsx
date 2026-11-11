@@ -757,6 +757,7 @@ function HomeSessionRow(
           }}
           onClick={(event: SessionRowEvent<MouseEvent>) => {
             event.preventDefault()
+
             // The flag stays set until the long-press compatibility click
             // arrives, however delayed; keyboard activation (detail 0) is
             // never that click and passes through.
