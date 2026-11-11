@@ -37,7 +37,7 @@ export const read = Effect.fn("ProjectTemplateV2Runtime.read")(function* (kv: KV
   const map = new Map(
     process.roles.map((role, i) => [
       role.agent,
-      ["orchestrator", "team-browser-agent"].includes(role.agent)
+      (["orchestrator", "team-browser-agent"].includes(role.agent) || role.runtime !== undefined)
         ? role.agent
         : "team-" + ProcessSkills.namespace(projectID) + (i + 1),
     ]),
@@ -63,17 +63,17 @@ export interface Dependencies {
   dataDirectory: string
   installedVersion: string
   /** Live global definitions only. Project-local imports are deliberately not collision candidates on resume. */
-  destination: () => Promise<Omit<Plan.Destination, "projectID" | "installedVersion" | "reviewedDigest">>
+  destination: (directory?: string) => Promise<Omit<Plan.Destination, "projectID" | "installedVersion" | "reviewedDigest">>
   changed: () => Promise<void>
 }
 export function make(deps: Dependencies): Materialize.ProcessAdapter {
   const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
   const serial = (value: unknown): KV.Value => JSON.parse(JSON.stringify(value))
-  const derive = async (text: string, digest: string, projectID: string) => {
+  const derive = async (text: string, digest: string, projectID: string, directory?: string) => {
     const parsed = V2.preview(text)
     if (!parsed.ok || parsed.value.digest !== digest) throw Error("Process template differs from the reviewed source")
     const plan = Plan.prepare(text, {
-      ...(await deps.destination()),
+      ...(await deps.destination(directory)),
       projectID,
       installedVersion: deps.installedVersion,
       reviewedDigest: digest,
@@ -96,7 +96,7 @@ export function make(deps: Dependencies): Materialize.ProcessAdapter {
   const fromReceipt = async (receipt: Materialize.Receipt) => {
     if (!receipt.process || Object.keys(receipt.process).length !== 3 || receipt.process.version !== 2)
       throw Error("Exact process source receipt required")
-    const value = await derive(receipt.process.template, receipt.process.digest, receipt.projectID)
+    const value = await derive(receipt.process.template, receipt.process.digest, receipt.projectID, receipt.directory)
     if (value.template !== receipt.template) throw Error("Process base configuration changed after review")
     return value
   }

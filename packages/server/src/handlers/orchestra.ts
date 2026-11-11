@@ -1,3 +1,5 @@
+import { Agent } from "@orchestra/core/agent"
+import { ProjectTemplateRuntimeRoles } from "@orchestra/core/project-template-runtime-roles"
 import { Skill } from "@orchestra/core/skill"
 import { SessionID } from "@orchestra/schema/session-id"
 import { ProjectTemplateV2Runtime } from "@orchestra/core/project-template-v2-runtime"
@@ -5,6 +7,7 @@ import { ProjectTemplateV2OwnerReader } from "@orchestra/core/project-template-v
 import { ProjectTemplateCoreRoles } from "@orchestra/core/project-template-core-roles"
 import { CredentialVault } from "@orchestra/core/credential-vault/index"
 import path from "node:path"
+import { stat } from "node:fs/promises"
 import { templateOperation } from "./template-operation"
 import { ProjectTemplateOperator } from "@orchestra/core/project-template-operator"
 import { ProjectTemplateLiveStores } from "@orchestra/core/project-template-live-stores"
@@ -78,9 +81,20 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       const available = yield* models.available()
       return new Set(available.flatMap(model => [`${model.providerID}/${model.id}`, `${model.providerID}/${model.id}#default`, ...model.variants.map(variant => `${model.providerID}/${model.id}#${variant.id}`)]))
     }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(settingsDirectory) })))))
+    const runtimeRoles = (directory: string) => Effect.runPromise(Effect.gen(function* () {
+      yield* Plugin.awaitActivation
+      const agents = yield* Agent.Service
+      return yield* agents.list()
+    }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(directory) })))))
     const coreRoles = async () => ProjectTemplateCoreRoles.current(await Effect.runPromise(orchestra.roles()))
     const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version,
       processStores: projectID => ProjectTemplateV2OwnerReader.make({ kv, store, orchestra, coreRoles,
+        runtimeRoles: async input => ProjectTemplateRuntimeRoles.merge(await Promise.all(input.sessionIDs.map(async id => {
+          const info = await Effect.runPromise(store.get(SessionID.make(id)))
+          if (!info || info.id !== id) throw Error("Runtime role source session disappeared")
+          const catalog = await runtimeRoles(info.location.directory)
+          return catalog.filter(agent => agent.id === info.agent)
+        })), { config: global.config, home: global.home }),
         legacyCatalogs: async input => Promise.all(input.sessionIDs.map(async id => {
           const info = await Effect.runPromise(store.get(SessionID.make(id)))
           if (!info || info.id !== id) throw Error("Legacy source session disappeared")
@@ -94,7 +108,10 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       }, projectID),
       live: settingsDirectory => ProjectTemplateLiveStores.make({ kv, store, sessions, root: path.join(global.data, "template-projects"), installedVersion: app.version, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         process: ProjectTemplateV2Runtime.make({ kv, dataDirectory: global.data, installedVersion: app.version,
-          destination: async () => ({ roles: [...await coreRoles(), ...(await Effect.runPromise(orchestra.roles())).filter(role => role.agent !== "team-browser-agent").map(ProjectTemplateCoreRoles.portable)], skills: [], models: await availableModels(settingsDirectory), programs: new Set(), mcp: new Map(), providers: new Set() }),
+          destination: async directory => {
+            const target = directory && await stat(directory).then(s => s.isDirectory(), error => { if (error.code === "ENOENT") return false; throw error }) ? directory : settingsDirectory
+            return { roles: [...(await runtimeRoles(target)).filter(role => !["orchestrator", "team-browser-agent"].includes(role.id) && !role.id.startsWith("team-")).map(role => ProjectTemplateRuntimeRoles.portable(role, { config: global.config, home: global.home })), ...await coreRoles(), ...(await Effect.runPromise(orchestra.roles())).filter(role => role.agent !== "team-browser-agent").map(ProjectTemplateCoreRoles.portable)], skills: [], models: await availableModels(settingsDirectory), programs: new Set(), mcp: new Map(), providers: new Set() }
+          },
           changed: () => Effect.runPromise(orchestra.reload()),
         }),
         availableRoles: async () => new Set([Orchestra.agent, ...(await Effect.runPromise(orchestra.roles())).map(role => role.agent)]),
