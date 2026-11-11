@@ -132,12 +132,15 @@ if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {
 function showStartupError(root: HTMLElement) {
   const locale = getLocale()
   const title = (locale === "zh" ? zh["error.page.title"] : en["error.page.title"]) ?? en["error.page.title"]
+
   const description =
     (locale === "zh" ? zh["error.page.description"] : en["error.page.description"]) ??
     en["error.page.description"]
+
   const reloadLabel =
     (locale === "zh" ? zh["error.page.action.reload"] : en["error.page.action.reload"]) ??
     en["error.page.action.reload"]
+
   root.textContent = ""
   const page = document.createElement("div")
   page.style.cssText =

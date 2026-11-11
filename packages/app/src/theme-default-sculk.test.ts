@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, test } from "bun:test"
 // The served web UI defaults to the sculk theme (the TUI look), the same as the desktop shell.
 // A stored theme always wins; even an untagged surface starts on the current TUI default.
 const preload = await Bun.file(new URL("../public/orchestra-theme-preload.js", import.meta.url)).text()
+
 const html = await Bun.file(new URL("../index.html", import.meta.url)).text()
+
 const entry = await Bun.file(new URL("./entry.tsx", import.meta.url)).text()
 
 const run = () => Function(preload)()
@@ -42,6 +44,7 @@ describe("web default theme", () => {
 
   test("a stored theme wins over the opt-in, so oc-2 and orchestra stay selectable", () => {
     optIn()
+
     for (const id of ["oc-2", "orchestra"]) {
       localStorage.setItem("opencode-theme-id", id)
       run()
