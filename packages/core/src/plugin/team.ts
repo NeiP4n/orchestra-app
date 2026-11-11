@@ -247,7 +247,12 @@ export const Plugin = define({
         // that does not start, so the failure is handed to the model as an explicit stop.
         RuleEnforce.loading(String(event.sessionID))
         const configuration = yield* Effect.serviceOption(Config.Service)
-        const lessonsEnabled = Option.isNone(configuration) || (yield* configuration.value.get()).experimental?.rule_lessons !== false
+        const configEntries = Option.isSome(configuration) ? yield* configuration.value.entries() : []
+        let lessonsEnabled = true
+        for (const entry of configEntries) {
+          if (entry.type === "document" && entry.info.experimental?.rule_lessons !== undefined)
+            lessonsEnabled = entry.info.experimental.rule_lessons
+        }
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
           Effect.flatMap((scopes) => Rules.loadCurrent(kv, scopes, String(event.sessionID), lessonsEnabled)),
           // The same rules feed the hard check before tool calls and the end-of-turn judge.
