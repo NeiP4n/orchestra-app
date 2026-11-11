@@ -46,6 +46,10 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     })
 
     return {
+      get isLocal() {
+        if (!url) return true
+        try { return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname) } catch { return false }
+      },
       get api() {
         return api
       },

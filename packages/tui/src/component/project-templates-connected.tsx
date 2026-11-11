@@ -1,4 +1,7 @@
 import { ProjectTemplatesSimple, type ProjectTemplatesKeys, type ProjectTemplatesAccess } from "./project-templates-simple"
+import path from "node:path"
+import { openPath } from "@orchestra/util/open"
+import { useClipboard } from "../context/clipboard"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
 import { useRoute } from "../context/route"
@@ -8,6 +11,7 @@ import { useTuiPaths } from "../context/runtime"
 /** The operator sees two actions. Current ownership, paths, fresh IDs and recovery tokens
  * remain implementation details; confirmation never starts a session or browser. */
 export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplatesKeys) => void; scrollIntoView?: (id: string) => void }) {
+  const clipboard = useClipboard()
   const client = useClient(),
     projects = useProjects(),
     route = useRoute(),
@@ -28,6 +32,8 @@ export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplate
   // open cannot silently export a different project's browser definitions.
   const saveOwners = new Map<string, string>()
   const access: ProjectTemplatesAccess = {
+    copyPath: file => clipboard.write(file),
+    openFolder: client.isLocal ? file => openPath(path.dirname(file)).then(() => undefined) : undefined,
     exportFile: templateID => {
       const id=projectID();if(!id)throw Error("Open a project first.")
       return client.api.orchestra.projectTemplate.exportFile({templateID,projectID:id})

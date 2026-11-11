@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js"
+import { usePlatform } from "@/runtime/platform/platform"
 import { useLayout } from "@/shell/state/layout"
 import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal, useServerCtx } from "@/runtime/server/runtime"
@@ -11,6 +12,8 @@ export interface TemplateFileAccess {
   exportFile: (templateID: string, projectID: string) => Promise<{ path: string; warning: string }>
   prepareImport: (path: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[] }>
   confirmImport: (token: string) => Promise<Entry>
+  copyPath?: (path: string) => Promise<void>
+  openFolder?: (path: string) => Promise<void>
 }
 
 export function TemplateFiles(props: { access: TemplateFileAccess }) {
@@ -20,6 +23,7 @@ export function TemplateFiles(props: { access: TemplateFileAccess }) {
   const [file, setFile] = createSignal("")
   const [busy, setBusy] = createSignal(false)
   const [status, setStatus] = createSignal("")
+  const [exportPath, setExportPath] = createSignal("")
   const [loaded, setLoaded] = createSignal(false)
   const [pending, setPending] = createSignal<Awaited<ReturnType<TemplateFileAccess["prepareImport"]>>>()
 
@@ -58,9 +62,22 @@ export function TemplateFiles(props: { access: TemplateFileAccess }) {
           <span>{entry.name}</span>
           <button class="rounded border border-v2-border-border-base px-3 py-2 text-start hover:bg-v2-surface-surface-raised focus-visible:outline focus-visible:outline-2 disabled:opacity-50" type="button" disabled={busy() || !project()} onClick={() => void run(async () => {
             const result = await props.access.exportFile(entry.id, project())
+            setExportPath(result.path)
             setStatus("Файл: " + result.path + ". Не добавляйте в git. Проверьте перед отправкой другу.")
           })}>Экспорт в файл</button>
         </div>}</For>
+        <Show when={exportPath()}>
+          <p class="break-all">Файл на сервере: {exportPath()}</p>
+          <p>Отправьте этот файл другу. У него: Импорт из файла.</p>
+          <button class="rounded border border-v2-border-border-base px-3 py-2 text-start hover:bg-v2-surface-surface-raised focus-visible:outline focus-visible:outline-2 disabled:opacity-50" type="button" disabled={busy() || !props.access.copyPath} onClick={() => void run(async () => {
+            await props.access.copyPath?.(exportPath())
+            setStatus("Путь скопирован.")
+          })}>Скопировать путь</button>
+          <button class="rounded border border-v2-border-border-base px-3 py-2 text-start hover:bg-v2-surface-surface-raised focus-visible:outline focus-visible:outline-2 disabled:opacity-50" type="button" disabled={busy() || !props.access.openFolder} onClick={() => void run(async () => {
+            await props.access.openFolder?.(exportPath())
+          })}>Открыть папку</button>
+          <Show when={!props.access.openFolder}><p>В браузере нельзя открыть папку сервера. Откройте её на том компьютере по этому пути.</p></Show>
+        </Show>
         <label class="flex flex-col gap-1">Полный путь к .orchestra-template на сервере
           <input class="rounded border border-v2-border-border-base bg-v2-background-bg-base px-3 py-2 min-h-9" placeholder="C:/Downloads/Test2.orchestra-template" aria-label="Путь к файлу шаблона" value={file()} onInput={e => { setFile(e.currentTarget.value); setPending() }} disabled={busy()} />
         </label>
@@ -84,6 +101,7 @@ export function TemplateFiles(props: { access: TemplateFileAccess }) {
 }
 
 export function TemplateFilesConnected() {
+  const platform = usePlatform()
   const layout = useLayout(), global = useGlobal()
 
   const connection = createMemo(() => {
@@ -96,6 +114,8 @@ export function TemplateFilesConnected() {
   const context = useServerCtx(connection)
 
   return <Show when={context()} keyed>{ctx => <TemplateFiles access={{
+    copyPath: path => navigator.clipboard.writeText(path),
+    openFolder: ServerConnection.local(connection()) && platform.openPath ? file => platform.openPath!(file.replace(/[\\/][^\\/]+$/, "")) : undefined,
     list: () => ctx.sdk.api.orchestra.projectTemplate.list(),
     projects: () => ctx.sdk.api.orchestra.project.list(),
     exportFile: (templateID, projectID) => ctx.sdk.api.orchestra.projectTemplate.exportFile({ templateID, projectID }),

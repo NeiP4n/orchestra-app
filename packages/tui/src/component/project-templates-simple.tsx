@@ -28,6 +28,8 @@ export interface ProjectTemplatesKeys {
  * Only confirmSave/confirmCreate may mutate, and only for the prepared operation they receive.
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
+  copyPath?: (path: string) => Promise<void>
+  openFolder?: (path: string) => Promise<void>
   exportFile?: (templateID: string) => Promise<{ path: string; warning: string }>
   prepareImport?: (path: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[] }>
   confirmImport?: (token: string) => Promise<unknown>
@@ -148,7 +150,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import"] : [])]
+    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -158,7 +160,14 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (!prepared() && id === "import") void run(async()=>{
+    if (id === "copy-path" && exportPath() && props.access.copyPath) void run(async () => {
+      await props.access.copyPath?.(exportPath())
+      setMessage("Path copied.")
+    })
+    else if (id === "open-folder" && exportPath() && props.access.openFolder) void run(async () => {
+      await props.access.openFolder?.(exportPath())
+    })
+    else if (!prepared() && id === "import") void run(async()=>{
       const result = await props.access.prepareImport!(importPath())
       setPrepared({kind:"import",...result});setCursor("confirm");setDetails(false)
     })
@@ -303,7 +312,15 @@ export function ProjectTemplatesSimple(props: {
           </box>
         )}
       </Show>
-      <Show when={exportPath()}><text fg={theme.text.base} wrapMode="word">{tr("File: {path}", {path:exportPath()})}</text></Show>
+      <Show when={exportPath()}>
+        <box flexDirection="column">
+          <text fg={theme.text.base} wrapMode="word">{tr("File: {path}", {path:exportPath()})}</text>
+          <text fg={theme.text.muted} wrapMode="word">{tr("Send this file to your friend. They choose Import from file.")}</text>
+          <Action id="copy-path" label={tr("Copy path")} disabled={!props.access.copyPath} />
+          <Action id="open-folder" label={tr("Open folder")} disabled={!props.access.openFolder} />
+          <Show when={!props.access.openFolder}><text fg={theme.text.muted} wrapMode="word">{tr("Folder is on the server. Open it on that computer.")}</text></Show>
+        </box>
+      </Show>
       <Show when={busy()}>
         <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
