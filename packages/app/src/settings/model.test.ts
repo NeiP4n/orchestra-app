@@ -185,21 +185,27 @@ describe("settings schema", () => {
   })
 })
 
-test("font defaults are Inter and IBM Plex Mono", () => {
-  expect(sansDefault).toBe("Inter")
+test("all font defaults use the TUI mono face", () => {
+  expect(sansDefault).toBe("IBM Plex Mono")
   expect(monoDefault).toBe("IBM Plex Mono")
 })
 
 test.each([
-  { name: "sans", family: sansFontFamily, font: undefined, prefix: '"Inter", ' },
-  { name: "sans", family: sansFontFamily, font: "", prefix: '"Inter", ' },
-  { name: "sans", family: sansFontFamily, font: "   ", prefix: '"Inter", ' },
-  { name: "sans", family: sansFontFamily, font: "Custom Sans", prefix: '"Custom Sans", "Inter", ' },
+  { name: "sans", family: sansFontFamily, font: undefined, prefix: '"IBM Plex Mono", ' },
+  { name: "sans", family: sansFontFamily, font: "", prefix: '"IBM Plex Mono", ' },
+  { name: "sans", family: sansFontFamily, font: "   ", prefix: '"IBM Plex Mono", ' },
+  { name: "sans", family: sansFontFamily, font: "Custom Sans", prefix: '"Custom Sans", "IBM Plex Mono", ' },
   { name: "mono", family: monoFontFamily, font: undefined, prefix: '"IBM Plex Mono", ' },
   { name: "mono", family: monoFontFamily, font: "", prefix: '"IBM Plex Mono", ' },
   { name: "mono", family: monoFontFamily, font: "   ", prefix: '"IBM Plex Mono", ' },
   { name: "mono", family: monoFontFamily, font: "Custom Mono", prefix: '"Custom Mono", "IBM Plex Mono", ' },
-  { name: "terminal", family: terminalFontFamily, font: undefined, prefix: '"JetBrainsMono Nerd Font Mono", ' },
+  { name: "terminal", family: terminalFontFamily, font: undefined, prefix: '"IBM Plex Mono", "JetBrainsMono Nerd Font Mono", ' },
 ])("$name font family for $font starts with $prefix", ({ family, font, prefix }) => {
   expect(family(font)).toStartWith(prefix)
+})
+
+test("legacy UI and terminal defaults migrate to TUI mono without losing explicit custom choices", () => {
+  expect(sansFontFamily("Inter")).toBe(sansFontFamily(undefined))
+  expect(terminalFontFamily("JetBrainsMono Nerd Font Mono")).toBe(terminalFontFamily(undefined))
+  expect(terminalFontFamily("Custom Terminal")).toStartWith('"Custom Terminal", "IBM Plex Mono", ')
 })

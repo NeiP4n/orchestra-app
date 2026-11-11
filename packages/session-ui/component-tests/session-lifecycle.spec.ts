@@ -1,3 +1,4 @@
+import { Match } from "effect"
 import { expect, story } from "../../storybook/playwright/story"
 
 for (const tool of ["shell", "execute", "subagent"]) {
@@ -16,7 +17,12 @@ for (const tool of ["shell", "execute", "subagent"]) {
       await timeline.getByRole("button", { name: "Start tool", exact: true }).click()
       await expect(group).toHaveAttribute("data-timeline-part-ids", "tool_context_lifecycle,tool_shell_lifecycle")
       const original = await group.elementHandle()
-      const title = tool === "subagent" ? "Agent" : tool === "execute" ? "Execute" : "Shell"
+
+      const title = Match.value(tool).pipe(
+        Match.when("subagent", () => "Agent"),
+        Match.when("execute", () => "Execute"),
+        Match.orElse(() => "Shell"),
+      )
 
       for (const action of [undefined, "Complete input", "Run command", "Complete command"]) {
         if (action) await timeline.getByRole("button", { name: action, exact: true }).click()
@@ -73,11 +79,11 @@ story("transitions a streaming shell from writing through command execution", as
   await expect(tool.locator('[data-slot="collapsible-trigger"]')).toHaveCSS("height", "28px")
   await expect(tool.locator('[data-component="tool-trigger"]')).toHaveCSS("gap", "6px")
   await expect(title).toHaveCSS("font-size", "13px")
-  await expect(title).toHaveCSS("font-family", /^Inter,/)
+  await expect(title).toHaveCSS("font-family", /^"?IBM Plex Mono"?,/)
   await expect(title).toHaveCSS("font-weight", "530")
   await expect(title).toHaveCSS("line-height", "16px")
   await expect(subtitle).toHaveCSS("font-size", "13px")
-  await expect(subtitle).toHaveCSS("font-family", /^Inter,/)
+  await expect(subtitle).toHaveCSS("font-family", /^"?IBM Plex Mono"?,/)
   await expect(subtitle).toHaveCSS("font-weight", "440")
   await expect(subtitle).toHaveCSS("line-height", "16px")
   await timeline.getByRole("button", { name: "Complete input" }).click()

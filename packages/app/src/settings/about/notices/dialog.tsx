@@ -29,7 +29,9 @@ export default function DialogThirdPartyNotices(props: { onCloseAutoFocus?: Dial
           {(entry) => (
             <section class="settings-notice">
               <div class="settings-notice-heading">
-                <ExternalLink href={entry.url}>{entry.name}</ExternalLink>
+                <Show when={entry.url} fallback={<span>{entry.name}</span>}>
+                  {(url) => <ExternalLink href={url()}>{entry.name}</ExternalLink>}
+                </Show>
                 <span>{entry.license}</span>
               </div>
               <p>{entry.detailKey ? language.t(entry.detailKey) : entry.detail}</p>
