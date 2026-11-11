@@ -35,7 +35,11 @@ import { SessionEscalate } from "./escalate.js"
 
 export type Outcome = Data.TaggedEnum<{
   Completed: { readonly needsContinuation: boolean }
-  Retry: { readonly error: SessionError.Error; readonly decision: SessionRunnerRetry.Decision }
+  Retry: {
+    readonly error: SessionError.Error
+    readonly decision: SessionRunnerRetry.Decision
+    readonly freshAssistant?: boolean
+  }
   Continue: {
     readonly error: SessionError.Error
     readonly decision: SessionRunnerRetry.Decision
@@ -265,7 +269,27 @@ export const make = Effect.gen(function* () {
                 }),
               })
             : undefined
-        const llmFailure = streamFailure instanceof AIError ? asRateLimit(streamFailure) : unknownFinish
+        // A normal stop with only hidden reasoning (or whitespace) has not answered
+        // and has executed no tool. Recover it through the existing bounded policy,
+        // not through completion nudges or a successful terminal event.
+        const emptyOutput = Exit.isSuccess(stream) && recorded.finish?.finish === "stop" && !recorded.meaningfulOutput
+        const emptyFailure = emptyOutput
+          ? new AIError({
+              reason: new InvalidProviderOutputError({
+                message: "The provider stopped without answer text or tool calls.",
+                classification: "incomplete-stream",
+              }),
+            })
+          : undefined
+        const llmFailure =
+          streamFailure instanceof AIError ? asRateLimit(streamFailure) : (unknownFinish ?? emptyFailure)
+        const canRetryWithoutRepeatingWork = !recorded.outputStarted || emptyOutput
+        const settleEmpty = Effect.gen(function* () {
+          if (!emptyOutput) return
+          yield* publisher.failAssistant(toSessionError(emptyFailure!))
+          const tokens = recorded.finish!.tokens
+          yield* publisher.publishStepFailure({ tokens, cost: SessionUsage.calculateCost(input.model.cost, tokens) })
+        })
         const llmError = llmFailure && !recorded.providerFailed ? toSessionError(llmFailure) : undefined
         if (
           input.recoverContinuation &&
@@ -287,17 +311,19 @@ export const make = Effect.gen(function* () {
                 ),
               )
             : undefined
-        if (llmFailure && llmError && retry?.retry && !recorded.outputStarted) {
+        if (llmFailure && llmError && retry?.retry && canRetryWithoutRepeatingWork) {
           // Retry state projects onto the existing assistant, even before it has produced output.
           yield* publisher.startAssistant()
           yield* settleMeasurement("failed")
-          return Outcome.Retry({ error: llmError, decision: retry })
+          yield* settleEmpty
+          return Outcome.Retry({ error: llmError, decision: retry, ...(emptyOutput ? { freshAssistant: true } : {}) })
         }
         // Another model is the only way forward when waiting cannot help, so a worker moves on
         // instead of failing the task. Nothing was produced yet, so the new attempt is clean.
-        if (llmFailure && llmError && !retry?.retry && !recorded.outputStarted) {
+        if (llmFailure && llmError && !retry?.retry && canRetryWithoutRepeatingWork) {
           if (yield* restore(input.fallback(llmFailure, llmError))) {
             yield* settleMeasurement("failed")
+            yield* settleEmpty
             return Outcome.Switched()
           }
         }
