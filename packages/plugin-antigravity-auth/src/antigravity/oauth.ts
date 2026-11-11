@@ -2,6 +2,7 @@ import { generatePKCE } from "@openauthjs/openauth/pkce";
 
 import {
   ANTIGRAVITY_CLIENT_ID,
+  AntigravityOAuthConfigurationError,
   requireAntigravityClientSecret,
   ANTIGRAVITY_REDIRECT_URI,
   ANTIGRAVITY_SCOPES,
@@ -89,6 +90,8 @@ function decodeState(state: string): AntigravityAuthState {
  * Build the Antigravity OAuth authorization URL including PKCE and optional project metadata.
  */
 export async function authorizeAntigravity(projectId = ""): Promise<AntigravityAuthorization> {
+  // Fail before opening Google. A received callback code is not a connected account.
+  requireAntigravityClientSecret();
   const pkce = (await generatePKCE()) as PkcePair;
 
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -216,7 +219,14 @@ export async function exchangeAntigravity(
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      return { type: "failed", error: errorText };
+      try {
+        const rejected = JSON.parse(errorText);
+        if (rejected?.error === "invalid_client" || rejected?.error === "unauthorized_client")
+          throw new AntigravityOAuthConfigurationError("invalid_oauth_client");
+      } catch (error) {
+        if (error instanceof AntigravityOAuthConfigurationError) throw error;
+      }
+      return { type: "failed", error: "Google did not complete the token exchange. Please try signing in again." };
     }
 
     const tokenPayload = (await tokenResponse.json()) as AntigravityTokenResponse;
@@ -256,6 +266,8 @@ export async function exchangeAntigravity(
       projectId: effectiveProjectId || "",
     };
   } catch (error) {
+    // Preserve the bounded local configuration reason, not arbitrary Google response bodies.
+    if (error instanceof AntigravityOAuthConfigurationError) throw error;
     return {
       type: "failed",
       error: error instanceof Error ? error.message : "Unknown error",

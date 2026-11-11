@@ -27,6 +27,7 @@ import { DialogPrompt } from "../ui/dialog-prompt"
 import { DialogSelect } from "../ui/dialog-select"
 import { Link } from "../ui/link"
 import { useToast } from "../ui/toast"
+import { useT } from "../util/i18n"
 import { errorMessage } from "../util/error"
 import {
   formInitialValues,
@@ -171,7 +172,10 @@ function manageConnections(
     const toast = useToast()
     const theme = useTheme().surface("dialog")
     const shortcuts = Keymap.useShortcuts()
+    const t = useT()
     const [deleting, setDeleting] = createSignal<string>()
+    const [deleteError, setDeleteError] = createSignal<{ id: string; message: string }>()
+    const [removing, setRemoving] = createSignal(false)
     const [selected, setSelected] = createSignal(methods.length ? "add" : credentialConnections(integration)[0]?.id)
     const current = createMemo(() =>
       data.location.integration.list(location)?.find((item) => item.id === integration.id),
@@ -186,6 +190,7 @@ function manageConnections(
         onMove={(option) => {
           setSelected(option.value)
           setDeleting(undefined)
+          setDeleteError(undefined)
         }}
         options={[
           ...(methods.length
@@ -206,6 +211,7 @@ function manageConnections(
                   ? `Press ${shortcuts.get("dialog.integration.delete")} again to confirm`
                   : connection.label,
                 value: connection.id,
+                details: deleteError()?.id === connection.id ? [deleteError()!.message] : undefined,
                 footer: connection.status ? "Sign in required →" : undefined,
                 footerColor: connection.status ? theme.text.feedback.warning.base : undefined,
                 category: "Connected accounts",
@@ -251,9 +257,11 @@ function manageConnections(
             command: "dialog.integration.delete",
             title: "delete",
             hidden: selected() === "add",
-            disabled: (option) => !option || option.value === "add",
+            disabled: (option) => removing() || !option || option.value === "add",
             onTrigger: (option) => {
+              setDeleteError(undefined)
               if (deleting() !== option.value) return setDeleting(option.value)
+              setRemoving(true)
               const final = credentialConnections(current() ?? integration).length === 1
               void client.api.credential
                 .remove({ credentialID: option.value })
@@ -265,8 +273,14 @@ function manageConnections(
                 })
                 .catch((error) => {
                   setDeleting(undefined)
-                  toast.error(error)
+                  const status = error instanceof Error && error.cause && typeof error.cause === "object" && "status" in error.cause && typeof error.cause.status === "number" ? error.cause.status : undefined
+                  const message = status !== undefined
+                    ? t("Delete refused (HTTP {status}). Try again.", { status })
+                    : t("Could not delete account: {reason}", { reason: errorMessage(error) })
+                  setDeleteError({ id: option.value, message })
+                  toast.show({ variant: "error", message })
                 })
+                .finally(() => setRemoving(false))
             },
           },
         ]}

@@ -3123,3 +3123,19 @@ attempt timed out without diagnostics); targeted core and connected TUI checks p
 The existing Registry Plugins test expects old opencode.plugins to be hidden although
 production excludes orchestra.plugins. Same failure reproduced with prior HEAD's
 Registry file restored temporarily. That test/production behavior was not changed.
+
+ToolRecommendation first slice (recommendation-only, not yet wired): task-scoped,
+verified outcome aggregates rank only the explicit live-available allowlist. Paid or
+new-key candidates produce approvalRequired, never a recommendation to execute. No
+install, configuration, permission or execution dependencies. Fixed documented policy
+weights prefer a 95% Wilson reliability lower bound, then bounded measured latency
+and output-token penalties; dollar cost is displayed when measured, unknown is null,
+never inferred from tokens and not silently treated as free. Minimum five attempts,
+30-day window requires the entire aggregate within the window, cross-project/role/
+capability evidence excluded, duplicate aggregates rejected as ambiguous. No-evidence
+fallback can preserve only the eligible current tool, otherwise no winner. Optional
+exploration is off by default, read-only, and at most one ordinal in ten; caller must
+persist exact-scope decision ordinals. Existing McpRatings successes mean transport
+return (including isError), not verified task success, so no adapter launders those
+rows into verifiedSuccesses. Next slice must record source-grounded task outcome
+verification and durable ordinals before exposing a recommendation in the orchestrator.

@@ -6,6 +6,13 @@ export declare const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vt
  * Client secret issued for the Antigravity OAuth application.
  */
 export declare const ANTIGRAVITY_CLIENT_SECRET: string | undefined;
+/** Local OAuth application configuration is not an account quota or revoked user token. */
+export declare class AntigravityOAuthConfigurationError extends Error {
+    readonly code: "missing_client_secret" | "invalid_oauth_client";
+    readonly isRetryable = false;
+    readonly retryable = false;
+    constructor(code: "missing_client_secret" | "invalid_oauth_client");
+}
 /** Resolve at use time so importing the plugin does not require an OAuth credential. */
 export declare function requireAntigravityClientSecret(env?: NodeJS.ProcessEnv): string;
 /**

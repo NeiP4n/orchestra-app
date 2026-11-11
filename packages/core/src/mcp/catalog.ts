@@ -5,6 +5,7 @@ import type { ServerConfig } from "@orchestra/schema/mcp"
 import { Effect } from "effect"
 import { Config } from "../config.js"
 import { REAL_SCREEN_SERVER_IDS } from "./retired.js"
+import { mcpMayStart } from "./disabled.js"
 import { McpRoleProfiles } from "./role-profiles.js"
 
 export type HealthStatus = "healthy" | "degraded" | "unhealthy"
@@ -21,6 +22,7 @@ export interface ServerHealthState {
 }
 
 export interface HealthCheckOptions {
+  readonly disabled?: boolean
   readonly timeoutMs?: number
   readonly failureThreshold?: number
   readonly recoveryThreshold?: number
@@ -121,6 +123,7 @@ export class McpCircuitBreaker {
     const startTime = Date.now()
 
     return Effect.gen(function* () {
+      if (!mcpMayStart({ disabled: options?.disabled ?? self.defaultOptions.disabled })) return self.getState(server)
       const probeOutcome = yield* probe.pipe(
         Effect.timeoutOrElse({
           duration: `${timeout} millis`,

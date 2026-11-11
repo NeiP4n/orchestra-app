@@ -1,3 +1,4 @@
+import { AntigravityOAuthConfigurationError } from "./constants.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -547,7 +548,7 @@ export const AntigravityV2Plugin = Plugin.define({
                             listeners.clear();
                             let listener;
                             try {
-                                listener = await startOAuthListener();
+                                listener = await startOAuthListener({ deferResult: true });
                             }
                             catch (error) {
                                 // The local callback is unavailable (port taken, no loopback); pasting still works.
@@ -556,7 +557,17 @@ export const AntigravityV2Plugin = Plugin.define({
                             }
                             listeners.add(listener);
                             const callback = listener.waitForCallback()
-                                .then((url) => complete(url.toString()))
+                                .then(async (url) => {
+                                try {
+                                    const credential = await complete(url.toString());
+                                    listener.finish(true);
+                                    return credential;
+                                }
+                                catch (error) {
+                                    listener.finish(false);
+                                    throw error;
+                                }
+                            })
                                 .finally(async () => {
                                 listeners.delete(listener);
                                 await listener.close();
@@ -585,6 +596,8 @@ export const AntigravityV2Plugin = Plugin.define({
                                 return oauthCredential(account ? { ...refreshed, refresh: formatRefreshParts(account) } : refreshed, { ...credential.metadata, ...(account?.id ? { antigravityAccountId: account.id } : {}) });
                             }
                             catch (error) {
+                                if (error instanceof AntigravityOAuthConfigurationError)
+                                    throw error;
                                 if (error instanceof AntigravityTokenRefreshError && error.code === "invalid_grant") {
                                     let revoked = false;
                                     await updateAccounts(stored => {

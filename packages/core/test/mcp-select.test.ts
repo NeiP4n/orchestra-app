@@ -138,3 +138,25 @@ describe("McpSelect native analogues", () => {
     }
   })
 })
+
+describe("operator-disabled candidates", () => {
+  test("OFF candidates are absent from ranking, ask-cards and fallback", () => {
+    const disabled = new Set(["context7", "deepwiki"])
+    expect(
+      McpSelect.rank("documentation library", "linux", undefined, disabled).some((row) => disabled.has(row.entry.id)),
+    ).toBe(false)
+    const decision = McpSelect.selectForTask("documentation library", { disabled })
+    if (decision.kind === "ask") {
+      expect(decision.card.options.some((id) => disabled.has(id))).toBe(false)
+      expect(decision.candidates.some((row) => disabled.has(row.entry.id))).toBe(false)
+    }
+    if (decision.kind === "mcp") {
+      expect(disabled.has(decision.server)).toBe(false)
+      expect(decision.chain.some((link) => link.kind === "mcp" && disabled.has(link.server))).toBe(false)
+    }
+    const docs = McpSelect.selectForTask("context7 library documentation", { disabled: new Set(["deepwiki"]) })
+    expect(docs.kind).toBe("mcp")
+    if (docs.kind === "mcp")
+      expect(docs.chain.some((link) => link.kind === "mcp" && link.server === "deepwiki")).toBe(false)
+  })
+})

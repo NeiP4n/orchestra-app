@@ -129,3 +129,20 @@ describe("MCP registry catalog", () => {
     expect(isServerAvailable("test-server")).toBe(true)
   })
 })
+
+test("OFF healthcheck does not execute the supplied probe or count a failure", async () => {
+  const breaker = new McpCircuitBreaker()
+  let probes = 0
+  const result = await Effect.runPromise(
+    breaker.check(
+      "off-server",
+      Effect.sync(() => {
+        probes++
+      }),
+      { disabled: true },
+    ),
+  )
+  expect(probes).toBe(0)
+  expect(result.lastCheckAt).toBe(0)
+  expect(result.consecutiveFailures).toBe(0)
+})
