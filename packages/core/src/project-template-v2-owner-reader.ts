@@ -28,6 +28,7 @@ export interface Dependencies {
     playbook: (id: OrchestraSchema.ProjectID) => Effect.Effect<{ name: string; text: string } | undefined>
   }
   /** The source-owning canonical reserved-role definitions, never inferred from generated prompts. */
+  runtimeRoles?: (input: { projectID: string; sessionIDs: readonly string[] }) => Promise<readonly V2.Role[]>
   coreRoles: () => Promise<readonly V2.Role[]>
   /** Existing source catalogs in each owned session location. Never global directory scans or chat usage. */
   legacyCatalogs?: (input: { projectID: string; sessionIDs: readonly string[] }) => Promise<readonly LegacySkillExportInventory.Catalog[]>
@@ -67,7 +68,8 @@ export function make(deps: Dependencies, projectID: string): Reader.Stores {
     getSession: session,
     listSessionsInTree: (directory) =>
       deps.store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }),
-    roles: async () => {
+    roles: async (input) => {
+      if (input.projectID !== projectID) throw Error("Runtime role owner differs")
       await process()
       const core = await deps.coreRoles()
       if (
@@ -76,7 +78,10 @@ export function make(deps: Dependencies, projectID: string): Reader.Stores {
       )
         throw Error("Canonical core roles are ambiguous")
       const roles = await run(deps.orchestra.roles(OrchestraSchema.ProjectID.make(projectID)))
+      const runtime = await deps.runtimeRoles?.(input) ?? []
+      const known = new Set([...core, ...roles].map(r => r.agent))
       return [
+        ...runtime.filter(role => !known.has(role.agent)),
         ...core,
         ...roles
           .filter((role) => !core.some((item) => item.agent === role.agent))
@@ -165,7 +170,7 @@ export function make(deps: Dependencies, projectID: string): Reader.Stores {
       const roleMap = new Map(
         state.source.process.roles.map((role, index) => [
           role.agent,
-          ["orchestrator", "team-browser-agent"].includes(role.agent)
+          (["orchestrator", "team-browser-agent"].includes(role.agent) || role.runtime !== undefined)
             ? role.agent
             : "team-" + ProcessSkills.namespace(projectID) + (index + 1),
         ]),

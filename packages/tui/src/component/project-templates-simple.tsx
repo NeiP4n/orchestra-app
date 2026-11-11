@@ -34,11 +34,14 @@ export interface ProjectTemplatesAccess {
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
-const processTemplate = (details: string): { skillCount: number } | undefined => {
+const processTemplate = (details: string): { skillCount: number; sessions: { title: string; role: string }[]; runtimeRoles: string[] } | undefined => {
   try {
     const value = JSON.parse(details)
     if (value?.format === "orchestra.project-template" && value.version === 2 && Array.isArray(value.process?.skills))
-      return { skillCount: value.process.skills.length }
+      return { skillCount: value.process.skills.length,
+        sessions: Array.isArray(value.sessions) ? value.sessions.filter((s: {title?: unknown; role?: unknown}) => typeof s.title === "string" && typeof s.role === "string") : [],
+        runtimeRoles: Array.isArray(value.process.roles) ? value.process.roles.filter((r: {runtime?: unknown}) => !!r.runtime).map((r: {agent: string}) => r.agent) : [],
+      }
   } catch { /* Plain-text v1 details are not process templates. */ }
   return undefined
 }
@@ -119,17 +122,17 @@ export function ProjectTemplatesSimple(props: {
         setMessage(current.kind === "save" ? "Template was not saved. Retry the same save." : "Could not finish. Confirm the same operation again to continue without creating a second copy.")
         return
       }
-      setMessage(
-        current.kind === "save"
-          ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
-          : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
-      )
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
       try {
         await refresh()
       } catch {
         setRefreshFailed(true)
       }
+      setMessage(
+        current.kind === "save"
+          ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
+          : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
+      )
     })
   const collisions = () => {
     const current = prepared()
@@ -250,6 +253,9 @@ export function ProjectTemplatesSimple(props: {
             <Show when={current().triggerReview?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.")}</text>
             </Show>
+            <Show when={processTemplate(current().details)?.runtimeRoles.length}>
+              <text fg={theme.text.muted} wrapMode="word">{tr("Built-in session roles are preserved only with an identical destination runtime definition, including permissions. Different or missing definitions block creation.")}</text>
+            </Show>
             <Show when={current().unresolvedRoles?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some source role definitions are unavailable. Save an incomplete template? Role references, rules and skill assignments are preserved. Creating a project is blocked until the source roles are restored. The original project is unchanged.")}</text>
             </Show>
@@ -259,6 +265,7 @@ export function ProjectTemplatesSimple(props: {
             </Show>
             <Show when={details()}>
               <box flexDirection="column">
+                <For each={processTemplate(current().details)?.sessions}>{session => <text fg={theme.text.muted} wrapMode="word">{tr("Session {session}: role {role}", { session: session.title, role: session.role })}</text>}</For>
                 <For each={current().unresolvedRoles}>{role => <text fg={theme.text.muted} wrapMode="word">{tr("Unavailable role: {role}", { role })}</text>}</For>
                 <For each={current().triggerReview}>{(item) => <text fg={theme.text.muted} wrapMode="word">{tr("Trigger {schedule}: {reason}", { schedule: item.schedule, reason: tr(triggerReason[item.reason]) })}{item.browser ? " " + tr("Browser {browser}", { browser: item.browser }) : ""}</text>}</For>
                 <For each={current().omittedLinks}>{(issue) => <text fg={theme.text.muted} wrapMode="word">{tr("Browser {browser}, saved link {link}: {reason}", { browser: issue.browser, link: issue.link, reason: tr(linkReason[issue.reason]) })}</text>}</For>

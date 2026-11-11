@@ -29,10 +29,10 @@ export function prepare(serialized: string, destination: Destination) {
   const bundle = preview.value.bundle, namespace = V2.hash(destination.projectID).slice(0, 16)
   const roles = bundle.process.roles.map((definition, i) => {
     const existing = destination.roles.find((r) => r.agent === definition.agent), same = existing !== undefined && isDeepStrictEqual(existing, definition)
-    const target = reserved.has(definition.agent) ? definition.agent : `team-process-${namespace}-${i + 1}`
+    const target = (reserved.has(definition.agent) || definition.runtime) ? definition.agent : `team-process-${namespace}-${i + 1}`
     if (target !== definition.agent && destination.roles.some((r) => r.agent === target)) throw Error("Fresh project-local role identity is already occupied.")
     return { source: definition.agent, target, definition, existing: existing ? same ? "identical" as const : "different" as const : "absent" as const,
-      action: reserved.has(definition.agent) ? same ? "reuse-core" as const : "blocked-core-difference" as const : "install-project-local" as const,
+      action: definition.runtime ? same ? "reuse-runtime" as const : "blocked-runtime-difference" as const : reserved.has(definition.agent) ? same ? "reuse-core" as const : "blocked-core-difference" as const : "install-project-local" as const,
       access: "review-required" as const }
   })
   const skills = bundle.process.skills.map((definition, i) => {
@@ -66,7 +66,7 @@ export function prepare(serialized: string, destination: Destination) {
       mcp: requiredMcp,
       credentialSlots: [...bundle.vault.local.map((s) => s.name), ...bundle.vault.globalRequirements],
       browsersNeedSignIn: bundle.browsers.map((b) => b.slot),
-      coreRoleDifferences: roles.filter((r) => r.action === "blocked-core-difference").map((r) => r.source),
+      coreRoleDifferences: roles.filter((r) => r.action === "blocked-core-difference" || r.action === "blocked-runtime-difference").map((r) => r.source),
     },
     permissionsGranted: false as const, overwritesExisting: false as const, startsAutomatically: false as const,
     activation: "blocked-until-reviewed-install-and-dependency-check" as const,

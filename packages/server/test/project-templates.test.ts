@@ -68,6 +68,9 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       })).body.data
       expect(ordinary.agent).toBeUndefined()
       expect((yield* call("/api/orchestra/rules/" + encodeURIComponent("orchestrator:" + project.id), "POST", { text: "Report failures and preserve the process." })).status).toBe(200)
+      for (const agent of ["build", "plan"]) {
+        yield* call("/api/session", "POST", { title: "Runtime " + agent, agent, location: { directory: source } })
+      }
       const browsers = [{ id: "brw_source", name: "Inbox", chat: browserAgent.id, mode: "window" }]
       const prepared = yield* call("/api/orchestra/project-template/prepare-save", "POST", {
         projectID: project.id,
@@ -76,6 +79,13 @@ for (const version of ["1.0.0", "1.0.0+96e173dfb"]) it.live(
       expect(prepared.status).toBe(200)
       expect(prepared.body.triggerReview).toEqual([])
       const captured = JSON.parse(prepared.body.details)
+      expect(captured.process.unresolvedRoles).toBeUndefined()
+      for (const agent of ["build", "plan"]) {
+        const role = captured.process.roles.find((r: {agent:string}) => r.agent === agent)
+        expect(role.runtime.id).toBe(agent)
+        expect(role.runtime.permissions.length).toBeGreaterThan(0)
+        expect(captured.sessions.find((s:{title:string})=>s.title === "Runtime " + agent).role).toBe(agent)
+      }
       expect(captured.sessions.find((row: { title: string }) => row.title === "Приветствие auto").role).toBeNull()
       expect(captured.rules).toContainEqual({ scope: "orchestrator", session: null, text: "Report failures and preserve the process." })
       expect(prepared.body.details).not.toContain(project.id)

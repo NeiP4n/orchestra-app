@@ -6,6 +6,8 @@ export const registryEn = {
   "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.": "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.",
 
   "This template preserves unavailable role references. Restore the original source roles and update the template before creating a project. No permissions were invented or removed.": "This template preserves unavailable role references. Restore the original source roles and update the template before creating a project. No permissions were invented or removed.",
+  "Built-in session roles are preserved only with an identical destination runtime definition, including permissions. Different or missing definitions block creation.": "Built-in session roles are preserved only with an identical destination runtime definition, including permissions. Different or missing definitions block creation.",
+  "Session {session}: role {role}": "Session {session}: role {role}",
   "Save incomplete template": "Save incomplete template",
   "Some source role definitions are unavailable. Save an incomplete template? Role references, rules and skill assignments are preserved. Creating a project is blocked until the source roles are restored. The original project is unchanged.": "Some source role definitions are unavailable. Save an incomplete template? Role references, rules and skill assignments are preserved. Creating a project is blocked until the source roles are restored. The original project is unchanged.",
   "Unavailable role: {role}": "Unavailable role: {role}",
@@ -179,6 +181,8 @@ export const registryRu: Record<keyof typeof registryEn, string> = {
   "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.": "План работы проекта рекомендует недоступную роль. Восстановите роль или проверьте рекомендацию. Настройки процесса не удалены.",
   "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.": "Навык назначен недоступной роли. Восстановите роль или проверьте назначение навыка. Назначения не удалены.",
   "This template preserves unavailable role references. Restore the original source roles and update the template before creating a project. No permissions were invented or removed.": "Шаблон хранит ссылки на недоступные роли. Восстановите исходные роли и обновите шаблон перед созданием проекта. Права не выдуманы и не удалены.",
+  "Built-in session roles are preserved only with an identical destination runtime definition, including permissions. Different or missing definitions block creation.": "Встроенные роли сессий сохраняются только при полном совпадении с ролью нового проекта, включая права. Если роль отличается или недоступна, создание блокируется.",
+  "Session {session}: role {role}": "Сессия {session}: роль {role}",
   "Save incomplete template": "Сохранить неполный шаблон",
   "Some source role definitions are unavailable. Save an incomplete template? Role references, rules and skill assignments are preserved. Creating a project is blocked until the source roles are restored. The original project is unchanged.": "Некоторые исходные роли недоступны. Сохранить неполный шаблон? Ссылки ролей, правила и назначения навыков сохранятся. Создание проекта заблокировано до восстановления исходных ролей. Исходный проект не меняется.",
   "Unavailable role: {role}": "Недоступная роль: {role}",
