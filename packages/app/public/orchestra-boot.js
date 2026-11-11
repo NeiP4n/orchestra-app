@@ -40,7 +40,7 @@
     root.textContent = ""
     var page = document.createElement("div")
     page.style.cssText =
-      "font-family:system-ui,sans-serif;max-width:560px;margin:15vh auto;padding:0 16px;color:#222"
+      "font-family:var(--font-family-mono,monospace);max-width:560px;margin:15vh auto;padding:0 16px;color:#222"
     var heading = document.createElement("h1")
     heading.style.cssText = "font-size:20px;line-height:1.3;margin:0 0 8px"
     heading.textContent = "Orchestra did not load"
