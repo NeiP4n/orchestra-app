@@ -84,3 +84,29 @@ describe("rule load action gate", () => {
     }
   })
 })
+
+
+describe("resource-level rule enforcement", () => {
+  test("Russian explicit directives have the same hard semantics", () => {
+    expect(RuleEnforce.violation([rule("Запретить инструмент shell")], { tool: "shell", agent: "a", input: {} })).toBeDefined()
+    expect(RuleEnforce.violation([rule("Только роль browser-agent может использовать инструмент browser")], { tool: "browser", agent: "team-developer", input: {} })).toBeDefined()
+    expect(RuleEnforce.violation([rule("Запретить команду git push для роли developer")], { tool: "shell", agent: "team-developer", input: { command: "git push" } })).toBeDefined()
+    expect(RuleEnforce.parse("Не делай ничего плохого")).toBeUndefined()
+  })
+  test("root glob, traversal, Windows separators and resolved patch paths cannot dodge deny path", () => {
+    for (const file of [".env", "./.env", "safe/../.env", "C:\\work\\.env", "/work/sub/../.env"]) {
+      expect(RuleEnforce.permissionViolation([rule("deny path **/.env")], { action: "edit", agent: "a", resources: [file] })).toBeDefined()
+    }
+    expect(RuleEnforce.permissionViolation([rule("deny path **/.env")], { action: "read", agent: "a", resources: ["src/main.ts"] })).toBeUndefined()
+  })
+  test("a check or nested tool cannot hide its command from the final permission guard", () => {
+    expect(RuleEnforce.permissionViolation([rule("deny command git push")], { action: "shell", agent: "a", resources: ["git push origin dev"] })).toBeDefined()
+    expect(RuleEnforce.permissionViolation([rule("deny command git push")], { action: "shell", agent: "a", resources: ["git status"] })).toBeUndefined()
+  })
+  test("opaque execution is refused while a path boundary cannot be enforced inside it", () => {
+    for (const action of ["shell", "execute", "console", "terminal", "subagent"]) {
+      expect(RuleEnforce.permissionViolation([rule("deny path **/.env")], { action, agent: "a", resources: ["python script.py"] })).toBeDefined()
+    }
+    expect(RuleEnforce.permissionViolation([rule("deny path **/.env for role developer")], { action: "shell", agent: "team-tester", resources: ["bun test"] })).toBeUndefined()
+  })
+})
