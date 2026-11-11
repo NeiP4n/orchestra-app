@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, mkdir, writeFile, rm, symlink, link } from "node:fs/promises"
+import { realpath, mkdtemp, mkdir, writeFile, rm, symlink, link } from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
 import { ProjectTemplateV2Source as S } from "../src/project-template-v2-source"
@@ -45,7 +45,7 @@ for (const [name, change] of [
   expect(S.capture(source, metadata, process).ok).toBe(false)
 })
 test("bounded skill file reader captures exact selected definitions, not neighboring data", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "skill-source-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "skill-source-")))
   try {
     await mkdir(path.join(root, "references")); await writeFile(path.join(root, "SKILL.md"), "# A skill\n")
     await writeFile(path.join(root, "references", "guide.md"), "Exact text.\n")
@@ -64,7 +64,7 @@ test("bounded skill file reader captures exact selected definitions, not neighbo
 })
 
 test("definition byte fidelity preserves UTF-8 BOM, Cyrillic and CRLF instead of dropping the BOM", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "skill-unicode-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "skill-unicode-")))
   try {
     const content = "\uFEFF# Навык\r\nПроверить заявку.\r\n"
     await writeFile(path.join(root, "SKILL.md"), content)

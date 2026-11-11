@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
+import { realpath, mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { expect, test } from "bun:test"
@@ -87,7 +87,7 @@ test("v2 dependency ordering is preserved but multi-node cycles are rejected", (
 })
 
 test("canonical v2 bytes and hashes survive a new disk read without using v1 save", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "process-v2-"))
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "process-v2-")))
   try {
     const first = V2.preview(JSON.stringify(processFixture())); if (!first.ok) throw Error(first.error)
     const file = path.join(root, "process.json")
