@@ -861,6 +861,7 @@ export const dict = {
   "settings.about.otherContributor.other": "{{count}} другого",
   "settings.about.firstPublished": "Впервые опубликовано в Миссури, США.",
   "settings.about.firstIllustrated": "Впервые показано в Лондоне, Англия.",
+  "settings.about.upstreamCredits": "Авторы и лицензии OpenCode",
   "settings.about.website": "www.opencode.ai",
   "settings.about.description": "Orchestra, агент кодирования с открытым исходным кодом.",
   "settings.about.trademark": "Orchestra является зарегистрированной торговой маркой Anomaly Innovations, Inc..",
