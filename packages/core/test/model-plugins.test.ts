@@ -474,7 +474,7 @@ it.effect("fresh model selection prefers anonymous Kilo while an explicit select
     const models = yield* Model.Service
     const kilo = Provider.ID.make("kilo-free")
     const free = Model.ID.make("kilo-auto/free")
-    const other = Provider.ID.make("catalog-vendor")
+    const other = Provider.ID.make("opencode")
     const chat = Model.ID.make("newest-chat")
     const source: Plugin.Generation = {
       id: "default-route-source",
@@ -493,6 +493,14 @@ it.effect("fresh model selection prefers anonymous Kilo while an explicit select
     }
     yield* plugins.activate([source, selected])
     expect(yield* models.default()).toMatchObject({ providerID: other, id: chat })
+    yield* plugins.activate([{
+      id: "only-upstream",
+      revision: "1",
+      effect: (ctx) => ctx.provider.transform((editor) => {
+        editor.add({ info: { ...Provider.Info.empty(other), activation: "enabled" }, models: [Model.Info.default(other, chat)] })
+      }).pipe(Effect.asVoid),
+    }])
+    expect(yield* models.default()).toBeUndefined()
     yield* plugins.activate([])
   }),
 )

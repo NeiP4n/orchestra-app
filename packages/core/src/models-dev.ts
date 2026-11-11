@@ -196,7 +196,8 @@ export function normalize(
     const info = {
       id: providerID,
       name: item.name,
-      activation: "auto",
+      // Only the built-in anonymous free gateway is usable without an integration connection.
+      activation: item.id === "kilo-free" ? "enabled" : "auto",
       package: packageName,
       ...(item.api && packageName !== "@orchestra/ai/providers/cloudflare-workers-ai"
         ? { settings: { baseURL: item.api } }
