@@ -1,0 +1,44 @@
+name: dod-command-regression
+
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/dod.ts'
+      - 'packages/core/src/tool/plugin/dod.ts'
+      - 'packages/core/test/*dod*.test.ts'
+      - '.github/workflows/dod-command-regression.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'packages/core/src/dod.ts'
+      - 'packages/core/src/tool/plugin/dod.ts'
+      - 'packages/core/test/*dod*.test.ts'
+      - '.github/workflows/dod-command-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dod:
+    name: DoD command validation (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Real board and tool command regression
+        run: bun test packages/core/test/dod.test.ts packages/core/test/tool-dod.test.ts packages/core/test/dod-guards.test.ts packages/core/test/dod-kanban.test.ts packages/core/test/dod-heartbeat.test.ts packages/core/test/tool-dod-integration.test.ts
