@@ -15,9 +15,17 @@ beforeEach(() => {
   document.documentElement.removeAttribute("data-theme")
   document.documentElement.removeAttribute("data-color-scheme")
   localStorage.clear()
-  // SAFETY: the preload reads only matches; this fixture never exposes the omitted MediaQueryList members.
   Object.defineProperty(window, "matchMedia", {
-    value: () => ({ matches: true }) as MediaQueryList,
+    value: (media: string): MediaQueryList => ({
+      media,
+      matches: true,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => true,
+    }),
     configurable: true,
   })
 })
