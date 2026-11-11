@@ -1,4 +1,4 @@
-import type { NeuralSignal, NeuralSignalKind } from "./neural-activity"
+import type { NeuralSignal } from "./neural-activity"
 import type { MeshNode } from "./neural-mesh"
 
 export type NeuralBridge = {
@@ -51,7 +51,7 @@ export class NeuralMeshActivity {
     return selected
   }
 
-  take(signal: NeuralSignal): { hub: number; kind: NeuralSignalKind; all: boolean } {
+  take(signal: NeuralSignal) {
     const hub = this.hub(signal.sessionID)
     const node = this.nodes[hub]!
     node.flash = Math.max(node.flash, signal.kind === "think" ? 0.5 : signal.kind === "write" ? 0.7 : 1)
