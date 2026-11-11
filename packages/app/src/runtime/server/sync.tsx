@@ -1,11 +1,18 @@
 import type { Config, Path, Project, ProviderAuthResponse } from "@/runtime/server/types"
 import { showToast } from "@/shell/notifications/toast"
 import { getFilename } from "@orchestra/util/path"
-import { getOwner, onCleanup, untrack } from "solid-js"
+import { createEffect, getOwner, onCleanup, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/runtime/i18n/language"
 import { type ServerSDK } from "./client"
-import { bootstrapDirectory, bootstrapGlobal, loadGlobalConfigQuery, loadPathQuery } from "./global-sync/bootstrap"
+import {
+  applyLoadedProjects,
+  bootstrapDirectory,
+  bootstrapGlobal,
+  loadGlobalConfigQuery,
+  loadPathQuery,
+  loadProjectsQuery,
+} from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import type { ProjectMeta } from "./global-sync/types"
 import { formatServerError } from "@/runtime/server/errors"
@@ -107,6 +114,28 @@ export function createServerSyncContextInner(serverSDK: ServerSDK, data: Data) {
         )
       }
     },
+  })
+
+  // Query cache is shared, but every server context owns a separate Solid store.
+  // Observe project metadata directly so cached/in-flight bootstrap work in a
+  // previous context cannot leave this context's project state uninitialized.
+  const projectsQuery = useQuery(() => ({
+    ...loadProjectsQuery(serverSDK.scope, serverSDK.api.project),
+    enabled: connected(),
+  }))
+
+  createEffect(() => {
+    if (projectsQuery.isSuccess) {
+      applyLoadedProjects({ scope: serverSDK.scope, setGlobalStore, queryClient }, projectsQuery.data)
+      return
+    }
+
+    if (projectsQuery.isError) {
+      const error = projectsQuery.error
+
+      setGlobalStore("projectError", error instanceof Error ? error.message : String(error))
+      setGlobalStore("projectsReady", true)
+    }
   })
 
   const bootstrap = useQuery(() => ({

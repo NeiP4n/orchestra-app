@@ -85,6 +85,30 @@ export const loadProjectsQuery = (scope: ServerScope, projects: ProjectApi) =>
       ),
   })
 
+/** Each UI store must hydrate even when another context populated the shared query cache. */
+export function applyLoadedProjects(
+  input: {
+    scope: ServerScope
+    setGlobalStore: SetStoreFunction<GlobalStore>
+    queryClient: QueryClient
+  },
+  data: Project[],
+) {
+  input.setGlobalStore("projectError", undefined)
+  input.setGlobalStore("project", (previous) =>
+    // A not-yet-ready server (or a wrong database file) answers with an empty
+    // list: keep the projects already on screen instead of flashing an empty
+    // project list. Projects are never deleted through the UI, so an empty
+    // fetch never legitimately clears a non-empty store.
+    data.length === 0 && previous.length > 0
+      ? previous
+      : data.map((project) =>
+          withWorktreeInventory(project, input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id))),
+        ),
+  )
+  input.setGlobalStore("projectsReady", true)
+}
+
 export async function bootstrapGlobal(input: {
   serverAPI: {
     readonly location: LocationApi
@@ -102,21 +126,7 @@ export async function bootstrapGlobal(input: {
       input.queryClient
         .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
         .then((data) => {
-          input.setGlobalStore("projectError", undefined)
-          input.setGlobalStore("project", (previous) =>
-            // A not-yet-ready server (or a wrong database file) answers with an empty
-            // list: keep the projects already on screen instead of flashing an empty
-            // project list. Projects are never deleted through the UI, so an empty
-            // fetch never legitimately clears a non-empty store.
-            data.length === 0 && previous.length > 0
-              ? previous
-              : data.map((project) =>
-                  withWorktreeInventory(
-                    project,
-                    input.queryClient.getQueryData(worktreeInventoryKey(input.scope, project.id)),
-                  ),
-                ),
-          )
+          applyLoadedProjects(input, data)
         })
         .catch((error) => {
           // runAll swallows this failure (allSettled): record it so the home can

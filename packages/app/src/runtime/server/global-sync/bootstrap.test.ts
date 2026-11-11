@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { QueryClient } from "@tanstack/solid-query"
 import { OpenCode } from "@orchestra/client/promise"
 import { createStore } from "solid-js/store"
-import { bootstrapGlobal, loadPathQuery, loadProjectsQuery } from "./bootstrap"
+import { applyLoadedProjects, bootstrapGlobal, loadPathQuery, loadProjectsQuery } from "./bootstrap"
 import { ServerScope } from "@/runtime/server/scope"
 import type { ServerApi } from "@/runtime/server/api"
 import { createServerTransport } from "@/runtime/server/client"
@@ -348,4 +348,24 @@ test("projects settle independently while an unrelated location bootstrap is sti
     await bootstrap
     queryClient.clear()
   }
+})
+
+test("a new UI store hydrates from shared project metadata without re-running the old bootstrap", async () => {
+  const queryClient = new QueryClient()
+  const cached = [{ id: "project", worktree: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }]
+  const [store, setStore] = createStore<ServerSync["data"]>({
+    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    project: [],
+    provider_auth: {},
+    config: {},
+    reload: undefined,
+  })
+
+  queryClient.setQueryData([ServerScope.local, "project"], cached)
+  queryClient.setQueryData([ServerScope.local, "bootstrap"], Date.now())
+  applyLoadedProjects({ scope: ServerScope.local, setGlobalStore: setStore, queryClient }, cached)
+  expect(store.projectsReady).toBe(true)
+  expect(store.project.map((project) => project.id)).toEqual(["project"])
+  expect(store.projectError).toBeUndefined()
+  queryClient.clear()
 })
