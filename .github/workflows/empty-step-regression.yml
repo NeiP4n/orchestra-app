@@ -25,3 +25,20 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - name: Step settlement and bounded real runner fallback (no providers)
         run: bun test packages/core/test/session-step.test.ts packages/core/test/session-runner-fallback.test.ts packages/core/test/session-runner-tool-events.test.ts packages/core/test/session-runner-retry.test.ts packages/core/test/session-runner-recorded.test.ts
+  runner-diagnostic:
+    name: full runner ${{ matrix.version }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        version: [patch, baseline]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.version == 'baseline' && '6d09e5d7c98028a7b14e69f9a29e5825bad75646' || github.ref }}
+      - uses: ./.github/actions/setup-bun
+      - name: Complete runner suite, including known dev limits-opt-out failure
+        run: bun test packages/core/test/session-runner.test.ts
