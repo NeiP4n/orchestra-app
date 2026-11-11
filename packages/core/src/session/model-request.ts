@@ -1,4 +1,3 @@
-import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
 export * as SessionModelRequest from "./model-request.js"
 
 import {
@@ -278,7 +277,7 @@ export const layer = Layer.effect(
         ...(input.agent === "orchestrator" ? ["browser", "mcp_manager", "sessions"] : []),
         // A project with browser sessions in the Browser tab has the browser tool at hand without being asked
         // for it by name: a model that has to guess it exists answers that it cannot see a browser.
-        ...(BrowserInstructions.hasSessions(session.location.directory, OrchestraSchema.sessionOwner(session.metadata)) || BrowserInstructions.hasAnySessions() ? ["browser"] : []),
+        ...(BrowserInstructions.hasAnySessions() ? ["browser"] : []),
       ])
       const loaded = (tools.lazyDefinitions ?? []).filter((tool) => picked.has(tool.name))
       BrowserInstructions.traceTools(

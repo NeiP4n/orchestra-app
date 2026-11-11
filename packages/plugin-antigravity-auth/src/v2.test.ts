@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
   recovery: vi.fn(),
   updater: vi.fn(),
   closeListener: vi.fn(async () => undefined),
+  finishListener: vi.fn(),
   callback: undefined as URL | undefined,
   exchange: vi.fn(),
   connectionStatus: vi.fn(async (_input: Parameters<Plugin.Context["integration"]["connection"]["status"]>[0]) => undefined),
@@ -91,6 +92,7 @@ vi.mock("./antigravity/oauth.ts", () => ({
 vi.mock("./plugin/server.ts", () => ({
   startOAuthListener: async () => ({
     close: state.closeListener,
+    finish: state.finishListener,
     waitForCallback: async () => state.callback ?? new URL(`${ANTIGRAVITY_REDIRECT_URI}?state=expected-state&code=callback-code`),
   }),
 }))
@@ -1664,5 +1666,32 @@ describe("OAuth app misconfiguration is never rotated as quota exhaustion", () =
     vi.stubEnv("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET", "")
     await expect(adapter.method.refresh!(credential())).rejects.toMatchObject({ code: "missing_client_secret", isRetryable: false })
     expect(state.storage!.accounts[0]!.enabled).toBe(true)
+  })
+})
+
+
+describe("truthful native OAuth completion", () => {
+  it("does not report browser success or create a pool entry when local configuration fails after redirect", async () => {
+    const { AntigravityOAuthConfigurationError } = await import("./constants.ts")
+    state.storage = null
+    const adapter = await host({ connection: false })
+    state.exchange.mockRejectedValueOnce(new AntigravityOAuthConfigurationError("missing_client_secret"))
+    const authorization = await adapter.method.authorize({ manual: false })
+    if (authorization.mode !== "auto") throw new Error("Expected automatic auth")
+    await expect(authorization.callback).rejects.toMatchObject({ code: "missing_client_secret" })
+    expect(state.finishListener).toHaveBeenCalledWith(false)
+    expect(state.finishListener).not.toHaveBeenCalledWith(true)
+    expect(state.storage?.accounts ?? []).toHaveLength(0)
+  })
+  it("reports browser success only after exchange and owning pool persistence", async () => {
+    state.storage = null
+    const adapter = await host({ connection: false })
+    const authorization = await adapter.method.authorize({ manual: false })
+    if (authorization.mode !== "auto") throw new Error("Expected automatic auth")
+    const value = await authorization.callback
+    expect(value.type).toBe("oauth")
+    expect(state.storage?.accounts).toHaveLength(1)
+    expect(state.finishListener).toHaveBeenCalledWith(true)
+    expect(value.metadata?.antigravityAccountId).toBe(state.storage?.accounts[0].id)
   })
 })

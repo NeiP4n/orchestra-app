@@ -1,5 +1,12 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Up-to-date documentation and code examples for libraries and frameworks.": "Up-to-date documentation and code examples for libraries and frameworks.",
+  "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.": "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.",
+  "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.": "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.",
+  "Official REA MCP for evidence-based reverse engineering of native binaries, JavaScript/Electron apps, websites, Android APKs, and .NET assemblies.": "Official REA MCP for evidence-based reverse engineering of native binaries, JavaScript/Electron apps, websites, Android APKs, and .NET assemblies.",
+  "Ask questions about public GitHub repositories and read generated project documentation.": "Ask questions about public GitHub repositories and read generated project documentation.",
+  "Inspect application errors, events, performance data, and debugging context from Sentry.": "Inspect application errors, events, performance data, and debugging context from Sentry.",
+
   "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.",
   "Trigger {schedule}: {reason}": "Trigger {schedule}: {reason}",
@@ -152,6 +159,13 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Up-to-date documentation and code examples for libraries and frameworks.": "Свежая документация и примеры кода для библиотек и фреймворков.",
+  "Semantic code intelligence at symbol level via language servers: find symbols and references, rename and edit precisely across 40+ languages.": "Работа с кодом через языковые серверы: поиск символов и ссылок, точное переименование и редактирование в более чем 40 языках.",
+  "Indexed retrieval over the project's code and docs: BM25 + vector passages with file:line citations, plus agent memory, from a local node.": "Поиск по индексу кода и документации проекта: BM25 и векторный поиск с указанием файла и строки, а также память агентов на локальном узле.",
+  "Official REA MCP for evidence-based reverse engineering of native binaries, JavaScript/Electron apps, websites, Android APKs, and .NET assemblies.": "Официальный MCP REA для анализа нативных программ, приложений JavaScript/Electron, сайтов, Android APK и сборок .NET на основе проверяемых данных.",
+  "Ask questions about public GitHub repositories and read generated project documentation.": "Вопросы об открытых репозиториях GitHub и чтение сгенерированной документации проектов.",
+  "Inspect application errors, events, performance data, and debugging context from Sentry.": "Ошибки приложения, события, данные производительности и контекст для отладки из Sentry.",
+
   "Skills, role definitions, model fallback lists, project files and global MCP settings are not copied. Review destination configuration.": "Скиллы, определения ролей, запасные модели, файлы проекта и глобальные настройки MCP не копируются. Проверьте настройки нового проекта.",
   "All imported triggers stay paused. Browser checks need a new page/chat binding and sign-in. Review dependencies in Details before enabling.": "Все импортированные триггеры приостановлены. Для браузерных проверок заново выберите страницу/чат и войдите в аккаунт. Зависимости указаны в подробностях.",
   "Trigger {schedule}: {reason}": "Триггер {schedule}: {reason}",

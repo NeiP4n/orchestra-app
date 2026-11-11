@@ -636,6 +636,8 @@ test("MCP installation survives panel restart and OFF stays installed with expli
     const row = frame.split("\n").find((line) => line.includes("Context7"))!
     expect(row).toContain("OFF")
     expect(row).not.toContain("Установить")
+    expect(frame).toContain("Свежая документация")
+    expect(frame).not.toContain("Up-to-date documentation")
     await Bun.write("/tmp/mcp-restart-ru-frame.txt", frame)
     await Bun.write("/tmp/mcp-restart-ru-spans.json", JSON.stringify(third.captureSpans()))
   } finally { third.renderer.destroy() }

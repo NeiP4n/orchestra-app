@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import ts from "typescript"
+import { McpCatalog } from "@orchestra/core/mcp/catalog"
 import { translate } from "../src/util/i18n"
 
 const files = ["project-templates-simple.tsx", "registry-vault.tsx", "devtools-registry.tsx"]
@@ -35,4 +36,13 @@ test("guard rejects raw labels, command titles and keys without translation", ()
   expect(inspect('const x = <input placeholder="Untranslated label" />', "test.tsx")).toHaveLength(1)
   expect(inspect('const x = { title: "Untranslated label" }', "test.tsx")).toHaveLength(1)
   expect(inspect('tr("A key deliberately missing from dictionaries")', "test.tsx")).toHaveLength(1)
+})
+
+test("every catalog MCP description has an explicit Russian translation", () => {
+  expect(McpCatalog.all).toHaveLength(6)
+  for (const entry of McpCatalog.all) {
+    expect(translate("en", entry.description)).toBe(entry.description)
+    expect(translate("ru", entry.description)).not.toBe(entry.description)
+    expect(translate("ru", entry.description)).toMatch(/[А-Яа-яЁё]/)
+  }
 })
