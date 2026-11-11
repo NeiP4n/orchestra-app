@@ -16,6 +16,59 @@ export function DialogSchedules(props: { sessionID: string }) {
     [selected, setSelected] = createSignal<string>(),
     [armed, setArmed] = createSignal<string>(),
     [notice, setNotice] = createSignal("")
+  const [checked, setChecked] = createSignal<Record<string, { digest: string; browser: boolean }>>({})
+  const [batch, setBatch] = createSignal<ScheduleRequests.Command[]>([])
+  const isChecked = (item: ScheduleView.Item) => !!item.review && checked()[item.id]?.digest === item.review.digest
+  const toggleChecked = () => {
+    const item = current()
+    if (!item || item.enabled || !item.review || batch().length) return
+    setChecked((previous) => {
+      const next = { ...previous }
+      if (isChecked(item)) delete next[item.id]
+      else next[item.id] = { digest: item.review!.digest, browser: false }
+      return next
+    })
+  }
+  const toggleBrowser = () => {
+    const item = current()
+    if (!item || !isChecked(item) || !item.review?.browser || batch().length) return
+    setChecked((previous) => ({
+      ...previous,
+      [item.id]: { digest: item.review!.digest, browser: !previous[item.id]?.browser },
+    }))
+  }
+  const enableChecked = () => {
+    if (batch().length || pending()) return
+    const chosen = Object.entries(checked())
+    if (!chosen.length) {
+      setNotice("Отметьте проверенные триггеры.")
+      return
+    }
+    const ready = chosen.map(([id, check]) =>
+      items().find(
+        (item) =>
+          item.id === id &&
+          !item.enabled &&
+          item.review?.digest === check.digest &&
+          (!item.review.browser || check.browser),
+      ),
+    )
+    if (ready.some((item) => !item)) {
+      setNotice("Проверьте изменившиеся триггеры и подтвердите страницу/вход браузера.")
+      return
+    }
+    const requests: ScheduleRequests.Command[] = []
+    try {
+      for (const item of ready)
+        if (item?.review)
+          requests.push(ScheduleRequests.requestReviewedResume(item.id, props.sessionID, item.review.digest))
+      setNotice("Запросы сохранены. Ждём подтверждения сервиса.")
+      setChecked({})
+    } catch {
+      setNotice("Часть запросов могла сохраниться. Изменившиеся триггеры проверьте заново.")
+    }
+    setBatch(requests)
+  }
   const [pending, setPending] = createSignal<ScheduleRequests.Command>()
   const items = createMemo(() => {
     tick()
@@ -35,6 +88,19 @@ export function DialogSchedules(props: { sessionID: string }) {
     setTick((n) => n + 1)
     const request = pending(),
       result = request ? ScheduleRequests.result(request) : undefined
+    if (batch().length) {
+      const results = batch().map((request) => ScheduleRequests.result(request))
+      if (results.every((result) => result)) {
+        const succeeded = results.filter((result) => result?.ok).length
+        setNotice(
+          `Включено: ${succeeded} из ${results.length}. ${results
+            .filter((result) => !result?.ok)
+            .map((result) => result?.message)
+            .join(" ")}`,
+        )
+        setBatch([])
+      }
+    }
     if (result) {
       setNotice(result.message)
       setPending()
@@ -43,7 +109,7 @@ export function DialogSchedules(props: { sessionID: string }) {
   onCleanup(() => clearInterval(timer))
   const command = (action: ScheduleRequests.Command["action"]) => {
     const item = current()
-    if (!item || pending()) return
+    if (!item || pending() || batch().length) return
     try {
       setPending(ScheduleRequests.request(item.id, props.sessionID, action))
       setNotice("Запрос сохранён. Ждём сервис.")
@@ -98,6 +164,9 @@ export function DialogSchedules(props: { sessionID: string }) {
           group: "Триггеры",
           run: () => command(current()?.enabled ? "pause" : "resume"),
         },
+        { bind: "c", title: "Проверен", group: "Триггеры", run: toggleChecked },
+        { bind: "b", title: "Вход и страница проверены", group: "Триггеры", run: toggleBrowser },
+        { bind: "a", title: "Включить проверенные триггеры", group: "Триггеры", run: enableChecked },
         { bind: "d", title: "Удалить (дважды)", group: "Триггеры", run: remove },
         { bind: "e", title: "Сохранить шаблон", group: "Триггеры", run: () => command("export") },
         { bind: "h", title: "Лимит в час", group: "Триггеры", run: () => limit() },
@@ -139,6 +208,40 @@ export function DialogSchedules(props: { sessionID: string }) {
                 <text fg={theme.text.muted} wrapMode="word">
                   Секреты из шаблонов нужно привязать отдельно. Импорт с секретами пока не запускается.
                 </text>
+                <Show when={!item().enabled && item().review}>
+                  <scrollbox height={6}>
+                    <text fg={theme.text.muted} wrapMode="word">
+                      Инструкция: {item().review?.prompt}
+                    </text>
+                    <text fg={theme.text.muted} wrapMode="word">
+                      Источник: {item().review?.source}
+                    </text>
+                    <text fg={theme.text.muted} wrapMode="word">
+                      Условие: {item().review?.condition || "нет"}
+                    </text>
+                    <Show when={item().review?.actions}>
+                      <text fg={theme.text.muted} wrapMode="word">
+                        Действия: {item().review?.actions}
+                      </text>
+                    </Show>
+                  </scrollbox>
+                  <HoverAction onClick={toggleChecked}>
+                    <text fg={theme.text.action.primary.base} wrapMode="word">
+                      [c {isChecked(item()) ? "✓" : " "}] Инструкция, расписание, лимиты и учётные данные проверены
+                    </text>
+                  </HoverAction>
+                  <Show when={item().review?.browser}>
+                    <HoverAction onClick={toggleBrowser}>
+                      <text fg={theme.text.action.primary.base} wrapMode="word">
+                        [b {isChecked(item()) && checked()[item().id]?.browser ? "✓" : " "}] Новый браузер привязан;
+                        вход и нужная страница/чат проверены
+                      </text>
+                    </HoverAction>
+                  </Show>
+                  <text fg={theme.text.muted} wrapMode="word">
+                    Включение не даёт права публикации и не меняет лимиты.
+                  </text>
+                </Show>
                 <box flexDirection="row" gap={2} flexWrap="wrap">
                   <HoverAction onClick={() => command(item().enabled ? "pause" : "resume")}>
                     <text fg={theme.text.action.primary.base}>[p {item().enabled ? "Пауза" : "Включить"}]</text>
@@ -161,6 +264,11 @@ export function DialogSchedules(props: { sessionID: string }) {
               </>
             )}
           </Show>
+          <HoverAction onClick={enableChecked}>
+            <text fg={theme.text.action.primary.base}>
+              [a Включить проверенные триггеры ({Object.keys(checked()).length})]
+            </text>
+          </HoverAction>
           <Show when={notice()}>
             <text fg={theme.text.feedback.warning.base} wrapMode="word">
               {notice()}

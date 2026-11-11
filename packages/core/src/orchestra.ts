@@ -52,6 +52,7 @@ import { ScheduleView } from "./schedule-view.js"
 import { BrowserLocalTest } from "./browser/local-test.js"
 import { BrowserBridge } from "./browser/bridge.js"
 import { BrowserRuntime } from "./browser/runtime.js"
+import { TriggerReview } from "./trigger-review.js"
 import { ScheduleRequests } from "./schedule-requests.js"
 import { TriggerBundle } from "./trigger-bundle.js"
 import { TriggerBundleFiles } from "./trigger-bundle-files.js"
@@ -1869,6 +1870,10 @@ const layer: Layer.Layer<
         if (!project?.main) continue
         const command = ScheduleRequests.read(trigger.id, String(project.main))
         if (command) {
+          if (command.reviewedDigest && !TriggerReview.matches(trigger, command.reviewedDigest)) {
+            ScheduleRequests.finish(command, false, "Триггер изменился после проверки. Проверьте заново.")
+            continue
+          }
           if (command.action === "export") {
             const bundle = TriggerBundle.fromTriggers([trigger])
             if (!bundle.ok) ScheduleRequests.finish(command, false, "Этот тип триггера пока нельзя перенести. Браузер и его права не экспортируются.")
@@ -1885,9 +1890,11 @@ const layer: Layer.Layer<
               const applied = Trigger.parse(yield* kv.atomicUpdate(entry.key, current => {
                 const latest = Trigger.parse(current)
                 if (!latest || latest.id !== trigger.id || latest.projectID !== String(project.id)) return current
+                if (command.reviewedDigest && !TriggerReview.matches(latest, command.reviewedDigest)) return current
                 return (command.action === "pause" ? {...latest, enabled:false, pausedReason:"paused by the Orchestrator"} : Trigger.resume(latest, Date.now()) ?? latest) as never
               }))
               if (!applied || applied.id !== trigger.id || applied.projectID !== String(project.id)) { ScheduleRequests.finish(command, false, "Триггер уже удалён или сменил владельца."); continue }
+              if (command.reviewedDigest && TriggerReview.snapshot(applied).digest !== command.reviewedDigest) { ScheduleRequests.finish(command, false, "Триггер изменился после проверки. Проверьте заново."); continue }
               if (command.action === "resume" && !applied.enabled) { ScheduleRequests.finish(command, false, "Расписание уже завершено; создайте новое."); continue }
               ScheduleView.sync(applied, String(project.main))
               BrowserSchedule.sync(applied.kind === "browser" ? {...applied, browserSessionID:applied.spec} : applied)
