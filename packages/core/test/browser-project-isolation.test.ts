@@ -28,7 +28,8 @@ test("model list filters before peek; every action/retry and trigger resume vali
  expect(source).toContain('if(ownerRefusal)return yield* fail(ownerRefusal)')
  expect(source).not.toContain('published.length === 1')
  const trigger=readFileSync(new URL("../src/tool/plugin/triggers.ts",import.meta.url),"utf8")
- expect(trigger).toContain('BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),browserTarget,project.directory,String(project.id))')
+ // Formatting may change; the exact ownership inputs and their order must not.
+ expect(trigger).toMatch(/BrowserBridge\.ownerRefusal\(\s*BrowserRuntime\.sessions\(\),\s*browserTarget,\s*project\.directory,\s*String\(project\.id\),?\s*\)/)
 })
 
 test("browser context never falls back to a foreign list, and preserves owner binding",()=>{
