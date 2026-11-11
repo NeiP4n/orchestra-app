@@ -49,7 +49,7 @@ function errors(list: PromiseSettledResult<unknown>[]) {
   return list.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason)
 }
 
-function runAll(list: Array<() => Promise<unknown>>) {
+function runAll<T>(list: Array<() => Promise<T>>) {
   return Promise.allSettled(list.map((item) => item()))
 }
 
@@ -95,8 +95,9 @@ export async function bootstrapGlobal(input: {
   queryClient: QueryClient
 }) {
   const slow = [
-    () => input.queryClient.fetchQuery(loadGlobalConfigQuery(input.scope)),
-    () => input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverAPI.location)),
+    () => input.queryClient.fetchQuery(loadGlobalConfigQuery(input.scope)).then(() => undefined),
+    () =>
+      input.queryClient.fetchQuery(loadPathQuery(input.scope, null, input.serverAPI.location)).then(() => undefined),
     () =>
       input.queryClient
         .fetchQuery(loadProjectsQuery(input.scope, input.serverAPI.project))
@@ -117,13 +118,10 @@ export async function bootstrapGlobal(input: {
                 ),
           )
         })
-        .catch((error: unknown) => {
+        .catch((error) => {
           // runAll swallows this failure (allSettled): record it so the home can
           // say the list failed instead of showing zero projects.
-          input.setGlobalStore(
-            "projectError",
-            error instanceof Error ? error.message : String(error),
-          )
+          input.setGlobalStore("projectError", error instanceof Error ? error.message : String(error))
         })
         .finally(() => input.setGlobalStore("projectsReady", true)),
   ]
