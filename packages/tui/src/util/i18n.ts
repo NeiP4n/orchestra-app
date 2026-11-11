@@ -10,6 +10,8 @@ export type Language = "en" | "ru"
 // additions isolated so the upstream translation table can be replaced independently.
 const ruExtra: Record<string, string> = {
   ...registryRu,
+  "Only this native credential will be removed. The separate Antigravity plugin account pool is kept; manage it separately.": "Будет удалена только эта нативная запись. Отдельный пул плагина Antigravity сохранится; управляй им отдельно.",
+  "Native credential removed. The separate Antigravity plugin account pool was not changed.": "Нативная запись удалена. Отдельный пул плагина Antigravity не изменён.",
   "Delete refused (HTTP {status}). Try again.": "Удаление отклонено (HTTP {status}). Повтори.",
   "Delete refused (HTTP {status}): {reason}": "Удаление отклонено (HTTP {status}): {reason}",
   "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept.": "Менеджер связанного аккаунта недоступен. Включи плагин и повтори. Запись сохранена.",
