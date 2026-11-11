@@ -5,9 +5,11 @@ function harness() {
   let next = 0
   const frames = new Map<number, (now: number) => void>()
   const draws: number[] = []
+
   const loop = createNeuralFrameLoop({
     request(callback) {
       frames.set(++next, callback)
+
       return next
     },
     cancel(id) {
@@ -15,6 +17,7 @@ function harness() {
     },
     draw: (dt) => draws.push(dt),
   })
+
   return {
     loop,
     frames,

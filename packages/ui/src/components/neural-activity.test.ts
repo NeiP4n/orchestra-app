@@ -2,8 +2,12 @@ import { describe, expect, spyOn, test } from "bun:test"
 import type { OrchestraEvent } from "@orchestra/client"
 import { NeuralActivity, neuralEnergyFloor } from "./neural-activity"
 
-function event(type: OrchestraEvent["type"], data: Record<string, unknown>): OrchestraEvent {
-  return { type, data } as unknown as OrchestraEvent
+type ActivityEventData = { sessionID: string; id?: string; name?: string }
+
+function event(type: OrchestraEvent["type"], data: ActivityEventData): OrchestraEvent {
+  // SAFETY: these deliberately partial fixtures exercise only the activity reader's
+  // type/sessionID/id/name fields, not transport validation or event replay.
+  return { type, data } as OrchestraEvent
 }
 
 const SESSION = "ses_test"
@@ -43,9 +47,11 @@ describe("NeuralActivity", () => {
 
   test("many tool calls push the level towards 1", () => {
     const activity = new NeuralActivity()
+
     for (let i = 0; i < 10; i++) {
       activity.take(event("session.tool.called", { sessionID: SESSION, id: `call-${i}` }))
     }
+
     expect(activity.level()).toBeGreaterThan(0.9)
     activity.dispose()
   })
@@ -83,9 +89,11 @@ describe("NeuralActivity", () => {
 
   test("heat cools with a half-life of a couple of seconds", async () => {
     const activity = new NeuralActivity()
+
     for (let i = 0; i < 10; i++) {
       activity.take(event("session.tool.called", { sessionID: SESSION, id: `call-${i}` }))
     }
+
     const hot = activity.level()
     expect(hot).toBeGreaterThan(0.9)
     await Bun.sleep(2600)
@@ -110,6 +118,7 @@ test("neural canvases need no activity timer; text subscribers own one shared ti
   const interval = spyOn(globalThis, "setInterval")
   const clear = spyOn(globalThis, "clearInterval")
   const activity = new NeuralActivity()
+
   try {
     expect(interval).not.toHaveBeenCalled()
     activity.take(event("session.tool.called", { sessionID: SESSION, id: "lazy-call" }))

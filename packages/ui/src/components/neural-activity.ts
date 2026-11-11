@@ -27,6 +27,7 @@ export type NeuralSignalKind =
   | "answer"
   // The user moved to another session or project.
   | "select"
+
 export type NeuralSignal = Readonly<{
   seq: number
   kind: NeuralSignalKind
@@ -37,8 +38,10 @@ export type NeuralSignal = Readonly<{
 }>
 
 const SIGNAL_RING = 128
+
 const COOLING_SECONDS = 2.4
 // Streaming text arrives as many small deltas: a canvas sees at most one write a Session per beat.
+
 const STREAM_BEAT_MS = 80
 
 export const NEURAL_WEIGHT = {
@@ -57,6 +60,7 @@ export const NEURAL_WEIGHT = {
   "session.inbox.enqueued": 2,
   "session.compaction.started": 2,
 } satisfies Partial<Record<OrchestraEvent["type"], number>>
+
 type Weighted = Extract<OrchestraEvent, { type: keyof typeof NEURAL_WEIGHT }>
 
 // How busy the agents are: a small floor for each running Session plus what
@@ -83,10 +87,12 @@ export class NeuralActivity {
     // Canvases sample lazily. Only a live text subscriber needs a pulse timer.
     this.pulseTimer = setInterval(() => {
       const level = Math.round(this.level() * 20) / 20
+
       if (level !== this.pulseValue) {
         this.pulseValue = level
         this.pulseListeners.forEach((listener) => listener(level))
       }
+
       if (level === 0 && this.latestValue) this.latestValue = undefined
     }, 250)
     this.pulseTimer.unref?.()
@@ -101,8 +107,10 @@ export class NeuralActivity {
   subscribePulse(listener: (level: number) => void): () => void {
     this.pulseListeners.add(listener)
     this.startPulse()
+
     return () => {
       this.pulseListeners.delete(listener)
+
       if (this.pulseListeners.size === 0) this.dispose()
     }
   }
@@ -110,6 +118,7 @@ export class NeuralActivity {
   // The newest discrete action, such as a tool's name, until the network cools down.
   get latest() {
     if (this.pulse === 0) this.latestValue = undefined
+
     return this.latestValue
   }
 
@@ -122,11 +131,13 @@ export class NeuralActivity {
   level(sessionIDs?: readonly string[]) {
     this.cool()
     const heat = sessionIDs ? sessionIDs.reduce((sum, id) => sum + (this.sessionHeat.get(id) ?? 0), 0) : this.heat
+
     return 1 - Math.exp(-heat / 10)
   }
 
   since(cursor: number) {
     if (cursor >= this.seq) return []
+
     return this.ring.filter((signal) => signal.seq > cursor)
   }
 
@@ -137,7 +148,9 @@ export class NeuralActivity {
 
   take(event: OrchestraEvent) {
     const decision = this.decision(event)
+
     if (decision) return this.push(decision)
+
     if (!weighted(event)) return
     const weight = NEURAL_WEIGHT[event.type]
     const sessionID = event.data.sessionID
@@ -145,7 +158,9 @@ export class NeuralActivity {
     this.heat += weight
     this.sessionHeat.set(sessionID, (this.sessionHeat.get(sessionID) ?? 0) + weight)
     const signal = this.translate(event, sessionID)
+
     if (!signal) return
+
     if ((signal.kind === "write" || signal.kind === "think") && !this.beat(`${sessionID}:${signal.kind}`)) return
     this.push(signal)
   }
@@ -159,13 +174,17 @@ export class NeuralActivity {
 
   private push(signal: Omit<NeuralSignal, "seq">) {
     this.cool()
+
     if (signal.kind === "ask" || signal.kind === "answer" || signal.kind === "select") {
       this.heat += 2
       this.sessionHeat.set(signal.sessionID, (this.sessionHeat.get(signal.sessionID) ?? 0) + 2)
     }
+
     this.seq += 1
     this.ring.push({ ...signal, seq: this.seq })
+
     if (this.ring.length > SIGNAL_RING) this.ring.shift()
+
     if (signal.label) this.latestValue = signal.label
   }
 
@@ -191,7 +210,9 @@ export class NeuralActivity {
         return { kind: "think", sessionID }
       case "session.tool.input.started":
         this.tools.set(event.data.id, event.data.name)
+
         if (this.tools.size > 256) this.tools.delete(this.tools.keys().next().value!)
+
         return
       case "session.tool.called":
         return { kind: "tool", sessionID, call: event.data.id, label: this.tools.get(event.data.id) ?? "tool" }
@@ -216,8 +237,10 @@ export class NeuralActivity {
     // A missing beat means "never beaten": comparing against 0 would
     // suppress every stream signal while performance.now() is under the
     // beat window (the first 80ms of the process).
+
     if (last !== undefined && now - last < STREAM_BEAT_MS) return false
     this.beats.set(key, now)
+
     return true
   }
 
@@ -243,5 +266,6 @@ let shared: NeuralActivity | undefined
 // feeds it from the server event stream (see app/src/neural/feed.tsx).
 export function getSharedNeuralActivity(): NeuralActivity {
   shared ??= new NeuralActivity()
+
   return shared
 }

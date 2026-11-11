@@ -3,6 +3,7 @@ import { getSharedNeuralActivity, type NeuralSignalKind } from "./neural-activit
 import { createNeuralFrameLoop } from "./neural-frame-loop"
 
 export { getSharedNeuralActivity, neuralEnergyFloor, type NeuralSignal, type NeuralSignalKind } from "./neural-activity"
+
 import "./neural-field.css"
 
 // The neuron network on the web, ported from the TUI
@@ -35,14 +36,18 @@ export function useMotion(): () => boolean {
       media.removeEventListener("change", onMedia)
     })
   })
+
   return motion
 }
 
 function readMotion(): boolean {
   if (typeof document === "undefined") return true
   const attr = document.documentElement.dataset.motion
+
   if (attr === "on") return true
+
   if (attr === "off") return false
+
   return !window.matchMedia("(prefers-reduced-motion: reduce)").matches
 }
 
@@ -58,6 +63,7 @@ type Palette = {
 function readPalette(el: HTMLElement): Palette {
   const style = getComputedStyle(el)
   const get = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
+
   return {
     signal: get("--v2-neural-signal", get("--v2-text-text-base", "#eeeeee")),
     synapse: get("--v2-neural-synapse", get("--v2-border-border-base", "#808080")),
@@ -90,43 +96,52 @@ function colorFor(kind: NeuralSignalKind, palette: Palette): string {
 // Deterministic pseudo-random, so the node layout is stable across mounts.
 function mulberry32(seed: number) {
   let value = seed
+
   return () => {
     value |= 0
     value = (value + 0x6d2b79f5) | 0
     let result = Math.imul(value ^ (value >>> 15), 1 | value)
     result = (result + Math.imul(result ^ (result >>> 7), 61 | result)) ^ result
+
     return ((result ^ (result >>> 14)) >>> 0) / 4294967296
   }
 }
 
 type Node = { x: number; y: number; flash: number }
+
 type Pulse = { from: number; to: number; t: number; color: string }
 
 function buildNodes(count: number, seed: number): Node[] {
   const random = mulberry32(seed)
+
   return Array.from({ length: count }, () => ({ x: 0.06 + random() * 0.88, y: 0.08 + random() * 0.84, flash: 0 }))
 }
 
 function buildLinks(nodes: readonly Node[], maxDistance: number): Array<[number, number]> {
   const links: Array<[number, number]> = []
+
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const dx = nodes[i].x - nodes[j].x
       const dy = nodes[i].y - nodes[j].y
+
       if (Math.hypot(dx, dy) < maxDistance) links.push([i, j])
     }
   }
+
   return links
 }
 
 function fitCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const ctx = canvas.getContext("2d")
+
   if (!ctx) return null
   const rect = canvas.getBoundingClientRect()
   const dpr = window.devicePixelRatio || 1
   canvas.width = Math.max(1, Math.round(rect.width * dpr))
   canvas.height = Math.max(1, Math.round(rect.height * dpr))
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
   return ctx
 }
 
@@ -137,38 +152,48 @@ function useCanvasLoop(
   let canvas: HTMLCanvasElement | undefined
   let visible = false
   let palette: Palette | undefined
+
   const loop = createNeuralFrameLoop({
     request: (callback) => requestAnimationFrame(callback),
     cancel: (id) => cancelAnimationFrame(id),
     draw: (dt) => {
       if (!canvas) return
       const ctx = canvas.getContext("2d")
+
       if (!ctx) return
       const rect = canvas.getBoundingClientRect()
       palette ??= readPalette(canvas)
       draw(ctx, rect.width, rect.height, dt, palette)
     },
   })
+
   const sync = () => loop.update({ motion: motion(), visible, hidden: document.hidden })
 
   onMount(() => {
     const el = canvas
+
     if (!el) return
     fitCanvas(el)
+
     const resize = new ResizeObserver(() => {
       fitCanvas(el)
       loop.redraw()
     })
+
     resize.observe(el)
+
     const io = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting
       sync()
     })
+
     io.observe(el)
+
     const refreshPalette = () => {
       palette = undefined
       loop.redraw()
     }
+
     const theme = new MutationObserver(refreshPalette)
     theme.observe(document.documentElement, {
       attributes: true,
@@ -188,6 +213,7 @@ function useCanvasLoop(
   })
 
   createEffect(sync)
+
   return (el: HTMLCanvasElement) => {
     canvas = el
   }
@@ -204,10 +230,12 @@ function spawnPulses(
 ) {
   const signals = activity.since(cursor.value)
   cursor.value = activity.cursor
+
   for (const signal of signals) {
     if (links.length === 0) break
     const link = links[Math.floor(Math.random() * links.length)]
     pulses.push({ from: link[0], to: link[1], t: 0, color: colorFor(signal.kind, palette) })
+
     if (pulses.length > maxPulses) pulses.shift()
   }
 }
@@ -218,6 +246,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
   const links = buildLinks(nodes, 0.3)
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
+
   const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
@@ -229,6 +258,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
     const py = (y: number) => y * height
 
     ctx.lineWidth = 1
+
     for (const [a, b] of links) {
       ctx.strokeStyle = palette.synapse
       ctx.globalAlpha = 0.12 + energy * 0.18
@@ -237,18 +267,22 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
       ctx.lineTo(px(nodes[b].x), py(nodes[b].y))
       ctx.stroke()
     }
+
     ctx.globalAlpha = 1
 
     for (const pulse of pulses) {
       pulse.t += (dt * tempo) / 0.9
     }
+
     for (let i = pulses.length - 1; i >= 0; i--) {
       const pulse = pulses[i]
+
       if (pulse.t >= 1) {
         nodes[pulse.to].flash = 1
         pulses.splice(i, 1)
         continue
       }
+
       const from = nodes[pulse.from]
       const to = nodes[pulse.to]
       const x = px(from.x + (to.x - from.x) * pulse.t)
@@ -259,6 +293,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
       ctx.arc(x, y, 2.5, 0, Math.PI * 2)
       ctx.fill()
     }
+
     ctx.globalAlpha = 1
 
     for (const node of nodes) {
@@ -270,6 +305,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
       ctx.arc(px(node.x), py(node.y), Math.min(radius, scale * 0.02), 0, Math.PI * 2)
       ctx.fill()
     }
+
     ctx.globalAlpha = 1
   })
 
@@ -279,7 +315,7 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
 export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
   const activity = getSharedNeuralActivity()
   const nodes = buildNodes(16, 7).map((node, index) => ({ ...node, x: (index + 0.5) / 16, y: 0.5 }))
-  const links = nodes.slice(0, -1).map((_, index) => [index, index + 1] as [number, number])
+  const links = nodes.slice(0, -1).map((_, index): [number, number] => [index, index + 1])
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
   let label: { text: string; until: number } | undefined
@@ -289,6 +325,7 @@ export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: str
     const tempo = 0.25 + energy * 1.5
     spawnPulses(activity, cursor, nodes, links, palette, pulses, 32)
     const latest = activity.latest
+
     if (latest) label = { text: latest, until: performance.now() + 1800 }
 
     ctx.clearRect(0, 0, width, height)
@@ -309,15 +346,18 @@ export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: str
       ctx.arc(node.x * width, midY, 1.5, 0, Math.PI * 2)
       ctx.fill()
     }
+
     ctx.globalAlpha = 1
 
     for (let i = pulses.length - 1; i >= 0; i--) {
       const pulse = pulses[i]
       pulse.t += (dt * tempo) / 0.9
+
       if (pulse.t >= 1) {
         pulses.splice(i, 1)
         continue
       }
+
       const from = nodes[pulse.from]
       const to = nodes[pulse.to]
       const x = (from.x + (to.x - from.x) * pulse.t) * width
@@ -327,6 +367,7 @@ export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: str
       ctx.arc(x, midY, 2.5, 0, Math.PI * 2)
       ctx.fill()
     }
+
     ctx.globalAlpha = 1
 
     if (label && performance.now() < label.until) {
@@ -345,9 +386,10 @@ export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: str
 export const NeuralAxon: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
   const activity = getSharedNeuralActivity()
   const nodes = buildNodes(12, 11).map((node, index) => ({ ...node, x: 0.5, y: (index + 0.5) / 12 }))
-  const links = nodes.slice(0, -1).map((_, index) => [index, index + 1] as [number, number])
+  const links = nodes.slice(0, -1).map((_, index): [number, number] => [index, index + 1])
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
+
   const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
@@ -372,16 +414,19 @@ export const NeuralAxon: Component<{ sessionIDs?: readonly string[]; class?: str
       ctx.arc(midX, node.y * height, 1.5 + node.flash * 2, 0, Math.PI * 2)
       ctx.fill()
     }
+
     ctx.globalAlpha = 1
 
     for (let i = pulses.length - 1; i >= 0; i--) {
       const pulse = pulses[i]
       pulse.t += (dt * tempo) / 0.9
+
       if (pulse.t >= 1) {
         nodes[pulse.to].flash = 1
         pulses.splice(i, 1)
         continue
       }
+
       const from = nodes[pulse.from]
       const to = nodes[pulse.to]
       const y = (from.y + (to.y - from.y) * pulse.t) * height
@@ -391,6 +436,7 @@ export const NeuralAxon: Component<{ sessionIDs?: readonly string[]; class?: str
       ctx.arc(midX, y, 2.5, 0, Math.PI * 2)
       ctx.fill()
     }
+
     ctx.globalAlpha = 1
   })
 
@@ -399,6 +445,7 @@ export const NeuralAxon: Component<{ sessionIDs?: readonly string[]; class?: str
 
 export const NeuralDot: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
   const activity = getSharedNeuralActivity()
+
   const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
     const energy = activity.level(props.sessionIDs)
     const now = performance.now() / 1000

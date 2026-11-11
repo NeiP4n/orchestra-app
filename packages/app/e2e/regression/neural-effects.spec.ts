@@ -8,6 +8,7 @@ test("a still Home network redraws with new theme colors without starting animat
     const original = CanvasRenderingContext2D.prototype.clearRect
     CanvasRenderingContext2D.prototype.clearRect = function (...args) {
       this.canvas.dataset.neuralFrames = String(Number(this.canvas.dataset.neuralFrames ?? 0) + 1)
+
       return original.call(this, ...args)
     }
   })
@@ -18,16 +19,20 @@ test("a still Home network redraws with new theme colors without starting animat
   const field = page.locator('canvas[data-component="neural-field"]')
   await expect(field).toBeVisible()
   await expect.poll(() => field.getAttribute("data-neural-frames")).not.toBeNull()
+
   const before = await field.evaluate((canvas) => {
     if (!(canvas instanceof HTMLCanvasElement)) throw new Error("Expected a neural canvas")
+
     return { image: canvas.toDataURL(), frames: canvas.dataset.neuralFrames }
   })
+
   await page.waitForTimeout(300)
   await expect(field).toHaveAttribute("data-neural-frames", before.frames!)
   await expect
     .poll(() =>
       field.evaluate((canvas) => {
         if (!(canvas instanceof HTMLCanvasElement)) throw new Error("Expected a neural canvas")
+
         return canvas.toDataURL()
       }),
     )
@@ -37,6 +42,7 @@ test("a still Home network redraws with new theme colors without starting animat
     .poll(() =>
       field.evaluate((canvas) => {
         if (!(canvas instanceof HTMLCanvasElement)) throw new Error("Expected a neural canvas")
+
         return canvas.toDataURL()
       }),
     )
