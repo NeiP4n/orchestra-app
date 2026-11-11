@@ -8,7 +8,7 @@ import { contrastRatio } from "./color"
 
 // Any TUI palette edit must regenerate the web theme and pre-paint colors.
 test("web Sculk is generated from the TUI source without a second hand-picked palette", () => {
-  expect(web).toEqual(buildSculkWebTheme())
+  expect(JSON.stringify(web)).toBe(JSON.stringify(buildSculkWebTheme()))
 })
 
 test.each(["light", "dark"] as const)("Sculk %s chrome and accents use exact TUI tokens", (mode) => {
@@ -28,7 +28,9 @@ test.each(["light", "dark"] as const)("Sculk %s chrome and accents use exact TUI
 
   expect(tokens["v2-text-text-accent"]).toBe(link)
   expect(tokens["v2-border-border-focus"]).toBe(link)
-  expect(sculkBootColors()[mode]).toEqual({ background: hue.gray[800], color: hue.gray[200] })
+  expect(JSON.stringify(sculkBootColors()[mode])).toBe(
+    JSON.stringify({ background: hue.gray[800], color: hue.gray[200] }),
+  )
   expect(contrastRatio(sculkBootColors()[mode].color, sculkBootColors()[mode].background)).toBeGreaterThan(4.5)
 })
 
