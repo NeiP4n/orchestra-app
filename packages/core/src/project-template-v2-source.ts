@@ -1,3 +1,4 @@
+import { TemplateStageError, templateDiagnosticOf, type TemplateStage, type TemplateReason } from "./project-template-errors.js"
 export * as ProjectTemplateV2Source from "./project-template-v2-source.js"
 
 import { unlinkedPath } from "./project-template-path.js"
@@ -21,14 +22,17 @@ export interface ProcessSource {
 }
 /** Pure projection from already-owned metadata. Nothing is installed or launched. */
 export function capture(source: V1Source.Source, metadata: Parameters<typeof V1Source.capture>[1], process: ProcessSource) {
+  let stage: TemplateStage = "process-bindings"
+  let reason: TemplateReason = "metadata-invalid"
   try {
     const base = V1Source.capture(source, metadata)
-    if (!base.ok) throw Error()
+    if (!base.ok) throw new TemplateStageError(base.diagnostic?.stage ?? "base-schema", new Error(base.error), base.diagnostic?.reasonCode)
     const sessions = new Map(source.sessions.map((s, i) => [s.id, `session_${i + 1}`]))
     const roleIDs = new Set([...source.sessions.flatMap((s) => s.agent === undefined ? [] : [s.agent]), ...source.rules.filter((r) => r.scope === "role").map((r) => r.role!), ...process.recommendedRoles, ...process.skillAssignments.flatMap((a) => a.target.kind === "role" ? [a.target.role] : [])])
     const roles = new Map(process.roles.map((r) => [r.agent, r]))
     const skills = new Map(process.skills.map((s) => [s.id, s]))
-    if (roles.size !== process.roles.length || skills.size !== process.skills.length || [...roleIDs].some((id) => !roles.has(id))) throw Error()
+    if (roles.size !== process.roles.length || skills.size !== process.skills.length) throw Error()
+    if ([...roleIDs].some((id) => !roles.has(id))) { reason = "role-missing"; throw Error() }
     const selected = new Set<string>(), visiting = new Set<string>()
     const select = (id: string) => {
       if (visiting.has(id)) throw Error()
@@ -36,6 +40,7 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
       const skill = skills.get(id); if (!skill) throw Error()
       visiting.add(id); skill.dependencies.forEach(select); visiting.delete(id); selected.add(id)
     }
+    stage = "process-assignments"
     const skillAssignments = process.skillAssignments.map((r): V2.Process["skillAssignments"][number] => {
       if (r.target.kind === "session") {
         const session = sessions.get(r.target.sessionID); if (!session) throw Error()
@@ -44,13 +49,14 @@ export function capture(source: V1Source.Source, metadata: Parameters<typeof V1S
       if (r.target.kind === "role" && !roleIDs.has(r.target.role)) throw Error()
       r.skills.forEach(select); return { target: r.target, skills: r.skills }
     })
+    stage = "process-models"
     if (process.sessionModels.length !== sessions.size || new Set(process.sessionModels.map((r) => r.sessionID)).size !== sessions.size) throw Error()
     const sessionModels = process.sessionModels.map((r) => { const session = sessions.get(r.sessionID); if (!session) throw Error(); return { session, models: r.models } })
     return V2.preview(JSON.stringify({ ...base.value.bundle, version: 2, process: {
       playbook: process.playbook, recommendedRoles: process.recommendedRoles,
       roles: process.roles.filter((r) => roleIDs.has(r.agent)), skills: process.skills.filter((s) => selected.has(s.id)), skillAssignments, sessionModels, programs: process.programs,
     } }))
-  } catch { return { ok: false as const, error: "Process definitions are incomplete or not portable. No template was prepared." } }
+  } catch (error) { return { ok: false as const, diagnostic: templateDiagnosticOf(error instanceof TemplateStageError ? error : new TemplateStageError(stage, error, reason)), error: "Process definitions are incomplete or not portable. No template was prepared." } }
 }
 /** Caller supplies a definition-only file list from the skill's owning reader, never a project scan.
  * Each directory and file is checked. No symlinks, hardlinks, absolute paths, executable execution or binary decoding. */
@@ -92,5 +98,10 @@ export async function readSkillFiles(root: string, paths: readonly string[]): Pr
       } finally { await handle.close() }
     }
     return output
-  } catch { throw Error("Skill definition files cannot be captured safely. No template was prepared.") }
+  } catch (error) {
+    const failure = new Error("Skill definition files cannot be captured safely. No template was prepared.")
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
+    if (code && ["EACCES", "EPERM", "EROFS", "ENOENT"].includes(code)) Object.assign(failure, { code })
+    throw failure
+  }
 }

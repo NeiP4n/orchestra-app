@@ -1,4 +1,4 @@
-import { templateStage } from "@orchestra/core/project-template-errors"
+import { templateStage, TemplateStageError } from "@orchestra/core/project-template-errors"
 import { expect, test } from "bun:test"
 import { InvalidRequestError } from "@orchestra/protocol/errors"
 import { Effect, Logger } from "effect"
@@ -52,6 +52,23 @@ test("stage diagnosis preserves public code and logs no nested exception content
   try { await templateStage("skills", async () => { throw Object.assign(new Error("PRIVATE_PATH PRIVATE_SECRET"), { code: "EACCES" }) }) } catch (error) { failure = error }
   const { result, messages } = await refused(failure)
   expect(result.kind).toBe("TEMPLATE_PERMISSION")
-  expect(messages).toEqual([["project template operation refused", { operation: "prepareSave", kind: result.kind, reason: result.message, stage: "skills" }]])
+  expect(messages).toEqual([["project template operation refused", { operation: "prepareSave", kind: result.kind, reason: result.message, stage: "skills", reasonCode: "permission-denied" }]])
   expect(JSON.stringify({ result, messages })).not.toContain("PRIVATE_")
+})
+
+test("process substage logs only fixed reason codes and never nested fields", async () => {
+  for (const stage of ["base-rules", "process-roles", "process-playbook", "skill-files", "session-models"] as const) {
+    let failure: unknown
+    try { await templateStage(stage, async () => { throw new Error("Absolute paths are not portable. No template was prepared.") }) } catch (error) { failure = error }
+    const { result, messages } = await refused(failure)
+    expect(messages).toEqual([["project template operation refused", { operation: "prepareSave", kind: result.kind, reason: result.message, stage, reasonCode: "path-not-portable" }]])
+    expect(JSON.stringify(result)).not.toContain("reasonCode")
+  }
+})
+
+test("corrupt stage and reason objects cannot smuggle new log fields", async () => {
+  const error = Object.assign(new TemplateStageError("skills", new Error("PRIVATE_CANARY")), { stage: "PRIVATE_STAGE", reasonCode: "PRIVATE_REASON" })
+  const { result, messages } = await refused(error)
+  expect(JSON.stringify({ result, messages })).not.toContain("PRIVATE_")
+  expect(messages).toEqual([["project template operation refused", { operation: "prepareSave", kind: result.kind, reason: result.message }]])
 })

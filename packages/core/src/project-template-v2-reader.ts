@@ -1,4 +1,4 @@
-import { templateStage } from "./project-template-errors.js"
+import { templateStage, TemplateStageError } from "./project-template-errors.js"
 export * as ProjectTemplateV2Reader from "./project-template-v2-reader.js"
 
 import { Effect } from "effect"
@@ -28,7 +28,8 @@ export async function capture(
   // Two complete reads bind all source definitions, not only project identity. The confirming
   // operator must repeat capture and bind this canonical digest again before saving.
   const once = async () => {
-    const source = await Effect.runPromise(Reader.readSource(stores, projectID, linked))
+    const source = await templateStage("source-read", () => Effect.runPromise(Reader.readSource(stores, projectID, linked)))
+    const sessionModels = await templateStage("session-models", async () => {
     const sessionModels: Source.ProcessSource["sessionModels"] = []
     for (const row of source.sessions) {
       const info = await Effect.runPromise(stores.getSession(row.id))
@@ -46,7 +47,10 @@ export async function capture(
       })) throw Error("Session fallback model metadata is damaged.")
       sessionModels.push({ sessionID: row.id, models: refs.map((m) => ({ provider: m.providerID, id: m.id, variant: m.variant ?? null })) })
     }
+    return sessionModels
+    })
     const [roles, playbook, inventory, programs] = await Promise.all([templateStage("roles", stores.roles), templateStage("playbook", () => stores.playbook(projectID)), templateStage("skills", () => stores.skills({ projectID, sessionIDs: source.sessions.map((s) => s.id) })), templateStage("programs", () => stores.programs(projectID))])
+    const selected = await templateStage("skill-graph", async () => {
     const byID = new Map(inventory.definitions.map((s) => [s.id, s]))
     if (byID.size !== inventory.definitions.length) throw Error("Skill definitions are ambiguous.")
     const selected = new Set<string>(), visiting = new Set<string>()
@@ -58,16 +62,18 @@ export async function capture(
       visiting.add(id); skill.dependencies.forEach(select); visiting.delete(id); selected.add(id)
     }
     inventory.assignments.forEach((a) => a.skills.forEach(select))
+    return selected
+    })
     const skills: V2.Skill[] = []
     for (const item of inventory.definitions.filter((s) => selected.has(s.id))) {
       const { root, files, ...definition } = item
-      skills.push({ ...definition, files: await Source.readSkillFiles(root, files) })
+      skills.push({ ...definition, files: await templateStage("skill-files", () => Source.readSkillFiles(root, files)) })
     }
     const result = Source.capture(source, metadata, { playbook: playbook.text, recommendedRoles: playbook.recommendedRoles, roles, skills, skillAssignments: inventory.assignments, sessionModels, programs })
-    if (!result.ok) throw Error(result.error)
+    if (!result.ok) throw new TemplateStageError(result.diagnostic?.stage ?? "process-schema", new Error(result.error), result.diagnostic?.reasonCode)
     return result.value
   }
   const first = await once(), second = await once()
-  if (first.digest !== second.digest) throw Error("Process definitions changed during capture. Review them again.")
+  if (first.digest !== second.digest) throw new TemplateStageError("source-stability", new Error("Process definitions changed during capture. Review them again."))
   return second
 }

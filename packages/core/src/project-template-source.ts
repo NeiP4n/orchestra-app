@@ -1,3 +1,4 @@
+import { TemplateStageError, templateDiagnosticOf, type TemplateStage, type TemplateReason } from "./project-template-errors.js"
 export * as ProjectTemplateSource from "./project-template-source.js"
 
 import { ProjectTemplate } from "./project-template.js"
@@ -25,9 +26,12 @@ export interface Source {
  * Unsupported conditions/actions fail the whole capture, so a partial export cannot look complete.
  * This only prepares a preview; its digest grants no import, start or external disclosure authority. */
 export function capture(source: Source, metadata: { name: string; description: string; minOrchestraVersion: string }) {
+  let stage: TemplateStage = "base-project"
+  let reason: TemplateReason = "metadata-invalid"
   try {
     if (!source.project.id || !source.project.name) throw Error()
     const sessions = new Map<string, string>(), browsers = new Map<string, string>()
+    stage = "base-sessions"; reason = "metadata-invalid"
     const sessionRows = source.sessions.map((row, index) => {
       if (!source.ownedSessionIDs.has(row.id) || sessions.has(row.id) || !row.title) throw Error()
       const slot = `session_${index + 1}`; sessions.set(row.id, slot)
@@ -35,12 +39,14 @@ export function capture(source: Source, metadata: { name: string; description: s
     })
     // An absent session is not silently hidden. Ownership and reader output must match exactly.
     if (sessions.size !== source.ownedSessionIDs.size) throw Error()
+    stage = "base-browsers"; reason = "ownership-invalid"
     const browserRows = source.browsers.map((row, index) => {
       if (row.projectID !== source.project.id || browsers.has(row.id)) throw Error()
       const slot = `browser_${index + 1}`; browsers.set(row.id, slot)
       if (row.chat && !sessions.has(row.chat)) throw Error()
       return { slot, name: row.name, mode: row.mode, links: [...row.savedLinks], ...(row.chat ? { session: sessions.get(row.chat)! } : {}) }
     })
+    stage = "base-rules"; reason = "metadata-invalid"
     const rules: ProjectTemplate.Bundle['rules'] = source.rules.map((row) => {
       if (row.scope === "project" || row.scope === "project-defaults" || row.scope === "orchestrator") {
         if (row.sessionID !== undefined || row.role !== undefined) throw Error()
@@ -53,6 +59,7 @@ export function capture(source: Source, metadata: { name: string; description: s
       if (row.scope !== "session" || !row.sessionID || !sessions.has(row.sessionID) || row.role !== undefined) throw Error()
       return { scope: row.scope, session: sessions.get(row.sessionID)!, text: row.text }
     })
+    stage = "base-schedules"; reason = "unsupported-schedule"
     if (new Set(source.schedules.map((row) => row.id)).size !== source.schedules.length) throw Error()
     const schedules: ProjectTemplate.Bundle["schedules"] = source.schedules.map((row, index) => {
       if (row.projectID !== source.project.id || row.localTest || row.actions?.length || row.errors || row.maxPerHour === null) throw Error()
@@ -70,6 +77,7 @@ export function capture(source: Source, metadata: { name: string; description: s
       }
       return { ...(row.condition ? { structuredCondition: true as const } : {}), slot: `schedule_${index + 1}`, source: def, instruction: row.prompt, maxPerHour: row.maxPerHour, maxPerDay: row.maxPerDay, missedPolicy: row.missedPolicy ?? (row.kind === "once" ? "run-once" : "skip") }
     })
+    stage = "base-vault"; reason = "ownership-invalid"
     const local: ProjectTemplate.Bundle["vault"]["local"] = [], globalRequirements: string[] = []
     const selected = new Set(source.selectedGlobalSlotIDs)
     for (const row of source.vault) {
@@ -83,6 +91,7 @@ export function capture(source: Source, metadata: { name: string; description: s
       }
     }
     if (selected.size) throw Error()
+    stage = "base-schema"; reason = "schema-invalid"
     return ProjectTemplate.preview(JSON.stringify({
       format: "orchestra.project-template", version: 1, ...metadata,
       variables: { projectName: source.project.name, folder: "${projectFolder}" },
@@ -92,5 +101,5 @@ export function capture(source: Source, metadata: { name: string; description: s
       providers: source.providers.map((p) => ({ id: p.id, endpoint: p.endpoint, credentialSlots: [...p.credentialSlots] })),
       mcp: source.mcp.map((p) => ({ name: p.name, catalog: p.catalog, credentialSlots: [...p.credentialSlots] })),
     }))
-  } catch { return { ok: false as const, error: "Project configuration cannot be transferred completely. Check ownership, role/model bindings and unsupported schedule settings. No template was prepared." } }
+  } catch (error) { return { ok: false as const, diagnostic: templateDiagnosticOf(new TemplateStageError(stage, error, reason)), error: "Project configuration cannot be transferred completely. Check ownership, role/model bindings and unsupported schedule settings. No template was prepared." } }
 }

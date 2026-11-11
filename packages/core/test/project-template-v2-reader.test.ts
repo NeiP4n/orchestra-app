@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { templateDiagnosticOf, TemplateStageError } from "../src/project-template-errors"
 import { Effect } from "effect"
 import { realpath, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -39,8 +40,8 @@ test("passive live reader captures owned metadata, model snapshots and actual sk
     expect(await Library.local(root).preview("factory")).toEqual(p)
     let reads = 0
     const changing = { ...stores, playbook: async () => ({ text: ++reads === 1 ? "Before" : "After", recommendedRoles: [] }) }
-    await expect(Reader.capture(changing, "prj_a", meta, linked)).rejects.toThrow("changed during capture")
+    await expect(Reader.capture(changing, "prj_a", meta, linked).catch((error) => { expect(templateDiagnosticOf(error)).toEqual({ stage: "source-stability", reasonCode: "source-changed" }); throw error instanceof TemplateStageError ? error.original : error })).rejects.toThrow("changed during capture")
     Object.assign(info.metadata, { [Orchestra.SessionModelsMetadataKey]: [{ invalid: true }] })
-    await expect(Reader.capture(stores, "prj_a", meta, linked)).rejects.toThrow("metadata is damaged")
+    await expect(Reader.capture(stores, "prj_a", meta, linked).catch((error) => { expect(templateDiagnosticOf(error)).toEqual({ stage: "session-models", reasonCode: "metadata-invalid" }); throw error instanceof TemplateStageError ? error.original : error })).rejects.toThrow("metadata is damaged")
   } finally { await rm(root, { recursive: true, force: true }) }
 })

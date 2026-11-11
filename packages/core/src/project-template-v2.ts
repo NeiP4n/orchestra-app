@@ -1,3 +1,4 @@
+import { TemplateStageError, templateCapture, templateDiagnosticOf } from "./project-template-errors.js"
 export * as ProjectTemplateV2 from "./project-template-v2.js"
 
 import { createHash } from "node:crypto"
@@ -59,8 +60,8 @@ function list(value: unknown, max: number): unknown[] {
 }
 function text(value: unknown, max = 65536, empty = false): string {
   if (typeof value !== "string" || (!empty && !value.trim()) || Buffer.byteLength(value) > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) invalid()
-  if (countSecrets(value) || /[?&](?:token|key|api[-_]?key|secret|password|signature)=[^&#\s]+/i.test(value) || /--?(?:api[-_]?key|token|password|secret)(?:=|\s+)\S+/i.test(value)) invalid()
-  if (/(?:^|[\s"'=])(?:[A-Za-z]:[\\/]|\\\\|\/(?!\/)[^\s<>,;]*)/.test(value)) invalid()
+  if (countSecrets(value) || /[?&](?:token|key|api[-_]?key|secret|password|signature)=[^&#\s]+/i.test(value) || /--?(?:api[-_]?key|token|password|secret)(?:=|\s+)\S+/i.test(value)) throw Error("Secret-like value detected. No template was prepared.")
+  if (/(?:^|[\s"'=])(?:[A-Za-z]:[\\/]|\\\\|\/(?!\/)[^\s<>,;]*)/.test(value)) throw Error("Absolute paths are not portable. No template was prepared.")
   return value
 }
 function id(value: unknown) {
@@ -109,7 +110,7 @@ export function parseSkills(value: unknown): Skill[] {
 }
 function parseProcess(raw: unknown, base: V1.Bundle): Process {
   const p = object(raw, ["playbook", "recommendedRoles", "roles", "skills", "skillAssignments", "sessionModels", "programs"])
-  const roles = list(p.roles, 100).map((value): Role => {
+  const roles = templateCapture("process-roles", () => list(p.roles, 100).map((value): Role => {
     const r = object(value, ["agent", "name", "description", "rules", "category", "readOnly"], ["mode", "model", "models", "variant", "tools", "autoTools", "hub", "registry"])
     return {
       agent: id(r.agent), name: text(r.name, 160), description: text(r.description, 4096, true), rules: text(r.rules, 65536, true), category: text(r.category, 160), readOnly: bool(r.readOnly),
@@ -118,16 +119,16 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
       ...(has(r, "tools") ? { tools: unique(list(r.tools, 200).map((v) => text(v, 120))) } : {}),
       ...(has(r, "autoTools") ? { autoTools: bool(r.autoTools) } : {}), ...(has(r, "hub") ? { hub: ids(r.hub) } : {}), ...(has(r, "registry") ? { registry: ids(r.registry) } : {}),
     }
-  })
+  }))
   const roleIDs = new Set(unique(roles.map((r) => r.agent)))
   if (base.sessions.some((r) => r.role !== null && !roleIDs.has(r.role)) || base.rules.some((r) => r.scope === "role" && !roleIDs.has(r.role!))) invalid()
-  const recommendedRoles = ids(p.recommendedRoles)
+  const recommendedRoles = templateCapture("process-playbook", () => ids(p.recommendedRoles))
   if (recommendedRoles.some((r) => !roleIDs.has(r))) invalid()
-  const skills = parseSkills(p.skills)
+  const skills = templateCapture("process-skills", () => parseSkills(p.skills))
   const skillIDs = new Set(skills.map((r) => r.id))
   const sessions = new Set(base.sessions.map((s) => s.slot))
   const targets = new Set<string>()
-  const skillAssignments = list(p.skillAssignments, 300).map((value): Process["skillAssignments"][number] => {
+  const skillAssignments = templateCapture("process-assignments", () => list(p.skillAssignments, 300).map((value): Process["skillAssignments"][number] => {
     const r = object(value, ["target", "skills"]), kind = (r.target as { kind?: unknown } | null)?.kind
     let target: Process["skillAssignments"][number]["target"]
     if (kind === "project") { object(r.target, ["kind"]); target = { kind } }
@@ -137,12 +138,12 @@ function parseProcess(raw: unknown, base: V1.Bundle): Process {
     const key = JSON.stringify(target); if (targets.has(key)) invalid(); targets.add(key)
     const assigned = ids(r.skills); if (assigned.some((s) => !skillIDs.has(s))) invalid()
     return { target, skills: assigned }
-  })
-  const sessionModels = list(p.sessionModels, 100).map((value) => { const r = object(value, ["session", "models"]), session = id(r.session); if (!sessions.has(session)) invalid(); const models = list(r.models, 30).map(model); unique(models.map((m) => JSON.stringify(m))); return { session, models } })
+  }))
+  const sessionModels = templateCapture("process-models", () => list(p.sessionModels, 100).map((value) => { const r = object(value, ["session", "models"]), session = id(r.session); if (!sessions.has(session)) invalid(); const models = list(r.models, 30).map(model); unique(models.map((m) => JSON.stringify(m))); return { session, models } }))
   unique(sessionModels.map((r) => r.session))
   if (sessionModels.length !== sessions.size) invalid()
-  const programs = list(p.programs, 100).map((value) => { const r = object(value, ["id", "reason"]); return { id: id(r.id), reason: text(r.reason, 1024) } }); unique(programs.map((r) => r.id))
-  return { playbook: p.playbook === null ? null : text(p.playbook), recommendedRoles, roles, skills, skillAssignments, sessionModels, programs }
+  const programs = templateCapture("process-programs", () => list(p.programs, 100).map((value) => { const r = object(value, ["id", "reason"]); return { id: id(r.id), reason: text(r.reason, 1024) } })); unique(programs.map((r) => r.id))
+  return { playbook: p.playbook === null ? null : templateCapture("process-playbook", () => text(p.playbook)), recommendedRoles, roles, skills, skillAssignments, sessionModels, programs }
 }
 /** v1 reader remains untouched. No runtime path accepts v2 until the reviewed installer exists. */
 export function parse(serialized: string): V1.Result<Bundle> {
@@ -152,13 +153,13 @@ export function parse(serialized: string): V1.Result<Bundle> {
     if (!raw || typeof raw !== "object" || raw.version !== 2 || !has(raw, "process")) invalid()
     const { process, ...base } = raw
     const parsed = V1.parse(JSON.stringify({ ...base, version: 1 }))
-    if (!parsed.ok) invalid()
+    if (!parsed.ok) throw new TemplateStageError(parsed.diagnostic?.stage ?? "base-schema", new Error(parsed.error), parsed.diagnostic?.reasonCode)
     return { ok: true, value: { ...parsed.value, version: 2, process: parseProcess(process, parsed.value) } }
-  } catch { return { ok: false, error: "Invalid process template or unsupported fields. Nothing was imported." } }
+  } catch (error) { return { ok: false, diagnostic: templateDiagnosticOf(error) ?? { stage: "process-schema", reasonCode: "schema-invalid" }, error: "Invalid process template or unsupported fields. Nothing was imported." } }
 }
 export function preview(serialized: string) {
   const parsed = parse(serialized); if (!parsed.ok) return parsed
   const text = JSON.stringify(parsed.value, null, 2) + "\n"
-  if (Buffer.byteLength(text) > MAX_BYTES) return { ok: false as const, error: "Formatted process template exceeds the size limit." }
+  if (Buffer.byteLength(text) > MAX_BYTES) return { ok: false as const, diagnostic: undefined, error: "Formatted process template exceeds the size limit." }
   return { ok: true as const, value: { bundle: parsed.value, text, digest: hash(text), counts: { roles: parsed.value.process.roles.length, skills: parsed.value.process.skills.length, files: parsed.value.process.skills.reduce((n, s) => n + s.files.length, 0) }, requiresReviewedInstaller: true as const, startsAutomatically: false as const } }
 }
