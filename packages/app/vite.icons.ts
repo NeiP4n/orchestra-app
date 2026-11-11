@@ -8,13 +8,13 @@ export function icons(channel: string): Plugin {
 
   const files = [
     ...Object.entries({
-      "favicon.ico": "icon.ico",
-      "apple-touch-icon.png": "ios/AppIcon-60x60@3x.png",
-      "web-app-manifest-192x192.png": "android/mipmap-xxxhdpi/ic_launcher.png",
-      "web-app-manifest-512x512.png": "icon.png",
+      "favicon.ico": "favicon.ico",
+      "apple-touch-icon.png": "icon-180.png",
+      "web-app-manifest-192x192.png": "icon-192.png",
+      "web-app-manifest-512x512.png": "icon-512.png",
     }).map(([name, source]) => ({
       fileName: `${prefix}/${name}`,
-      source: readFileSync(new URL(`../desktop/icons/${selected}/${source}`, import.meta.url)),
+      source: readFileSync(new URL(`./assets/orchestra/${source}`, import.meta.url)),
       type: name.endsWith(".ico") ? "image/x-icon" : "image/png",
     })),
     {

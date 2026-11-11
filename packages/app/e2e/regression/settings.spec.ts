@@ -13,7 +13,7 @@ const sandboxes = Array.from({ length: 12 }, (_, index) => `${directory}/workspa
 const override =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='red'/%3E%3C/svg%3E"
 
-const contributors = "https://api.github.com/repos/anomalyco/opencode/contributors?anon=1&per_page=1"
+const contributors = "https://api.github.com/repos/NeiP4n/orchestra-app/contributors?anon=1&per_page=1"
 
 test.use({ serviceWorkers: "block" })
 
@@ -103,6 +103,7 @@ test("rapid theme changes settle on the last selected theme", async ({ page }) =
     if (route.request().resourceType() === "script") {
       await new Promise((resolve) => setTimeout(resolve, 1800))
     }
+
     await route.continue()
   })
 
@@ -461,10 +462,10 @@ test.describe("pages open before slow data", () => {
       await settings.getByRole("tab", { name: "About", exact: true }).click()
       await requested
       await expect(settings.getByText("Released under the MIT License", { exact: true })).toBeVisible()
-      await expect(settings.getByRole("link", { name: "935 others", exact: true })).toBeVisible()
+      await expect(settings.getByRole("link", { name: "0 others", exact: true })).toBeVisible()
       await expect(settings.getByRole("button", { name: "Back to app" })).toBeVisible()
 
-      const website = settings.getByRole("link", { name: "www.opencode.ai", exact: true })
+      const website = settings.getByRole("link", { name: "github.com/NeiP4n/orchestra-app", exact: true })
       await website.focus()
 
       const settled = fails
@@ -473,7 +474,7 @@ test.describe("pages open before slow data", () => {
 
       gate.resolve()
       await settled
-      await expect(settings.getByRole("link", { name: fails ? "935 others" : "988 others", exact: true })).toBeVisible()
+      await expect(settings.getByRole("link", { name: fails ? "0 others" : "988 others", exact: true })).toBeVisible()
       await expect(website).toBeFocused()
     })
   }

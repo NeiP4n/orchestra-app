@@ -6,7 +6,7 @@ import { ExternalLink } from "@/runtime/platform/external-link"
 import { showToast } from "@/shell/notifications/toast"
 import legal from "./legal.svg"
 import anomalyBrush from "./anomaly-brush.svg"
-import { AnimatedWordmark } from "./animated-wordmark"
+import { NeuralDot } from "@orchestra/ui/neural-field"
 import { FALLBACK_OTHER_CONTRIBUTORS, loadOtherContributorCount } from "./contributors"
 
 const writers = [
@@ -91,7 +91,15 @@ export function SettingsAbout(props: { active: boolean }) {
         <p>{language.t("settings.about.license")}</p>
       </div>
 
-      <AnimatedWordmark active={props.active} />
+      <div class="settings-about-orchestra" data-component="orchestra-about-wordmark">
+        <NeuralDot />
+        <span>ORCHESTRA</span>
+      </div>
+      <p>{language.t("settings.about.description")}</p>
+      <p>
+        <ExternalLink href="https://github.com/NeiP4n/orchestra-app">github.com/NeiP4n/orchestra-app</ExternalLink>
+      </p>
+      <h2 class="settings-about-upstream">{language.t("settings.about.upstreamCredits")}</h2>
 
       <div class="settings-about-credits">
         <p>{language.rich("settings.about.writtenByNames", { names: language.list(writerCredits()) })}</p>
@@ -107,15 +115,8 @@ export function SettingsAbout(props: { active: boolean }) {
         <p>{language.t("settings.about.firstIllustrated")}</p>
       </div>
 
-      <p class="settings-about-faint">
-        <ExternalLink href="https://github.com/NeiP4n/orchestra-app">
-          <bdi dir="ltr">{language.t("settings.about.website")}</bdi>
-        </ExternalLink>
-      </p>
 
       <div class="settings-about-details">
-        <p>{language.t("settings.about.description")}</p>
-        <p>{language.t("settings.about.trademark")}</p>
         <p>{language.t("settings.about.typeset")}</p>
         <p>
           <button ref={noticesButton} type="button" class="settings-about-link" onClick={() => void showNotices()}>
