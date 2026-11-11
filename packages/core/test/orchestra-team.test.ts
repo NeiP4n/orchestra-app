@@ -656,6 +656,36 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   )
 
+  it.live("deletion removes only exact project import records and leaves browser files untouched", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-template-kv-")))
+      const orchestra = yield* Orchestra.Service
+      const kv = yield* KV.Service
+      const project = yield* orchestra.create({ name: "Import cleanup", directory: tmp.path })
+      const other = yield* orchestra.create({ name: "Keep imports", directory: tmp.path })
+      const prefixes = ["orchestra/project-import/", "orchestra/template-browsers/", "orchestra/template-requirements/"]
+      const file = path.join(tmp.path, "browser-profile-sentinel")
+      yield* Effect.promise(() => Bun.write(file, "do not remove browser profile files"))
+      for (const prefix of prefixes) {
+        yield* kv.set(prefix + project.id, prefix === "orchestra/project-import/" ? "owned-import" : { projectID: project.id, importID: "owned-import" })
+        yield* kv.set(prefix + other.id, prefix === "orchestra/project-import/" ? "other-import" : { projectID: other.id, importID: "other-import" })
+        yield* kv.set(prefix + project.id + "-similar", { projectID: "similar", importID: "not-owned" })
+      }
+      // The shared receipt is retained independently of the project's pointer to it.
+      yield* kv.set("orchestra/template-import/owned-import", { phase: "published", projectID: project.id, audit: "keep" })
+      yield* kv.set("orchestra/template-import/other-import", { phase: "published", projectID: other.id, audit: "keep" })
+      yield* orchestra.remove(project.id)
+      for (const prefix of prefixes) {
+        expect(yield* kv.get(prefix + project.id)).toBeUndefined()
+        expect(yield* kv.get(prefix + other.id)).toEqual(prefix === "orchestra/project-import/" ? "other-import" : { projectID: other.id, importID: "other-import" })
+        expect(yield* kv.get(prefix + project.id + "-similar")).toEqual({ projectID: "similar", importID: "not-owned" })
+      }
+      expect(yield* kv.get("orchestra/template-import/owned-import")).toEqual({ phase: "published", projectID: project.id, audit: "keep" })
+      expect(yield* Effect.promise(() => Bun.file(file).text())).toBe("do not remove browser profile files")
+      expect((yield* orchestra.projects()).map((item) => item.id)).toContain(other.id)
+    }).pipe(Effect.scoped),
+  )
+
   it.live("deletion retries a persisted cleanup receipt without discovering unrelated history", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-retry-")))
@@ -663,11 +693,17 @@ describe("Orchestra team", () => {
       const project = yield* orchestra.create({ name: "Retry cleanup", directory: tmp.path })
       const plan = { project, sessions: [project.main!], sqlProjects: [] }
       yield* kv.set("orchestra/project-removal/" + project.id, JSON.parse(JSON.stringify(plan)))
+      for (const prefix of ["orchestra/project-import/", "orchestra/template-browsers/", "orchestra/template-requirements/"]) {
+        yield* kv.set(prefix + project.id, "retry-owned-import")
+      }
       expect((yield* orchestra.projects()).some(item => item.id === project.id)).toBe(false)
       yield* orchestra.remove(project.id)
       expect(yield* store.get(project.main!)).toBeUndefined()
       expect(yield* kv.get("orchestra/project-removal/" + project.id)).toBeUndefined()
       expect(yield* kv.get("orchestra/project/" + project.id)).toBeUndefined()
+      for (const prefix of ["orchestra/project-import/", "orchestra/template-browsers/", "orchestra/template-requirements/"]) {
+        expect(yield* kv.get(prefix + project.id)).toBeUndefined()
+      }
     }).pipe(Effect.scoped),
   )
 
