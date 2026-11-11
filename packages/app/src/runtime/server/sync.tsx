@@ -127,6 +127,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK, data: Data) {
   createEffect(() => {
     if (projectsQuery.isSuccess) {
       applyLoadedProjects({ scope: serverSDK.scope, setGlobalStore, queryClient }, projectsQuery.data)
+
       return
     }
 
