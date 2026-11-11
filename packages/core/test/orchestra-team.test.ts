@@ -590,6 +590,37 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   ),
 
+  it.live("project removal deletes only owned active triggers and their schedule views", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-trigger-delete-")))
+      const orchestra = yield* Orchestra.Service, kv = yield* KV.Service
+      const first = yield* orchestra.create({ name: "Removed trigger owner", directory: tmp.path })
+      const other = yield* orchestra.create({ name: "Surviving trigger owner", directory: tmp.path })
+      const make = (projectID: string, id: string) => {
+        const made = Trigger.create({ kind: "interval", spec: "60", prompt: "Do not run after removal" }, { id, projectID, now: Date.now(), existing: 0 })
+        if (!made.ok) throw Error(made.error)
+        return made.trigger
+      }
+      const owned = make(first.id, "trg_removed_owner"), foreign = make(other.id, "trg_surviving_owner")
+      yield* kv.set(Trigger.key(first.id, owned.id), owned as never)
+      yield* kv.set(Trigger.key(other.id, foreign.id), foreign as never)
+      // Even malformed placement is not permission to remove another project's trigger.
+      const misplacedKey = Trigger.key(first.id, "foreign-placement")
+      yield* kv.set(misplacedKey, foreign as never)
+      ScheduleView.sync(owned, String(first.main))
+      ScheduleView.sync(foreign, String(other.main))
+      yield* orchestra.remove(first.id)
+      expect(yield* kv.get(Trigger.key(first.id, owned.id))).toBeUndefined()
+      expect(ScheduleView.list(String(first.main)).map(item => item.id)).not.toContain(owned.id)
+      expect(Trigger.parse(yield* kv.get(Trigger.key(other.id, foreign.id)))).toEqual(foreign)
+      expect(Trigger.parse(yield* kv.get(misplacedKey))).toEqual(foreign)
+      expect(ScheduleView.list(String(other.main)).map(item => item.id)).toContain(foreign.id)
+      yield* Effect.sleep("50 millis")
+      expect(yield* kv.get(Trigger.key(first.id, owned.id))).toBeUndefined()
+      ScheduleView.remove(foreign.id)
+    }).pipe(Effect.scoped),
+  )
+
   it.live("forgetting a project removes only its local Vault definitions, never other project slots", () =>
     Effect.gen(function* () {
       const orchestra = yield* Orchestra.Service

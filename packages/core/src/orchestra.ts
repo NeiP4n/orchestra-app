@@ -1938,7 +1938,12 @@ const layer: Layer.Layer<
       appendLog(file, `${JSON.stringify({ time: new Date(now).toISOString(), ...entry })}\n`, 1_000_000)
     }))
     // Real internal bus events only, with a bounded queue. No replay after restart and no payload instructions.
-    const deliverPending = (key: string, trigger: Trigger.Info, main: SessionID) => Effect.gen(function* () {
+    const deliverPending = (key: string, trigger: Trigger.Info, main: SessionID) => mainLocks.withLock(trigger.projectID as ProjectID)(Effect.gen(function* () {
+      // Serialize delivery against project removal. A sweep may hold an old trigger
+      // snapshot, so both its project and durable reservation must still exist.
+      const owner = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
+      const current = Trigger.parse(yield* kv.get(key))
+      if (!owner || owner.main !== main || !current || current.projectID !== trigger.projectID || current.pendingFire?.fireId !== trigger.pendingFire?.fireId) return false
       const pending = trigger.pendingFire
       if (!pending || pending.destination !== String(main) || (!trigger.enabled && trigger.pausedReason === "paused by the Orchestrator")) return false
       const source = pending.source
@@ -1966,7 +1971,7 @@ const layer: Layer.Layer<
         if (acknowledged) ScheduleView.sync(acknowledged, String(main))
       }
       return ok
-    })
+    }))
     const internalInbox: Array<{ sessionID: string; event: "execution.succeeded" | "execution.failed" }> = []
     yield* bus.subscribe([SessionEvent.Execution.Succeeded, SessionEvent.Execution.Failed]).pipe(
       Stream.runForEach((event) => Effect.sync(() => {
@@ -2031,7 +2036,7 @@ const layer: Layer.Layer<
         if (verdict === "wait") continue
         if (verdict === "pause") {
           const paused = Trigger.paused(trigger, now)
-          yield* kv.set(entry.key, paused as never)
+          yield* kv.atomicUpdate(entry.key, current => Trigger.parse(current) ? paused as never : current)
           if (viewProject?.main) ScheduleView.sync(paused, String(viewProject.main))
           BrowserSchedule.sync(paused)
           reportLog({ event: "trigger-paused", trigger: trigger.id, project: trigger.projectID })
@@ -2044,14 +2049,14 @@ const layer: Layer.Layer<
           const refusal=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.browserSessionID,project.directory,String(project.id))
           if(refusal){
             const paused={...trigger,enabled:false,pausedReason:refusal}
-            yield* kv.set(entry.key,paused as never);ScheduleView.sync(paused,String(project.main));BrowserSchedule.sync(paused);continue
+            yield* kv.atomicUpdate(entry.key,current=>Trigger.parse(current)?paused as never:current);ScheduleView.sync(paused,String(project.main));BrowserSchedule.sync(paused);continue
           }
         }
         if (trigger.localTest && trigger.browserSessionID) {
           const page = yield* Effect.promise(() => BrowserRuntime.peek(trigger.browserSessionID!))
           if (!page.running || !BrowserLocalTest.allowed(page.url)) {
             const paused = { ...trigger, enabled: false, pausedReason: "Local test left its allowed local page or the test flag is off." }
-            yield* kv.set(entry.key, paused as never)
+            yield* kv.atomicUpdate(entry.key, current => Trigger.parse(current) ? paused as never : current)
             if (viewProject?.main) ScheduleView.sync(paused, String(viewProject.main))
             BrowserSchedule.sync(paused)
             continue
@@ -2702,6 +2707,25 @@ const layer: Layer.Layer<
             yield* mainLocks.withLock(id)(
               Effect.gen(function* () {
                 const project = yield* get(id)
+                // Stop only this project's scoped schedules before releasing its records.
+                // Never infer ownership from a browser URL or a shared directory.
+                const triggerEntries = (yield* scanAll(Trigger.PREFIX + String(id) + "/")).flatMap(entry => {
+                  const trigger = Trigger.parse(entry.value)
+                  return trigger?.projectID === String(id) ? [{ key: entry.key, trigger }] : []
+                })
+                for (const { key, trigger } of triggerEntries) {
+                  yield* kv.remove(key)
+                  ScheduleView.remove(trigger.id)
+                  BrowserSchedule.remove(trigger.id)
+                }
+                const remainingTriggers = (yield* scanAll(Trigger.PREFIX)).flatMap(entry => Trigger.parse(entry.value) ?? [])
+                for (const { trigger } of triggerEntries) {
+                  if (trigger.kind !== "browser") continue
+                  yield* Effect.promise(() => BrowserWatcherLifetime.release({
+                    sessionID: trigger.spec, projectID: String(id), directory: project.directory,
+                    sessions: BrowserRuntime.sessions(), triggers: remainingTriggers, stop: BrowserRuntime.stopPageWatcher,
+                  }))
+                }
                 // Forgetting a project keeps its sessions, but outstanding task reservations
                 // belong to the project lifecycle. Release only this project's tasks so a
                 // surviving worker can be claimed by another project instead of staying blocked.
