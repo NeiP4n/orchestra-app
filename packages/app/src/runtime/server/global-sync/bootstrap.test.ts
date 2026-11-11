@@ -352,7 +352,7 @@ test("projects settle independently while an unrelated location bootstrap is sti
 
 test("a new UI store hydrates from shared project metadata without re-running the old bootstrap", async () => {
   const queryClient = new QueryClient()
-  const cached = [{ id: "project", worktree: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }]
+  const cached = [{ id: "project", worktree: "/repo", time: { created: 1, updated: 1, active: 1 }, sandboxes: [] }]
   const [store, setStore] = createStore<ServerSync["data"]>({
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: [],
