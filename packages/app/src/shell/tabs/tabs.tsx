@@ -316,9 +316,11 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         // Keep the replacement and navigation atomic so /new-session never renders
         // after its backing draft tab has been removed from the store.
         const home = store.some((tab) => tab.type === "draft" && tab.draftID === draftID && tab.home)
+
         const active =
           (location.pathname === "/new-session" && location.query.draftId === draftID) ||
           (location.pathname === "/" && home)
+
         const next = { type: "session" as const, ...session }
         void startTransition(() => {
           setStore(
@@ -356,9 +358,11 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
 
           if (index === -1) return
           const home = store.some((tab) => tab.type === "draft" && tab.draftID === draftID && tab.home)
+
           const active =
             (location.pathname === "/new-session" && location.query.draftId === draftID) ||
             (location.pathname === "/" && home)
+
           setStore(
             produce((tabs) => {
               tabs[index] = next

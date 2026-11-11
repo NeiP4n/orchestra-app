@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { neuralHazeLevel, NEURAL_BAYER, NEURAL_DITHER_LEVELS } from "./neural-haze"
 
 const tui = readFileSync(new URL("../../../tui/src/component/neural.tsx", import.meta.url), "utf8")
+
 const web = readFileSync(new URL("./neural-haze.ts", import.meta.url), "utf8")
 
 describe("TUI ordered-dither haze", () => {

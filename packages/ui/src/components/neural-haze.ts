@@ -1,6 +1,7 @@
 // Ordered-dither haze ported from packages/tui/src/component/neural.tsx.
 // Keep its Bayer thresholds, two-octave value noise and four tone levels.
 export const NEURAL_BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((value) => (value + 0.5) / 16)
+
 export const NEURAL_DITHER_LEVELS = [0.1, 0.16, 0.24, 0.34]
 
 // Smooth value noise in 0..1 from a lattice of seeded random corners.
@@ -13,12 +14,14 @@ function noise(x: number, y: number, seed: number) {
   const sy = fy * fy * (3 - 2 * fy)
   const top = lattice(ix, iy, seed) + (lattice(ix + 1, iy, seed) - lattice(ix, iy, seed)) * sx
   const bottom = lattice(ix, iy + 1, seed) + (lattice(ix + 1, iy + 1, seed) - lattice(ix, iy + 1, seed)) * sx
+
   return top + (bottom - top) * sy
 }
 
 function lattice(x: number, y: number, seed: number) {
   const value = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(seed, 2147483647)
   const mixed = Math.imul(value ^ (value >>> 13), 1274126177)
+
   return ((mixed ^ (mixed >>> 16)) >>> 0) / 4294967296
 }
 
@@ -32,6 +35,7 @@ export function neuralHazeLevel(x: number, y: number, drift: number, energy: num
     0.12 +
     energy * 0.28 +
     warmth
+
   const quantized = value * 4
   const floor = Math.floor(quantized)
 
@@ -90,10 +94,12 @@ export function createNeuralHazePainter() {
     const resized = !layer || layer.width !== width || layer.height !== height
 
     if (!layer) layer = document.createElement("canvas")
+
     if (resized) {
       layer.width = width
       layer.height = height
     }
+
     if (resized || colors !== lastPalette || now - lastPaint >= 70) {
       const cache = layer.getContext("2d")
 
@@ -101,9 +107,11 @@ export function createNeuralHazePainter() {
         cache.clearRect(0, 0, width, height)
         paintNeuralHaze(cache, width, height, args[3], args[4], palette, args[6])
       }
+
       lastPaint = now
       lastPalette = colors
     }
+
     ctx.drawImage(layer, 0, 0)
   }
 }

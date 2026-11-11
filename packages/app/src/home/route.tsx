@@ -24,6 +24,7 @@ export function Home() {
   const tabs = useTabs()
   const language = useLanguage()
   const [draft, setDraft] = createSignal<DraftTab>()
+
   const current = createMemo(() => {
     const server = home.server.focused()
     const project = home.project.newSession()
@@ -44,15 +45,18 @@ export function Home() {
   })
 
   const context = home.server.focusedContext
+
   const roots = createMemo(
     () =>
       context()
         ?.data.session.list()
         .filter((session) => !session.parentID) ?? [],
   )
+
   const thinking = createMemo(
     () => roots().filter((session) => context()?.data.session.status(session.id) === "running").length,
   )
+
   const connected = () => context()?.sdk.connection.status() === "connected"
 
   return (

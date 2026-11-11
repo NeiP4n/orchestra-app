@@ -13,6 +13,7 @@ function spriteContent() {
   return iconNames()
     .map((name) => {
       const glyph = tuiControlGlyphs.get(name)
+
       const body = glyph
         ? `<text x="10" y="10" text-anchor="middle" dominant-baseline="central" fill="currentColor" style="font-family:var(--font-family-mono);font-size:${glyph.length > 1 ? 12 : 17}px">${glyph}</text>`
         : getIcon(name).body

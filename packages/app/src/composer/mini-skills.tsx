@@ -43,11 +43,13 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
   const data = useData()
   const location = useWorkspaceLocation()
   const availableSkills = createMemo(() => data.location.skill.list({ directory: location().directory }) ?? [])
+
   const [settings, setSettings, , ready] = persisted<typeof MiniSkillsSettings>(
     Persist.global(MiniSkillsPersistKey),
     MiniSkillsSettings,
     INITIAL_MINI_SKILLS_SETTINGS,
   )
+
   const [ui, setUI] = createStore<MiniSkillUIState>({
     additionalText: "",
     manageOpen: false,
@@ -65,6 +67,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
     if (bar) observer.observe(bar)
     onCleanup(() => observer.disconnect())
   })
+
   const visibleItems = createMemo(() => {
     const width = barWidth()
     let used = 130
@@ -75,6 +78,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
       return used <= width
     })
   })
+
   const [expanded, setExpanded] = createSignal(false)
   const displayedItems = () => (expanded() ? settings.items : visibleItems())
   const overflow = () => settings.items.length - visibleItems().length
@@ -84,6 +88,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
   function setHidden(hidden: boolean) {
     setSettings({ ...settings, hidden })
     // Hiding also closes the transient panels, so showing the bar again starts from the plain chip row.
+
     if (hidden)
       setUI({ selectedID: undefined, additionalText: "", manageOpen: false, editorOpen: false, editingID: undefined })
   }
@@ -101,6 +106,7 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
 
   function useItem(item: MiniSkillDefinition) {
     const content = [item.instruction.trim(), ui.additionalText.trim()].filter(Boolean).join("\n\n")
+
     if (!content) return
     const separator = props.model.value().trim() ? "\n\n" : ""
     props.model.addText(separator + content + "\n")
@@ -134,9 +140,11 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
   function saveItem() {
     const label = ui.draftLabel.trim()
     const instruction = ui.draftInstruction.trim()
+
     if (!label || !instruction) return
 
     const editingID = ui.editingID
+
     const item: MiniSkillDefinition = {
       id: editingID ?? "mini-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9),
       label,
@@ -155,18 +163,22 @@ export function ComposerMiniSkills(props: ParentProps<{ model: ComposerModel }>)
 
   function removeItem(id: string) {
     setSettings({ ...settings, items: settings.items.filter((item) => item.id !== id) })
+
     if (ui.selectedID === id) setUI({ selectedID: undefined, additionalText: "" })
+
     if (ui.editingID === id) setUI({ editorOpen: false, editingID: undefined })
   }
 
   function moveItem(id: string, offset: -1 | 1) {
     const from = settings.items.findIndex((item) => item.id === id)
     const to = from + offset
+
     if (from < 0 || to < 0 || to >= settings.items.length) return
 
     const items = [...settings.items]
     const current = items[from]
     const adjacent = items[to]
+
     if (!current || !adjacent) return
     items[from] = adjacent
     items[to] = current

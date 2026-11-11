@@ -6,6 +6,7 @@ import { useLanguage } from "@/runtime/i18n/language"
 export function TuiSessionStatus(props: { sessionID?: string }) {
   const data = useData()
   const language = useLanguage()
+
   const running = createMemo(() => {
     const id = props.sessionID
 
