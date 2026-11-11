@@ -8,7 +8,7 @@ test("a still Home network redraws with new theme colors without starting animat
     const original = CanvasRenderingContext2D.prototype.clearRect
     CanvasRenderingContext2D.prototype.clearRect = function (...args) {
       this.canvas.dataset.neuralFrames = String(Number(this.canvas.dataset.neuralFrames ?? 0) + 1)
-      return Reflect.apply(original, this, args)
+      return original.call(this, ...args)
     }
   })
   await page.emulateMedia({ reducedMotion: "reduce" })
