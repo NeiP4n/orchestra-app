@@ -131,6 +131,8 @@ jobs:
           path: |
             .turbo/runs/*.json
             packages/**/.turbo/turbo-test.log
+          # .turbo is hidden; upload-artifact otherwise excludes every selected log.
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
 
