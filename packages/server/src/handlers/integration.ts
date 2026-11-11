@@ -18,7 +18,7 @@ const authorize = <A, R>(effect: Effect.Effect<A, Integration.AuthorizationError
       (error) =>
         new InvalidRequestError({
           message:
-            error.cause instanceof Error && error.cause.message.trim() ? error.cause.message : "Authentication failed",
+            error.message,
           kind: "integration_authorization",
         }),
     ),

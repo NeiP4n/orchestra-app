@@ -174,6 +174,33 @@ describe("Integration", () => {
     }),
   )
 
+  it.effect("turns plugin authorization defects into safe nonempty failures", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const integrationID = Integration.ID.make("google")
+      const methodID = Integration.MethodID.make("antigravity")
+      const absent = yield* Effect.exit(integrations.oauth.connect({ integrationID, methodID }))
+      expect(Exit.isFailure(absent)).toBe(true)
+      if (Exit.isFailure(absent)) expect(Cause.squash(absent.cause)).toBeInstanceOf(Integration.AuthorizationError)
+      const secret = "private-token-canary"
+      const config = Object.assign(new Error(secret), { name: "AntigravityOAuthConfigurationError", code: "missing_client_secret" })
+      for (const failure of [config, new Error(secret), undefined]) {
+        yield* integrations.transform(editor => editor.method.update({
+          integrationID, method: { id: methodID, type: "oauth", label: "OAuth" },
+          authorize: () => Effect.die(failure),
+        }))
+        const exit = yield* Effect.exit(integrations.oauth.connect({ integrationID, methodID }))
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) throw new Error("Expected authorization failure")
+        const error = Cause.squash(exit.cause)
+        expect(error).toBeInstanceOf(Integration.AuthorizationError)
+        expect((error as Integration.AuthorizationError).message.trim().length).toBeGreaterThan(0)
+        expect((error as Integration.AuthorizationError).message).not.toContain(secret)
+        if (failure === config) expect((error as Integration.AuthorizationError).message).toContain("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+      }
+    }),
+  )
+
   it.effect("connects with a key and stores the credential", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service

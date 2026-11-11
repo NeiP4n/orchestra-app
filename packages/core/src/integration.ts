@@ -129,7 +129,13 @@ export class AuthorizationError extends Schema.TaggedError<AuthorizationError>()
 }) {
   override get message() {
     const cause = this.cause
-    if (cause instanceof Error && cause.message) return cause.message
+    if (cause instanceof Error && cause.name === "AntigravityOAuthConfigurationError") {
+      const code = "code" in cause ? cause.code : undefined
+      return code === "missing_client_secret"
+        ? "Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set. Configure it locally and restart Orchestra."
+        : "Antigravity OAuth application credentials were rejected. Check the client secret configured for Orchestra."
+    }
+    if (cause instanceof Error && cause.message.trim()) return cause.message
     return "Authorization failed"
   }
 }
@@ -432,7 +438,18 @@ const layer = Layer.effect(
       })
 
     const authorize = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      effect.pipe(Effect.mapError((cause) => new AuthorizationError({ cause })))
+      effect.pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterrupts(cause)) return Effect.interrupt
+          const error = Cause.squash(cause)
+          // Plugin promise adapters may reject as defects. Never expose arbitrary
+          // defect text, response bodies or tokens to the client.
+          const known = error instanceof Error && error.name === "AntigravityOAuthConfigurationError"
+          return Effect.fail(new AuthorizationError({
+            cause: known || !Cause.hasDies(cause) ? error : new Error("Authentication failed. Check the integration configuration and try again."),
+          }))
+        }),
+      )
 
     const close = (attemptScope: Scope.Closeable) =>
       Scope.close(attemptScope, Exit.void).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
@@ -600,7 +617,7 @@ const layer = Layer.effect(
     }) {
       const method = state.get().integrations.get(input.integrationID)?.implementations.get(input.methodID)
       if (!method) {
-        return yield* Effect.die(new Error(`OAuth method not found: ${input.integrationID}/${input.methodID}`))
+        return yield* new AuthorizationError({ cause: new Error("OAuth sign-in method is unavailable. Enable its integration plugin and try again.") })
       }
       const answer = input.answer ?? {}
       if (method.method.form) {
@@ -608,7 +625,7 @@ const layer = Layer.effect(
         if (invalid) return yield* new AuthorizationError({ cause: new Error(invalid) })
       }
       const attemptScope = yield* Scope.fork(scope)
-      const authorization = yield* authorize(method.authorize(answer)).pipe(
+      const authorization = yield* authorize(Effect.suspend(() => method.authorize(answer))).pipe(
         Scope.provide(attemptScope),
         Effect.onExit((exit) => (Exit.isFailure(exit) ? Scope.close(attemptScope, exit) : Effect.void)),
       )
