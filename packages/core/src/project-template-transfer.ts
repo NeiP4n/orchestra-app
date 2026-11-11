@@ -14,7 +14,14 @@ export function preview(serialized: string) {
   if (!legacy.ok) throw Error("Invalid portable template file. Nothing was imported.")
   return legacy.value
 }
-export async function read(file: string) {
+export function normalizePath(input: string) {
+  const value = input.trim()
+  return value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+    ? value.slice(1, -1)
+    : value
+}
+export async function read(input: string) {
+  const file = normalizePath(input)
   if (!path.isAbsolute(file) || !file.endsWith(".orchestra-template") || !(await unlinkedPath(file))) throw Error("Choose a regular .orchestra-template file.")
   const named = await lstat(file)
   if (!named.isFile() || named.nlink !== 1 || named.size > V2.MAX_BYTES) throw Error("Template file is not a bounded regular file.")
