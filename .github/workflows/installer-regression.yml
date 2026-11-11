@@ -1,0 +1,18 @@
+name: installer-regression
+on:
+  pull_request:
+    paths: ['installer/**', '.github/workflows/installer-regression.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    name: safe Windows installer update
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Actual updater with local repositories and preserved edits
+        shell: pwsh
+        run: ./installer/test/update-lockfile.ps1
