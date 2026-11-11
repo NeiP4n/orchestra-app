@@ -122,10 +122,10 @@ export const Plugin = {
                 // A patch must inspect its old contents to prepare the diff. Enforce
                 // hard rules before that read, not only before the eventual write.
                 const blocked = RuleEnforce.resourceRefusal(String(context.sessionID), {
-                  action: "edit", agent: String(context.agent), resources: [target.resource],
+                  action: "edit", agent: String(context.agent), resources: [target.resource, target.absolute],
                 })
                 if (blocked) return yield* new Permission.BlockedError({
-                  rules: [], permission: "edit", resources: [target.resource], reason: blocked,
+                  rules: [], permission: "edit", resources: [target.resource, target.absolute], reason: blocked,
                 })
                 if (!target.externalDirectory) return target
                 yield* access.authorizeExternal([target], context, {

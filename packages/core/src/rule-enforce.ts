@@ -169,11 +169,12 @@ export function pathMatches(pattern: string, value: string) {
 
 /** Final resource-level check. This runs for nested tools too (patch, DoD,
  * CodeMode), after their command/path was resolved but before permission. */
-export function permissionViolation(entries: ReadonlyArray<Entry>, call: { action: string; agent: string; resources: readonly string[] }): Entry | undefined {
+export function permissionViolation(entries: ReadonlyArray<Entry>, call: { action: string; agent: string; resources: readonly string[]; transport?: string }): Entry | undefined {
   for (const entry of [...entries].sort((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))) {
     const directive = parse(entry.text)
     if (!directive) continue
     if ("role" in directive && directive.role && directive.kind !== "only" && !roleMatches(directive.role, call.agent)) continue
+    if (call.transport === "mcp" && (directive.kind === "path" || directive.kind === "command")) return entry
     if (directive.kind === "command" && call.action === "shell" && call.resources.some(resource => directive.pattern.test(resource))) return entry
     if (directive.kind === "path") {
       // Arbitrary processes can read/write any file and cannot be checked by
@@ -188,7 +189,7 @@ export function permissionViolation(entries: ReadonlyArray<Entry>, call: { actio
 }
 
 /** A shared preflight for code paths that inspect content before asking permission. */
-export function resourceRefusal(sessionID: string, call: { action: string; agent: string; resources: readonly string[]; metadata?: unknown }) {
+export function resourceRefusal(sessionID: string, call: { action: string; agent: string; resources: readonly string[]; metadata?: unknown; transport?: string }) {
   const unavailable = unavailableRefusal(sessionID, call.action, call.metadata)
   if (unavailable) return unavailable
   const broken = permissionViolation(recall(sessionID), call)

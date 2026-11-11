@@ -15,6 +15,7 @@ import { Wildcard } from "./util/wildcard.js"
 import { PermissionSaved } from "./permission/saved.js"
 import { PluginHooks } from "./plugin/hooks.js"
 import { Room } from "./room.js"
+import path from "node:path"
 import { RuleEnforce } from "./rule-enforce.js"
 
 const PermissionEffect = Permission.Effect
@@ -330,6 +331,10 @@ const layer = Layer.effect(
       const ruleAgent = input.agent ?? (yield* sessions.get(input.sessionID))?.agent
       const ruleMessage = RuleEnforce.resourceRefusal(String(input.sessionID), {
         ...policyInput, agent: String(ruleAgent ?? ""),
+        resources: ["read", "edit", "write", "external_directory"].includes(policyInput.action)
+          ? policyInput.resources.flatMap(resource => [resource, path.resolve(location.directory, resource)])
+          : policyInput.resources,
+        transport: typeof policyInput.metadata?.transport === "string" ? policyInput.metadata.transport : undefined,
       })
       if (ruleMessage) return {
         effect: "deny" as const,
