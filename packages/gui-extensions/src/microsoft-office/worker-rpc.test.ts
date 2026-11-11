@@ -87,3 +87,13 @@ function start() {
 
   return client
 }
+
+
+test("worker dispatch rejects inherited prototype names and unknown methods before execution", async () => {
+  const client = start()
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty", "not-a-method"]) {
+    await expect(client.call(name as keyof FixtureMethods, undefined as never)).rejects.toThrow(`Unknown method ${name}`)
+  }
+  expect(await client.call("echo", "after rejected names")).toBe("after rejected names")
+  expect((await client.call("log", undefined)).ran).toEqual(["echo:after rejected names"])
+})
