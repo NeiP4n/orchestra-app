@@ -137,7 +137,7 @@ test("ordinary auto role stays unpinned, but cannot replace required main or Bro
   const f = fixture()
   f.input.sessions.push({ slot: "auto", title: "Приветствие auto", role: null, model: null })
   f.input.mainSession = "main"
-  f.destination.sessions.auto = "ses_auto_new"
+  f.destination.sessions = { ...f.destination.sessions, auto: "ses_auto_new" }
   const prepare = () => {
     const preview = ProjectTemplate.preview(JSON.stringify(f.input))
     if (!preview.ok) throw Error(preview.error)
