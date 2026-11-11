@@ -323,7 +323,14 @@ export const make = Effect.gen(function* () {
         if (llmFailure && llmError && !retry?.retry && canRetryWithoutRepeatingWork) {
           if (yield* restore(input.fallback(llmFailure, llmError))) {
             yield* settleMeasurement("failed")
-            yield* settleEmpty
+            if (emptyOutput) yield* settleEmpty
+            else {
+              // Retries may already have started this assistant for RetryScheduled.
+              // Switching model abandons that message permanently: close it with
+              // the real provider error instead of leaving an empty pending row.
+              yield* publisher.failAssistant(llmError)
+              yield* publisher.publishStepFailure()
+            }
             return Outcome.Switched()
           }
         }
