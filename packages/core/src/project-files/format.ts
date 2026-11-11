@@ -123,35 +123,17 @@ export const appendJsonl = (file: string, entry: unknown, options?: { rotateAtBy
       const rotateAt = options?.rotateAtBytes ?? 1_048_576
       await mkdir(path.dirname(file), { recursive: true })
       await Flock.withLock(file, async () => {
-        let before = await lstat(file).catch((error: NodeJS.ErrnoException) => {
-          if (error.code !== "ENOENT") throw error
-          return undefined
-        })
-        if (before && (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1))
-          throw Error("Journal must be a private regular file")
-        if (before && before.size >= rotateAt) {
-          await rename(file, `${file}.1`)
-          before = undefined
-        }
-        const handle = await open(
-          file,
-          constants.O_APPEND |
-            constants.O_WRONLY |
-            (before ? 0 : constants.O_CREAT | constants.O_EXCL) |
-            (constants.O_NOFOLLOW ?? 0),
-          0o600,
-        )
+        let opened = await openPrivateJournal(file)
         try {
-          const actual = await handle.stat()
-          if (
-            !actual.isFile() ||
-            actual.nlink !== 1 ||
-            (before && (actual.ino !== before.ino || actual.dev !== before.dev))
-          )
-            throw Error("Journal changed while opening")
-          await handle.writeFile(`${JSON.stringify(entry)}\n`, "utf8")
+          if (opened.size >= rotateAt) {
+            await opened.handle.close()
+            await rename(file, `${file}.1`)
+            // A competing creator cannot turn rotation into an append to its file.
+            opened = await openPrivateJournal(file, true)
+          }
+          await opened.handle.writeFile(`${JSON.stringify(entry)}\n`, "utf8")
         } finally {
-          await handle.close()
+          await opened.handle.close()
         }
       })
     },
@@ -163,3 +145,27 @@ export const ensureDir = (dir: string): Effect.Effect<void, ProjectFilesErrors.P
     try: () => mkdir(dir, { recursive: true }),
     catch: (error) => ProjectFilesErrors.writeFailed(dir, `cannot create ${dir}: ${String(error)}`),
   })
+
+
+/** Opening never truncates/writes. Validate the opened descriptor, then the
+ * path binding (including Windows where O_NOFOLLOW can be unavailable) before
+ * appending anything. There is no lstat-then-open decision window. */
+async function openPrivateJournal(file: string, exclusive = false) {
+  const flags = constants.O_APPEND | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0)
+  const handle = exclusive
+    ? await open(file, flags | constants.O_CREAT | constants.O_EXCL, 0o600)
+    : await open(file, flags).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error
+        return open(file, flags | constants.O_CREAT | constants.O_EXCL, 0o600)
+      })
+  try {
+    const actual = await handle.stat()
+    const bound = await lstat(file)
+    if (!actual.isFile() || actual.nlink !== 1 || !bound.isFile() || bound.isSymbolicLink() || bound.nlink !== 1 || actual.ino !== bound.ino || actual.dev !== bound.dev)
+      throw Error("Journal must remain bound to a private regular file")
+    return { handle, size: actual.size }
+  } catch (error) {
+    await handle.close()
+    throw error
+  }
+}
