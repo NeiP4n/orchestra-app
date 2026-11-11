@@ -929,7 +929,7 @@ function* verifyEphemeralDeltas(s: Scenario, kind: FragmentKind) {
   const answer = kind === "reasoning"
     ? [LLMEvent.textStart({ id: "answer" }), LLMEvent.textDelta({ id: "answer", text: "Done" }), LLMEvent.textEnd({ id: "answer" })]
     : []
-  yield* s.llm.push([...fixture.completeEvents.slice(0, -1), ...answer, fixture.completeEvents.at(-1)!])
+  yield* s.llm.push([...fixture.completeEvents.slice(0, -2), ...answer, ...fixture.completeEvents.slice(-2)])
 
   yield* s.resume
 
