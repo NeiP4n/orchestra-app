@@ -179,7 +179,7 @@ describe("AutoloopService tick", () => {
             : Effect.gen(function* () {
                 yield* Deferred.succeed(ready, undefined)
                 yield* Deferred.await(allow)
-                yield* svc.heartbeat("worker-1", [job.run])
+                yield* svc.heartbeat("worker-1", [job.run]).pipe(Effect.orDie)
               }),
         20,
       )

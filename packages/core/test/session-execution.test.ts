@@ -155,10 +155,11 @@ describe("operator continuation switch", () => {
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
       let runs = 0
+      const bus = yield* Bus.Service
       const context = yield* buildExecution(scope, ({ sessionID }) =>
         Effect.gen(function* () {
           runs++
-          yield* SessionInbox.promote(database.db, yield* Bus.Service, sessionID, "input")
+          yield* SessionInbox.promote(database.db, bus, sessionID, "input")
         }),
       )
       const control = Context.get(context, SessionContinuation.Service)

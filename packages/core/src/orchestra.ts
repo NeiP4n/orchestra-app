@@ -419,6 +419,7 @@ const layer: Layer.Layer<
   | Global.Service
   | Autoloop.Service
   | CorePermission.DelegateRegistryService
+  | SessionContinuation.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
