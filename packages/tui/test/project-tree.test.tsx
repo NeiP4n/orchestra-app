@@ -1,3 +1,5 @@
+import { mkdir, readFile } from "node:fs/promises"
+import path from "node:path"
 import { freeModel, provider } from "./fixture/catalog"
 import { expect, test } from "bun:test"
 import { SessionOwnerMetadataKey } from "@orchestra/schema/orchestra"
@@ -52,6 +54,7 @@ function render(
   layout: "compact" | "full" = "full",
   options: {
     width?: number
+    missingBrowserChat?: boolean
     sidebar?: "auto" | "hide"
     createdRosterGate?: Promise<void>
     createdMainGate?: Promise<void>
@@ -125,6 +128,9 @@ function render(
           },
         })
       }
+      if (options.missingBrowserChat && url.pathname.endsWith("/browsers"))return json(null)
+      if (options.missingBrowserChat && url.pathname === "/api/session/ses_deleted")
+        return json({_tag:"SessionNotFoundError",sessionID:"ses_deleted",message:"Session not found"},{status:404})
       if (url.pathname === "/api/location") return json(location)
       if (url.pathname === "/api/orchestra/project" && request.method === "POST") {
         projectCreated = true
@@ -841,4 +847,22 @@ test("the narrow compact header keeps every tab clickable on one row", async () 
     expect(current).toContain("+")
     expect(current).toContain("‹")
   }
+})
+
+test("actual Browser 2 delete control removes a dead chat binding without a Session not found toast",async()=>{
+ await using state=await tmpdir()
+ const dir=path.join(state.path,"test","tui");await mkdir(dir,{recursive:true})
+ await Bun.write(path.join(dir,"browser-sessions.json"),JSON.stringify({projects:{[project.id]:[{id:"brw_second",name:"Browser 2",chat:"ses_deleted",created:1}]},selected:{[project.id]:"brw_second"},closed:{}}))
+ const calls:Call[]=[]
+ await using setup=await render(state.path,calls,[project],worker,"full",{missingBrowserChat:true,width:120})
+ await setup.ready;await setup.waitForFrame(frame=>frame.includes("Browser 2"))
+ await clickAction(setup,"browser-remove:brw_second")
+ await setup.waitForFrame(frame=>frame.includes("удалить чат?"))
+ await clickAction(setup,"browser-remove:brw_second")
+ await setup.waitForFrame(frame=>!frame.includes("Browser 2"))
+ const saved=JSON.parse(await readFile(path.join(dir,"browser-sessions.json"),"utf8"))
+ expect(saved.projects[project.id]).toEqual([])
+ expect(saved.closed[project.id][0]).toMatchObject({id:"brw_second",name:"Browser 2"})
+ expect(calls.some(call=>call.method==="DELETE"&&call.path==="/api/session/ses_deleted")).toBe(false)
+ expect(setup.captureCharFrame()).not.toContain("Session not found")
 })

@@ -57,4 +57,6 @@ jobs:
         run: bun test packages/server/test/project-templates.test.ts packages/server/test/template-operation.test.ts
       - name: Mounted Templates screen with real backend and browser persistence
         working-directory: packages/tui
-        run: bun test test/project-template*.test.* test/browser-chat*.test.* test/browser-sessions*.test.ts
+        run: |
+          bun test test/project-template*.test.* test/browser-chat*.test.* test/browser-sessions*.test.ts
+          bun test test/project-tree.test.tsx --test-name-pattern "actual Browser 2"
