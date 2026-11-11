@@ -11,7 +11,8 @@ import type { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
  * Destination equality is mandatory, including checks at its actual new directory. */
 export function portable(runtime: Agent.Info, roots?: { config: string; home: string }): V2.Role {
   const snapshot = structuredClone(runtime)
-  if (roots) snapshot.permissions = snapshot.permissions.map(rule => {
+  const permissions = snapshot.permissions.map(rule => {
+    if (!roots) return rule
     const config = path.join(roots.config, "plan", "*"), legacy = path.join(roots.home, ".opencode", "plan", "*")
     if (runtime.id === "plan" && rule.action === "edit" && rule.resource === config)
       return { ...rule, resource: "{{runtime.planDirectory}}/*" }
@@ -21,7 +22,7 @@ export function portable(runtime: Agent.Info, roots?: { config: string; home: st
   })
   return {
     agent: runtime.id, name: runtime.name, description: runtime.description ?? "",
-    rules: "", category: "Runtime", readOnly: false, runtime: snapshot,
+    rules: "", category: "Runtime", readOnly: false, runtime: { ...snapshot, permissions },
   }
 }
 export function merge(catalogs: readonly (readonly Agent.Info[])[], roots?: { config: string; home: string }): V2.Role[] {
