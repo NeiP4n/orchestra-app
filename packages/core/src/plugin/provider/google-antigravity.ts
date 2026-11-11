@@ -155,7 +155,7 @@ function callbackError(params: URLSearchParams, state: string) {
 
 function exchangeCode(http: HttpClient.HttpClient, input: { readonly code: string; readonly verifier: string }) {
   return Effect.gen(function* () {
-    const clientSecret = yield* Effect.try(() => requireAntigravityClientSecret())
+    const clientSecret = yield* Effect.try({ try: () => requireAntigravityClientSecret(), catch: (error) => error })
     const response = yield* http
       .execute(
         HttpClientRequest.post(tokenURL).pipe(
@@ -253,7 +253,7 @@ function resolveProjectAndMakeCredential(
 
 function refresh(http: HttpClient.HttpClient, credential: Credential.OAuth) {
   return Effect.gen(function* () {
-    const clientSecret = yield* Effect.try(() => requireAntigravityClientSecret())
+    const clientSecret = yield* Effect.try({ try: () => requireAntigravityClientSecret(), catch: (error) => error })
     if (!credential.refresh) {
       return yield* Effect.fail(new Error("No refresh token available for Google Antigravity"))
     }
@@ -309,9 +309,9 @@ export function checkQuota(http: HttpClient.HttpClient, credential: Credential.O
   })
 }
 
-function authorize(http: HttpClient.HttpClient) {
+export function authorize(http: HttpClient.HttpClient) {
   return Effect.gen(function* () {
-    yield* Effect.try(() => requireAntigravityClientSecret())
+    yield* Effect.try({ try: () => requireAntigravityClientSecret(), catch: (error) => error })
     const verifier = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url")
     const challenge = Buffer.from(
       yield* Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))),
