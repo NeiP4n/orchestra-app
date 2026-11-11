@@ -34,7 +34,7 @@ describe("theme preload", () => {
       if (stored) localStorage.setItem("opencode-color-scheme", stored)
       run()
 
-      expect(document.documentElement.dataset.theme).toBe("oc-2")
+      expect(document.documentElement.dataset.theme).toBe("sculk")
       expect(document.documentElement.dataset.colorScheme).toBe(scheme)
       expect(document.documentElement.style.backgroundColor).toBe(background)
       // Inherited text must stay readable on the dark v2 background before
@@ -70,4 +70,10 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.colorScheme).toBe(expected)
     expect(document.getElementById("orchestra-theme-preload")?.textContent).toContain(css)
   })
+})
+
+test("keeps an explicit saved legacy theme instead of resetting it to the default", () => {
+  localStorage.setItem("opencode-theme-id", "oc-2")
+  run()
+  expect(document.documentElement.dataset.theme).toBe("oc-2")
 })
