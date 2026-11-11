@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { QueryClient } from "@tanstack/solid-query"
 import { OpenCode } from "@orchestra/client/promise"
 import { createStore } from "solid-js/store"
-import { bootstrapGlobal, loadPathQuery, loadProjectsQuery } from "./bootstrap"
+import { applyLoadedProjects, bootstrapGlobal, loadPathQuery, loadProjectsQuery } from "./bootstrap"
 import { ServerScope } from "@/runtime/server/scope"
 import type { ServerApi } from "@/runtime/server/api"
 import { createServerTransport } from "@/runtime/server/client"
@@ -70,9 +70,13 @@ test("bootstraps projects through the native store setter and preserves subseque
 })
 
 test("an empty project list from a refetch never wipes projects already on screen", async () => {
-  let projects: Array<Record<string, unknown>> = [
-    { id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] },
-  ]
+  let projects: Array<{
+    id: string
+    canonical: string
+    time: { created: number; updated: number }
+    sandboxes: string[]
+  }> = [{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }]
+
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
     fetch: Object.assign(
@@ -165,6 +169,7 @@ test("a failed project list is recorded instead of silently showing zero project
   // is the only retry layer: a default QueryClient must not multiply it to 9.
   let failProjects = true
   let projectCalls = 0
+
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
     fetch: Object.assign(
@@ -179,9 +184,12 @@ test("a failed project list is recorded instead of silently showing zero project
 
         if (url.pathname === "/api/project") {
           projectCalls += 1
+
           if (failProjects) throw new TypeError("failed to fetch")
+
           return Response.json([{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }])
         }
+
         throw new Error(`Unexpected request: ${url.pathname}`)
       },
       { preconnect() {} },
@@ -218,16 +226,17 @@ test("a failed project list is recorded instead of silently showing zero project
 
 describe("query keys", () => {
   test("partitions identical directories by server scope and loads current location metadata", async () => {
-    const calls: unknown[] = []
+    const calls: Array<Parameters<ServerApi["location"]["get"]>[0]> = []
 
-    const location = {
-      get: async (input: unknown) => {
+    const location: Pick<ServerApi["location"], "get"> = {
+      get: async (input) => {
         calls.push(input)
 
-        return { directory: "/repo/subpath", project: { id: "project", directory: "/repo" } }
+        return { directory: "/repo/subpath", project: { id: "project", directory: "/repo", canonical: "/repo" } }
       },
-    } as ServerApi["location"]
+    }
 
+    // SAFETY: this fixture is a valid nonlocal server scope and contains no null separator.
     const remote = "https://debian.example" as typeof ServerScope.local
 
     expect([...loadPathQuery(ServerScope.local, "/repo", location).queryKey]).toEqual(["local", "/repo", "path"])
@@ -277,4 +286,90 @@ describe("query keys", () => {
     ])
     expect(result.some((project) => project.id === "test")).toBe(false)
   })
+})
+
+test("projects settle independently while an unrelated location bootstrap is still pending", async () => {
+  let release: () => void = () => {}
+
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  const api = OpenCode.make({
+    baseUrl: "http://opencode.local",
+    fetch: Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(new Request(input, init).url)
+
+        if (url.pathname === "/api/location") {
+          await waiting
+
+          return Response.json({
+            directory: "/repo",
+            project: { id: "project", directory: "/repo", canonical: "/repo" },
+          })
+        }
+
+        if (url.pathname === "/api/project")
+          return Response.json([{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }])
+        throw new Error(`Unexpected request: ${url.pathname}`)
+      },
+      { preconnect() {} },
+    ),
+  })
+
+  const [store, setStore] = createStore<ServerSync["data"]>({
+    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    project: [],
+    provider_auth: {},
+    config: {},
+    reload: undefined,
+  })
+
+  const queryClient = new QueryClient()
+  let complete = false
+
+  const bootstrap = bootstrapGlobal({
+    serverAPI: api,
+    scope: ServerScope.local,
+    setGlobalStore: setStore,
+    queryClient,
+  }).then(() => {
+    complete = true
+  })
+
+  try {
+    for (let attempt = 0; attempt < 100 && !store.projectsReady; attempt++) await Bun.sleep(1)
+    expect(store.projectsReady).toBe(true)
+    expect(store.project.map((project) => project.id)).toEqual(["project"])
+    expect(complete).toBe(false)
+  } finally {
+    release()
+    await bootstrap
+    queryClient.clear()
+  }
+})
+
+test("a new UI store hydrates from shared project metadata without re-running the old bootstrap", async () => {
+  const queryClient = new QueryClient()
+
+  const cached: ServerSync["data"]["project"] = [
+    { id: "project", worktree: "/repo", worktrees: [{ directory: "/repo" }], time: { created: 1, updated: 1, active: 1 }, sandboxes: [] },
+  ]
+
+  const [store, setStore] = createStore<ServerSync["data"]>({
+    path: { state: "", config: "", worktree: "", directory: "", home: "" },
+    project: [],
+    provider_auth: {},
+    config: {},
+    reload: undefined,
+  })
+
+  queryClient.setQueryData([ServerScope.local, "project"], cached)
+  queryClient.setQueryData([ServerScope.local, "bootstrap"], Date.now())
+  applyLoadedProjects({ scope: ServerScope.local, setGlobalStore: setStore, queryClient }, cached)
+  expect(store.projectsReady).toBe(true)
+  expect(store.project.map((project) => project.id)).toEqual(["project"])
+  expect(store.projectError).toBeUndefined()
+  queryClient.clear()
 })
