@@ -302,7 +302,7 @@
     }
 
     [data-slot="terminal-tab-title"] {
-      font-family: Inter, sans-serif;
+      font-family: var(--font-family-sans);
       font-style: normal;
       font-weight: 440;
       font-size: 13px;
@@ -554,7 +554,7 @@
   }
 
   [data-slot="tabs-trigger"] {
-    font-family: Inter, sans-serif;
+    font-family: var(--font-family-sans);
     font-style: normal;
     font-weight: 440;
     font-size: 13px;

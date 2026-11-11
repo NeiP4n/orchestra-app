@@ -1,3 +1,4 @@
+import upstreamMIT from "./upstream-mit.txt?raw"
 import apache from "./apache-2.0.txt?raw"
 import betterOfficeNotice from "./betteroffice-notice.txt?raw"
 import { crates, crateTexts } from "./crates"
@@ -7,6 +8,15 @@ import { crates, crateTexts } from "./crates"
  * Notices and license texts are reproduced verbatim from each project, so they are not translated.
  */
 export const notices = [
+  {
+    name: "OpenCode (upstream)",
+    detail: "Upstream source, authors and artwork attribution",
+    detailKey: undefined,
+    url: undefined,
+    license: "MIT License",
+    notice: upstreamMIT,
+    text: upstreamMIT,
+  },
   {
     name: "BetterOffice",
     detail: "@betteroffice/docx, @betteroffice/xlsx, @betteroffice/pptx, @betteroffice/fonts",

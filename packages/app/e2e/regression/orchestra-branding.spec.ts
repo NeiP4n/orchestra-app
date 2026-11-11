@@ -3,7 +3,7 @@ import { mockWorkspace } from "../utils/workspace"
 
 test.use({ serviceWorkers: "block", reducedMotion: "reduce" })
 
-test("About identifies Orchestra and keeps OpenCode credits separate", async ({ page }, info) => {
+test("About identifies Orchestra and keeps upstream attribution inside notices", async ({ page }, info) => {
   await mockWorkspace(page, { name: "Brand QA", seed: { tabs: [] } })
   await page.goto("/settings?tab=about")
   const about = page.locator(".settings-about-content")
@@ -15,9 +15,9 @@ test("About identifies Orchestra and keeps OpenCode credits separate", async ({ 
     "href",
     "https://github.com/NeiP4n/orchestra-app",
   )
-  await expect(about.getByRole("heading", { name: "OpenCode upstream credits" })).toBeVisible()
+  await expect(about).not.toContainText(/OpenCode|Anomaly|Typeset|First published|First illustrated/i)
+  await expect(about).toHaveCSS("font-family", /^"?IBM Plex Mono"?,/)
   await expect(about.getByRole("link", { name: "www.opencode.ai", exact: true })).toHaveCount(0)
-  await expect(about).toContainText("© Anomaly Innovations, Inc.")
   await expect(about).toContainText("Released under the MIT License")
   await expect(about).not.toContainText("Orchestra is a registered trademark")
   await expect(about.locator(".settings-about-wordmark")).toHaveCount(0)
@@ -64,3 +64,43 @@ test("the page and installed web app use the Orchestra neural icon", async ({ pa
 
   for (const icon of manifest.icons) expect((await page.request.get(icon.src)).ok()).toBe(true)
 })
+
+for (const saved of [false, true]) {
+  test(`TUI mono covers settings, headings, controls and dialogs with ${saved ? "legacy saved" : "default"} fonts`, async ({ page }, info) => {
+    await mockWorkspace(page, {
+      name: "Global font QA",
+      seed: {
+        tabs: [],
+        settings: { appearance: saved ? { sans: "Inter", terminal: "JetBrainsMono Nerd Font Mono" } : {} },
+      },
+    })
+    await page.goto("/settings?tab=appearance")
+    const mono = /^"?IBM Plex Mono"?,/
+    await expect(page.locator("body")).toHaveCSS("font-family", mono)
+    await expect(page.locator('[data-action="settings-ui-font"]')).toHaveAttribute("placeholder", "IBM Plex Mono")
+    await expect(page.locator('[data-action="settings-terminal-font"]')).toHaveAttribute("placeholder", "IBM Plex Mono")
+
+    for (const name of ["Appearance", "Preferences", "Notifications", "Shortcuts", "Providers", "About"]) {
+      await page.getByRole("tab", { name, exact: true }).click()
+      const panel = page.locator(".settings-content > .settings-panel:visible")
+      await expect(panel).toHaveCSS("font-family", mono)
+
+      const proportional = await panel.evaluate((root) => [...root.querySelectorAll("*")].flatMap((node) => {
+        if (!(node instanceof HTMLElement) || !node.getClientRects().length || !node.textContent?.trim()) return []
+        const family = getComputedStyle(node).fontFamily
+
+        return family.startsWith('"IBM Plex Mono"') || family.startsWith("IBM Plex Mono") ? [] : [family]
+      }))
+
+      expect(proportional).toEqual([])
+    }
+
+    await page.getByRole("button", { name: "Third-party notices", exact: true }).click()
+    await expect(page.getByRole("dialog")).toHaveCSS("font-family", mono)
+    await page.keyboard.press("Escape")
+    await page.evaluate(() => document.fonts.ready)
+    await page.screenshot({ path: info.outputPath(`about-mono-${saved ? "saved" : "default"}.png`), fullPage: true })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: info.outputPath(`about-mono-mobile-${saved ? "saved" : "default"}.png`), fullPage: true })
+  })
+}
