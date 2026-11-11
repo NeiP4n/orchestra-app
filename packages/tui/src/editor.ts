@@ -1,10 +1,11 @@
 import type { CliRenderer } from "@opentui/core"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { readFile, rm, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import type { Stream } from "node:stream"
+import { createEditorFile } from "./editor-file"
 import { resolveZedDbPath, resolveZedSelection } from "./editor-zed"
 
 export { normalizePromptContent } from "./prompt/content"
@@ -14,11 +15,11 @@ type EditorStdio = "inherit" | "pipe" | "ignore" | number | Stream
 export async function openEditor(input: { value: string; renderer: CliRenderer; cwd?: string; stdin?: EditorStdio }) {
   const editor = process.env.VISUAL || process.env.EDITOR
   if (!editor) return
-  const file = path.join(os.tmpdir(), `${Date.now()}.md`)
-  await writeFile(file, input.value)
-  input.renderer.suspend()
-  input.renderer.currentRenderBuffer.clear()
+  const temporary = await createEditorFile(input.value)
+  const file = temporary.file
   try {
+    input.renderer.suspend()
+    input.renderer.currentRenderBuffer.clear()
     await new Promise<void>((resolve, reject) => {
       const parts = editor.split(" ")
       const child = spawn(parts[0]!, [...parts.slice(1), file], {
@@ -34,7 +35,7 @@ export async function openEditor(input: { value: string; renderer: CliRenderer; 
     })
     return (await readFile(file, "utf8")) || undefined
   } finally {
-    await rm(file, { force: true }).catch(() => {})
+    await temporary.dispose().catch(() => {})
     input.renderer.currentRenderBuffer.clear()
     input.renderer.resume()
     input.renderer.requestRender()
