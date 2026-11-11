@@ -4,6 +4,10 @@ import {
   migrateV2ToV3,
   loadAccounts,
   saveAccounts,
+  saveAccountsReplace,
+  updateAccounts,
+  deleteAccountIdentity,
+  newAccountIdentity,
   matchesAccountToken,
   updateAccountCredentials,
   type AccountMetadataV3,
@@ -429,6 +433,71 @@ describe("Account selection normalization", () => {
       activeIndex: 0,
       activeIndexByFamily: { claude: 0 },
     });
+  });
+
+  it("keeps an explicit deletion across stale rotated manager saves without matching email", async () => {
+    const removed = { ...account("original", "shared@example.invalid"), id: "stable-deleted", refreshTokenHashes: [] as string[] };
+    const other = { ...account("other", "shared@example.invalid"), id: "unrelated" };
+    const storage: AccountStorageV4 = { version: 4, accounts: [removed, other], activeIndex: 0 };
+    expect(deleteAccountIdentity(storage, removed.id)).toBe(true);
+    expect(storage.accounts).toEqual([other]);
+    expect(storage.activeIndexByFamily).toEqual({ claude: 0, gemini: 0 });
+    expect(deleteAccountIdentity(storage, removed.id)).toBe(false);
+    mockStorage(storage);
+    await saveAccounts({ version: 4, accounts: [{ ...removed, refreshToken: "late-rotation" }, other], activeIndex: 0 });
+    expect(savedStorage().accounts).toEqual([{ refreshToken: "other", email: "shared@example.invalid", id: "unrelated", addedAt: 1, lastUsed: 1, rateLimitResetTimes: {} }]);
+    expect(savedStorage().deletedAccountKeys).toEqual(storage.deletedAccountKeys);
+    expect(JSON.stringify(storage.deletedAccountKeys)).not.toContain("stable-deleted");
+    expect(JSON.stringify(storage.deletedAccountKeys)).not.toContain("original");
+  });
+  it("allows a new explicit authorization without reviving an old incarnation", async () => {
+    const old = { ...account("unchanged-token"), id: "old-incarnation" };
+    const storage: AccountStorageV4 = { version: 4, accounts: [old], activeIndex: 0 };
+    deleteAccountIdentity(storage, old.id);
+    mockStorage(storage);
+    const reauthorized = { ...old, id: newAccountIdentity(storage, old.refreshToken) };
+    await saveAccounts({ version: 4, accounts: [old, reauthorized], activeIndex: 1 });
+    expect(savedStorage().accounts.map(a => a.id)).toEqual([reauthorized.id]);
+    expect(savedStorage().deletedAccountKeys).toEqual(storage.deletedAccountKeys);
+  });
+
+  it("retains legacy historical-token tombstones after reload", async () => {
+    const removed = account("before-rotation");
+    const late = { ...removed };
+    updateAccountCredentials(late, { refreshToken: "after-rotation" });
+    const storage: AccountStorageV4 = { version: 4, accounts: [removed], activeIndex: 0 };
+    deleteAccountIdentity(storage, (await import("./storage")).accountTokenHash(removed.refreshToken));
+    mockStorage(storage);
+    const reloaded = await loadAccounts();
+    expect(reloaded?.accounts).toEqual([]);
+    expect(reloaded?.deletedAccountKeys).toEqual(storage.deletedAccountKeys);
+    await saveAccounts({ version: 4, accounts: [late], activeIndex: 0 });
+    expect(savedStorage().accounts).toEqual([]);
+  });
+
+  it("does not restore a deleted legacy token through replacement or targeted update", async () => {
+    const removed = account("legacy-original"), other = account("remaining");
+    const storage: AccountStorageV4 = { version: 4, accounts: [removed, other], activeIndex: 0 };
+    // Existing stable identity is not required for a legacy token tombstone.
+    deleteAccountIdentity(storage, (await import("./storage")).accountTokenHash(removed.refreshToken));
+    mockStorage(storage);
+    await saveAccountsReplace({ version: 4, accounts: [removed, other], activeIndex: 0 });
+    expect(savedStorage().accounts).toEqual([other]);
+    vi.mocked(fs.writeFile).mockClear();
+    await updateAccounts(latest => { latest.accounts.push(removed); });
+    expect(savedStorage().accounts).toEqual([other]);
+  });
+
+  it("strict deletion reads reject corrupted or unreadable storage without overwriting it", async () => {
+    vi.mocked(fs.readFile).mockImplementation(async path => String(path).endsWith(".gitignore") ? "" : "{broken-json");
+    await expect(updateAccounts(() => undefined, { strict: true })).rejects.toThrow("account store");
+    expect(vi.mocked(fs.writeFile).mock.calls.some(call => String(call[0]).endsWith(".tmp"))).toBe(false);
+    vi.mocked(fs.readFile).mockImplementation(async path => {
+      if (String(path).endsWith(".gitignore")) return "";
+      throw Object.assign(new Error("denied"), { code: "EACCES" });
+    });
+    await expect(updateAccounts(() => undefined, { strict: true })).rejects.toThrow("account store");
+    expect(vi.mocked(fs.writeFile).mock.calls.some(call => String(call[0]).endsWith(".tmp"))).toBe(false);
   });
 
   it("preserves incoming selected identities through merge reordering and append", async () => {

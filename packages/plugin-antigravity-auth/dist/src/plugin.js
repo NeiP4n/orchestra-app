@@ -16,7 +16,7 @@ import { isEmptyResponseBody, createSyntheticErrorResponse, } from "./plugin/req
 import { EmptyResponseError } from "./plugin/errors.js";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token.js";
 import { startOAuthListener } from "./plugin/server.js";
-import { clearAccounts, loadAccounts, saveAccountCredentials, saveAccounts, saveAccountsReplace, updateAccountCredentials, updateAccounts } from "./plugin/storage.js";
+import { newAccountIdentity, clearAccounts, loadAccounts, saveAccountCredentials, saveAccounts, saveAccountsReplace, updateAccountCredentials, updateAccounts } from "./plugin/storage.js";
 import { AccountManager, parseRateLimitReason, calculateBackoffMs, computeSoftQuotaCacheTtlMs } from "./plugin/accounts.js";
 import { createAutoUpdateCheckerHook } from "./hooks/auto-update-checker/index.js";
 import { loadConfig, initRuntimeConfig } from "./plugin/config/index.js";
@@ -668,6 +668,7 @@ export async function persistAccountPool(results, replaceAll = false) {
                 indexByEmail.set(result.email, newIndex);
             }
             accounts.push({
+                id: newAccountIdentity(stored, parts.refreshToken),
                 email: result.email,
                 refreshToken: parts.refreshToken,
                 projectId: parts.projectId,
@@ -2691,6 +2692,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             const parts = parseRefreshParts(result.refresh);
                                             if (parts.refreshToken) {
                                                 updatedAccounts[refreshAccountIndex] = {
+                                                    id: updatedAccounts[refreshAccountIndex]?.id ?? newAccountIdentity(currentStorage, parts.refreshToken),
                                                     email: result.email ?? updatedAccounts[refreshAccountIndex]?.email,
                                                     refreshToken: parts.refreshToken,
                                                     projectId: parts.projectId ?? updatedAccounts[refreshAccountIndex]?.projectId,

@@ -67,6 +67,8 @@ export type IntegrationOAuthMethodRegistration = {
   readonly authorize: (answer: Form.Answer) => Promise<IntegrationOAuthAuthorization>
   readonly refresh?: (credential: Credential.OAuth) => Promise<Credential.OAuth>
   readonly label?: (credential: Credential.OAuth) => string | undefined
+  /** Remove only an exactly linked external account before the native credential is deleted. */
+  readonly remove?: (credential: Credential.OAuth, credentialID: string) => Promise<void>
 }
 
 export type IntegrationMethodRegistration =

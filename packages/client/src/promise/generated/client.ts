@@ -1706,7 +1706,7 @@ export function make(options: ClientOptions) {
             method: "DELETE",
             path: `/api/credential/${encodeURIComponent(input.credentialID)}`,
             successStatus: 204,
-            declaredStatuses: [400, 401],
+            declaredStatuses: [400, 401, 409],
             empty: true,
           },
           requestOptions,

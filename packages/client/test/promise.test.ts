@@ -160,6 +160,11 @@ test("vcs.diff exposes unavailable comparisons as errors, not empty diffs", asyn
   })
 })
 
+test("credential deletion keeps the declared refusal reason for the account dialog", async () => {
+  const client = OpenCode.make({ baseUrl: "http://localhost:3000", fetch: async () => Response.json({ _tag: "ConflictError", resource: "cred_fixture", message: "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept." }, { status: 409 }) })
+  await expect(client.credential.remove({ credentialID: "cred_fixture" })).rejects.toMatchObject({ _tag: "ConflictError", resource: "cred_fixture", message: "The linked account manager is unavailable. Enable its plugin and retry. The credential was kept." })
+})
+
 test("declared errors are thrown as Error instances that keep the body", async () => {
   const client = OpenCode.make({
     baseUrl: "http://localhost:3000",

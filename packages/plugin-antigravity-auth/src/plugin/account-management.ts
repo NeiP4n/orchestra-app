@@ -3,7 +3,7 @@ import type { Plugin } from "@orchestra/plugin"
 import { AntigravityAccountsRpc, type AccountSummary } from "./account-rpc.ts"
 import { parseRefreshParts } from "./auth.ts"
 import { checkAccountsQuota } from "./quota.ts"
-import { accountTokenHash, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts, type AccountMetadataV3 } from "./storage.ts"
+import { deleteAccountIdentity, accountTokenHash, loadAccounts, matchesAccountToken, saveAccountCredentials, updateAccountCredentials, updateAccounts, type AccountMetadataV3 } from "./storage.ts"
 import type { PluginClient } from "./types.ts"
 
 export const accountID = (account: Pick<AccountMetadataV3, "id" | "refreshToken">) => account.id ?? accountTokenHash(account.refreshToken)
@@ -158,14 +158,7 @@ export async function registerAccountManagement(
           storage.activeIndexByFamily = { claude: index, gemini: index }
         }
         if (action === "delete") {
-          const cursors = { active: storage.accounts[storage.activeIndex], claude: storage.accounts[storage.activeIndexByFamily?.claude ?? storage.activeIndex], gemini: storage.accounts[storage.activeIndexByFamily?.gemini ?? storage.activeIndex] }
-          storage.accounts.splice(index, 1)
-          const cursor = (selected?: AccountMetadataV3) => {
-            const found = storage.accounts.findIndex(item => item === selected && item.enabled !== false)
-            return found >= 0 ? found : Math.max(0, storage.accounts.findIndex(item => item.enabled !== false))
-          }
-          storage.activeIndex = cursor(cursors.active)
-          storage.activeIndexByFamily = { claude: cursor(cursors.claude), gemini: cursor(cursors.gemini) }
+          deleteAccountIdentity(storage, id)
         } else {
           if (storage.accounts[storage.activeIndex]?.enabled === false) {
             storage.activeIndex = Math.max(0, storage.accounts.findIndex(item => item.enabled !== false))

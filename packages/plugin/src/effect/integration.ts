@@ -67,6 +67,8 @@ export type IntegrationOAuthMethodRegistration = {
   readonly authorize: (answer: Form.Answer) => Effect.Effect<IntegrationOAuthAuthorization, unknown, Scope.Scope>
   readonly refresh?: (credential: Credential.OAuth) => Effect.Effect<Credential.OAuth, unknown>
   readonly label?: (credential: Credential.OAuth) => string | undefined
+  /** Remove only an exactly linked external account before the native credential is deleted. */
+  readonly remove?: (credential: Credential.OAuth, credentialID: string) => Effect.Effect<void, unknown>
 }
 export type IntegrationMethodRegistration =
   | IntegrationOAuthMethodRegistration

@@ -46,7 +46,7 @@ import {
 import { EmptyResponseError } from "./plugin/errors";
 import { AntigravityTokenRefreshError, refreshAccessToken } from "./plugin/token";
 import { startOAuthListener, type OAuthListener } from "./plugin/server";
-import { clearAccounts, loadAccounts, saveAccountCredentials, saveAccounts, saveAccountsReplace, updateAccountCredentials, updateAccounts } from "./plugin/storage";
+import { newAccountIdentity, clearAccounts, loadAccounts, saveAccountCredentials, saveAccounts, saveAccountsReplace, updateAccountCredentials, updateAccounts } from "./plugin/storage";
 import { AccountManager, type ModelFamily, parseRateLimitReason, calculateBackoffMs, computeSoftQuotaCacheTtlMs } from "./plugin/accounts";
 import { createAutoUpdateCheckerHook } from "./hooks/auto-update-checker";
 import { loadConfig, initRuntimeConfig, type AntigravityConfig } from "./plugin/config";
@@ -832,6 +832,7 @@ export async function persistAccountPool(
         indexByEmail.set(result.email, newIndex);
       }
       accounts.push({
+        id: newAccountIdentity(stored, parts.refreshToken),
         email: result.email,
         refreshToken: parts.refreshToken,
         projectId: parts.projectId,
@@ -3299,6 +3300,7 @@ export const createAntigravityPlugin = (providerId: string) => async (
                     const parts = parseRefreshParts(result.refresh);
                     if (parts.refreshToken) {
                       updatedAccounts[refreshAccountIndex] = {
+                        id: updatedAccounts[refreshAccountIndex]?.id ?? newAccountIdentity(currentStorage, parts.refreshToken),
                         email: result.email ?? updatedAccounts[refreshAccountIndex]?.email,
                         refreshToken: parts.refreshToken,
                         projectId: parts.projectId ?? updatedAccounts[refreshAccountIndex]?.projectId,

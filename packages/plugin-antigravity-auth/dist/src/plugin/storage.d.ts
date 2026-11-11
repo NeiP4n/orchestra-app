@@ -111,6 +111,8 @@ export interface AccountStorageV3 {
 }
 export interface AccountStorageV4 {
     version: 4;
+    /** Durable, nonsecret identity tombstones. Stale managers must never restore an explicit deletion. */
+    deletedAccountKeys?: string[];
     accounts: AccountMetadataV3[];
     activeIndex: number;
     activeIndexByFamily?: {
@@ -118,6 +120,12 @@ export interface AccountStorageV4 {
         gemini?: number;
     };
 }
+/** A fresh explicit OAuth authorization starts a new incarnation, never clears old tombstones. */
+export declare const newAccountIdentity: (storage: AccountStorageV4 | null, refreshToken: string) => string;
+export declare const accountDeletionKeys: (account: AccountMetadataV3) => string[];
+export declare function accountWasDeleted(storage: AccountStorageV4, account: AccountMetadataV3): boolean;
+/** Mutates only the supplied latest locked snapshot, never matches labels or email addresses. */
+export declare function deleteAccountIdentity(storage: AccountStorageV4, id: string): boolean;
 /**
  * Gets the config directory path, with the following precedence:
  * 1. OPENCODE_CONFIG_DIR env var (if set)
@@ -141,7 +149,9 @@ export declare function migrateV3ToV4(v3: AccountStorageV3): AccountStorageV4;
 export declare function loadAccounts(): Promise<AccountStorageV4 | null>;
 export declare function saveAccounts(storage: AccountStorageV4): Promise<void>;
 /** Apply a targeted change to the latest pool while holding its file lock. */
-export declare function updateAccounts(update: (storage: AccountStorageV4) => void): Promise<AccountStorageV4 | null>;
+export declare function updateAccounts(update: (storage: AccountStorageV4) => void | boolean, options?: {
+    strict?: boolean;
+}): Promise<AccountStorageV4 | null>;
 /**
  * Save accounts storage by replacing the entire file (no merge).
  * Use this for destructive operations like delete where we need to
