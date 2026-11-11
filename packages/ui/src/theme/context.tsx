@@ -49,49 +49,50 @@ function knownThemes() {
   return known
 }
 
-type ThemeNames = Record<string, string>
 type ThemeRegistry = Record<string, DesktopTheme>
 
-const names: ThemeNames = {
-  "oc-2": "OC-2 (legacy)",
-  orchestra: "Orchestra",
-  amoled: "AMOLED",
-  aura: "Aura",
-  ayu: "Ayu",
-  carbonfox: "Carbonfox",
-  catppuccin: "Catppuccin",
-  "catppuccin-frappe": "Catppuccin Frappe",
-  "catppuccin-macchiato": "Catppuccin Macchiato",
-  cobalt2: "Cobalt2",
-  cursor: "Cursor",
-  dracula: "Dracula",
-  everforest: "Everforest",
-  flexoki: "Flexoki",
-  github: "GitHub",
-  gruvbox: "Gruvbox",
-  kanagawa: "Kanagawa",
-  "lucent-orng": "Lucent Orng",
-  material: "Material",
-  matrix: "Matrix",
-  mercury: "Mercury",
-  monokai: "Monokai",
-  sculk: "Sculk",
-  nightowl: "Night Owl",
-  nord: "Nord",
-  "one-dark": "One Dark",
-  onedarkpro: "One Dark Pro",
-  orng: "Orng",
-  "osaka-jade": "Osaka Jade",
-  palenight: "Palenight",
-  rosepine: "Rose Pine",
-  shadesofpurple: "Shades of Purple",
-  solarized: "Solarized",
-  synthwave84: "Synthwave '84",
-  tokyonight: "Tokyonight",
-  vercel: "Vercel",
-  vesper: "Vesper",
-  zenburn: "Zenburn",
-}
+const names = new Map(
+  Object.entries({
+    "oc-2": "OC-2 (legacy)",
+    orchestra: "Orchestra",
+    amoled: "AMOLED",
+    aura: "Aura",
+    ayu: "Ayu",
+    carbonfox: "Carbonfox",
+    catppuccin: "Catppuccin",
+    "catppuccin-frappe": "Catppuccin Frappe",
+    "catppuccin-macchiato": "Catppuccin Macchiato",
+    cobalt2: "Cobalt2",
+    cursor: "Cursor",
+    dracula: "Dracula",
+    everforest: "Everforest",
+    flexoki: "Flexoki",
+    github: "GitHub",
+    gruvbox: "Gruvbox",
+    kanagawa: "Kanagawa",
+    "lucent-orng": "Lucent Orng",
+    material: "Material",
+    matrix: "Matrix",
+    mercury: "Mercury",
+    monokai: "Monokai",
+    sculk: "Sculk",
+    nightowl: "Night Owl",
+    nord: "Nord",
+    "one-dark": "One Dark",
+    onedarkpro: "One Dark Pro",
+    orng: "Orng",
+    "osaka-jade": "Osaka Jade",
+    palenight: "Palenight",
+    rosepine: "Rose Pine",
+    shadesofpurple: "Shades of Purple",
+    solarized: "Solarized",
+    synthwave84: "Synthwave '84",
+    tokyonight: "Tokyonight",
+    vercel: "Vercel",
+    vesper: "Vesper",
+    zenburn: "Zenburn",
+  }),
+)
 
 // SAFETY: this checked-in built-in JSON uses the DesktopTheme palette/token shape.
 const oc2Theme = oc2ThemeJson as DesktopTheme
@@ -301,6 +302,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         if (next === "oc-2") {
           committedThemeId = next
           clear()
+
           return
         }
 
@@ -328,6 +330,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       if (e.key === STORAGE_KEYS.COLOR_SCHEME && e.newValue) {
         const scheme =
           e.newValue === "light" || e.newValue === "dark" || e.newValue === "system" ? e.newValue : "system"
+
         setStore("colorScheme", scheme)
         setStore("mode", scheme === "system" ? getSystemMode() : scheme)
       }
@@ -393,11 +396,13 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
       if (!next) {
         console.warn(`Theme "${id}" not found`)
+
         return
       }
 
       if (next !== "oc-2" && !knownThemes().has(next) && !store.themes[next]) {
         console.warn(`Theme "${id}" not found`)
+
         return
       }
 
@@ -408,6 +413,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         committedThemeId = next
         write(STORAGE_KEYS.THEME_ID, next)
         clear()
+
         return
       }
 
@@ -446,7 +452,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       colorScheme: () => store.colorScheme,
       mode: () => store.mode,
       ids,
-      name: (id: string) => store.themes[id]?.name ?? names[id] ?? id,
+      name: (id: string) => store.themes[id]?.name ?? names.get(id) ?? id,
       loadThemes,
       themes: () => store.themes,
       setTheme,
