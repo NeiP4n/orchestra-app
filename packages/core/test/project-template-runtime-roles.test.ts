@@ -6,28 +6,25 @@ import { ProjectTemplateV2Plan as Plan } from "../src/project-template-v2-plan"
 import { processFixture } from "./project-template-v2.test"
 
 test("runtime snapshot binds every permission and request setting without exposing owned plan paths",()=>{
- const agent=Agent.Info.default(Agent.ID.make("plan"))
- agent.permissions=[...agent.permissions,{action:"edit",resource:"/source/config/plan/*",effect:"allow"}]
- agent.system="Keep source constraints"
+ const base=Agent.Info.default(Agent.ID.make("plan"))
+ const agent:Agent.Info={...base,permissions:[...base.permissions,{action:"edit",resource:"/source/config/plan/*",effect:"allow"}],system:"Keep source constraints"}
  const roots={config:"/source/config",home:"/source/home"},role=Runtime.portable(agent,roots)
  expect(JSON.stringify(role)).not.toContain("/source/config")
  expect(role.runtime?.permissions.at(-1)?.resource).toBe("{{runtime.planDirectory}}/*")
  for(const mutate of [
-  (a:Agent.Info)=>{a.permissions=[]},
-  (a:Agent.Info)=>{a.system="Different instruction"},
-  (a:Agent.Info)=>{a.request={...a.request,body:{temperature:0.5}}},
+  (a:Agent.Info)=>({...a,permissions:[]}),
+  (a:Agent.Info)=>({...a,system:"Different instruction"}),
+  (a:Agent.Info)=>({...a,request:{...a.request,body:{temperature:0.5}}}),
  ]){
-  const changed=structuredClone(agent);mutate(changed)
+  const changed=mutate(structuredClone(agent))
   expect(Runtime.portable(changed,roots).runtime).not.toEqual(role.runtime)
   expect(()=>Runtime.merge([[agent],[changed]],roots)).toThrow("differs")
  }
  expect(Runtime.merge([[agent],[structuredClone(agent)]],roots)).toEqual([role])
- const otherHost=structuredClone(agent)
  const targetRoots={config:"/friend/config",home:"/friend/home"}
- otherHost.permissions=agent.permissions.map(r=>r.resource==="/source/config/plan/*"?{...r,resource:"/friend/config/plan/*"}:r)
+ const otherHost:Agent.Info={...agent,permissions:agent.permissions.map(r=>r.resource==="/source/config/plan/*"?{...r,resource:"/friend/config/plan/*"}:r)}
  expect(Runtime.portable(otherHost,targetRoots)).toEqual(role)
- const customAbsolute=structuredClone(agent)
- customAbsolute.permissions=[{action:"edit",resource:"/unrelated/private/*",effect:"deny"}]
+ const customAbsolute:Agent.Info={...agent,permissions:[{action:"edit",resource:"/unrelated/private/*",effect:"deny"}]}
  expect(V2.preview(JSON.stringify({...processFixture(),process:{...processFixture().process,roles:[Runtime.portable(customAbsolute,roots)]}})).ok).toBe(false)
 })
 
