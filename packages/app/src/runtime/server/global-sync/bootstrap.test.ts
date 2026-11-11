@@ -223,7 +223,7 @@ describe("query keys", () => {
   test("partitions identical directories by server scope and loads current location metadata", async () => {
     const calls: Array<Parameters<ServerApi["location"]["get"]>[0]> = []
 
-    const location: ServerApi["location"] = {
+    const location: Pick<ServerApi["location"], "get"> = {
       get: async (input) => {
         calls.push(input)
 
