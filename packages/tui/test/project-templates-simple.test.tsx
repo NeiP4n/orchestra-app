@@ -214,3 +214,28 @@ for(const width of [80,120]) test(`unavailable role save uses one visible warnin
   expect(calls).toEqual([["missing-role",false,false,true]])
  }finally{app.renderer.destroy()}
 })
+
+test("file export shows exact project-root path and git warning",async()=>{
+ const calls:string[]=[]
+ const access:ProjectTemplatesAccess={list:async()=>[{id:"demo",name:"Test2"}],prepareSave:async()=>{throw Error("not save")},confirmSave:async()=>{},prepareCreate:async()=>{throw Error("not create")},confirmCreate:async()=>{},
+  copyPath:async file=>{calls.push("copy:"+file)},openFolder:async file=>{calls.push("open:"+file)},
+  exportFile:async id=>{calls.push(id);return{path:"C:/Projects/Test2/Test2.orchestra-template",warning:"Do not commit to git"}},
+ }
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple access={access} canSave /></ThemeProvider></ConfigProvider></TestTuiContexts>,{width:100,height:30})
+ app.renderer.start()
+ try{
+  await app.waitForFrame(f=>f.includes("Экспорт в файл"))
+  const box=app.renderer.root.findDescendantById("project-templates.export-demo")!
+  await app.mockMouse.click(box.x+1,box.y)
+  await app.waitForFrame(f=>f.includes("C:/Projects/Test2/Test2.orchestra-template"))
+  expect(app.captureCharFrame().replace(/\s+/g," ")).toContain("Не добавляйте этот файл в git")
+  expect(app.captureCharFrame()).toContain("Отправьте этот файл другу")
+  for(const action of ["copy-path","open-folder"]){
+    const node=app.renderer.root.findDescendantById("project-templates."+action)!
+    await app.mockMouse.click(node.x+1,node.y)
+    await app.renderOnce()
+  }
+  expect(calls).toEqual(["demo","copy:C:/Projects/Test2/Test2.orchestra-template","open:C:/Projects/Test2/Test2.orchestra-template"])
+  if(process.env.CAPTURE_TRANSFER)await Bun.write("/tmp/template-transfer.spans.json",JSON.stringify(app.captureSpans()))
+ }finally{app.renderer.destroy()}
+})

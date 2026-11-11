@@ -2,7 +2,7 @@ import { templateError, templateDiagnosticOf } from "@orchestra/core/project-tem
 import { InvalidRequestError } from "@orchestra/protocol/errors"
 import { Effect } from "effect"
 
-type TemplateOperation = "list" | "prepareSave" | "confirmSave" | "prepareCreate" | "confirmCreate" | "finishCreate" | "browsers"
+type TemplateOperation = "exportFile" | "prepareImport" | "confirmImport" | "list" | "prepareSave" | "confirmSave" | "prepareCreate" | "confirmCreate" | "finishCreate" | "browsers"
 
 /** Log only the same allowlisted reason sent to the client, never the raw exception or submitted payload. */
 export function templateOperation<A>(operation: TemplateOperation, action: () => Promise<A>) {

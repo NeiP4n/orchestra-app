@@ -2,6 +2,7 @@ import { templateStage } from "./project-template-errors.js"
 export * as ProjectTemplateOperator from "./project-template-operator.js"
 
 import path from "node:path"
+import { ProjectTemplateTransfer } from "./project-template-transfer.js"
 import { createHash, randomUUID } from "node:crypto"
 import { Effect, Schema } from "effect"
 import { Flock } from "@orchestra/util/flock"
@@ -181,6 +182,29 @@ export function make(deps: Deps) {
     return value as unknown as Save | Create
   }
   return {
+    exportFile: async (libraryID: string, projectID: string) => {
+      await ready(projectID)
+      const project = Schema.decodeUnknownSync(Orchestra.Project)(await run(deps.kv.get("orchestra/project/" + projectID)))
+      const value = await library.preview(libraryID)
+      return ProjectTemplateTransfer.write(project.directory, value.text)
+    },
+    prepareImport: async (file: string) => {
+      const value = await ProjectTemplateTransfer.read(file), token = "pti_" + randomUUID().replaceAll("-", "")
+      await run(deps.kv.set(PREPARED + token, json({ kind: "file-import", file, digest: value.digest, text: value.text })))
+      return { token, name: value.bundle.name, details: value.text, unresolvedRoles: value.bundle.version === 2 ? value.bundle.process.unresolvedRoles ?? [] : [] }
+    },
+    confirmImport: async (token: string) => Flock.withLock(token, async () => {
+      if (!/^pti_[A-Za-z0-9_-]{1,100}$/.test(token)) throw Error("Invalid import token.")
+      const pending = await run(deps.kv.get(PREPARED + token))
+      if (!record(pending) || pending.kind !== "file-import" || typeof pending.file !== "string" || typeof pending.digest !== "string" || typeof pending.text !== "string") throw Error("Unknown import.")
+      const current = await ProjectTemplateTransfer.read(pending.file)
+      if (current.digest !== pending.digest) throw Error("Template changed after preview.")
+      const id = (current.bundle.version === 2 ? "process:" : "") + "template_" + token.slice(4)
+      let exists = false
+      try { const saved = await library.preview(id); if(saved.digest !== current.digest) throw Error("Existing template differs."); exists = true } catch(error) { if((error as NodeJS.ErrnoException).code !== "ENOENT")throw error }
+      if (!exists) await library.saveSerialized(pending.text, id, pending.digest)
+      return { id, name: current.bundle.name }
+    }),
     list: async () =>
       (await library.list())
         .filter((row) => row.state === "ready")

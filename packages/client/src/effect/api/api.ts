@@ -4691,6 +4691,49 @@ export interface RoomApi<E = never> {
   }
 }
 
+export type OrchestraProjectTemplateExportFileInput = {
+  readonly templateID: string
+  readonly projectID: Orchestra.ProjectID
+}
+export type OrchestraProjectTemplateExportFileOutput = { readonly path: string; readonly warning: string }
+export type OrchestraProjectTemplateExportFileOperation<E = never> = (
+  input: OrchestraProjectTemplateExportFileInput,
+) => Effect.Effect<OrchestraProjectTemplateExportFileOutput, E>
+
+export type OrchestraProjectTemplatePrepareImportInput = { readonly path: string }
+export type OrchestraProjectTemplatePrepareImportOutput = {
+  readonly token: string
+  readonly name: string
+  readonly details: string
+  readonly unresolvedRoles?: ReadonlyArray<string> | undefined
+  readonly browserBindings?:
+    | ReadonlyArray<{ readonly browser: number; readonly reason: "missing" | "child" | "foreign" | "unlisted" }>
+    | undefined
+  readonly triggerReview?:
+    | ReadonlyArray<{
+        readonly schedule: number
+        readonly browser?: number | undefined
+        readonly reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  readonly omittedLinks?:
+    | ReadonlyArray<{
+        readonly browser: number
+        readonly link: number
+        readonly reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+export type OrchestraProjectTemplatePrepareImportOperation<E = never> = (
+  input: OrchestraProjectTemplatePrepareImportInput,
+) => Effect.Effect<OrchestraProjectTemplatePrepareImportOutput, E>
+
+export type OrchestraProjectTemplateConfirmImportInput = { readonly token: string }
+export type OrchestraProjectTemplateConfirmImportOutput = { readonly id: string; readonly name: string }
+export type OrchestraProjectTemplateConfirmImportOperation<E = never> = (
+  input: OrchestraProjectTemplateConfirmImportInput,
+) => Effect.Effect<OrchestraProjectTemplateConfirmImportOutput, E>
+
 export type OrchestraProjectTemplateListOutput = ReadonlyArray<{ readonly id: string; readonly name: string }>
 export type OrchestraProjectTemplateListOperation<E = never> = () => Effect.Effect<
   OrchestraProjectTemplateListOutput,
@@ -5104,6 +5147,9 @@ export type OrchestraLinkListOperation<E = never> = (
 
 export interface OrchestraApi<E = never> {
   readonly projectTemplate: {
+    readonly exportFile: OrchestraProjectTemplateExportFileOperation<E>
+    readonly prepareImport: OrchestraProjectTemplatePrepareImportOperation<E>
+    readonly confirmImport: OrchestraProjectTemplateConfirmImportOperation<E>
     readonly list: OrchestraProjectTemplateListOperation<E>
     readonly prepareSave: OrchestraProjectTemplatePrepareSaveOperation<E>
     readonly confirmSave: OrchestraProjectTemplateConfirmSaveOperation<E>
