@@ -6,6 +6,8 @@ on:
       - 'packages/core/src/project-template*'
       - 'packages/core/test/project-template*'
       - 'packages/server/src/handlers/orchestra.ts'
+      - 'packages/server/src/handlers/template-operation.ts'
+      - 'packages/server/test/template-operation.test.ts'
       - 'packages/server/test/project-templates.test.ts'
       - 'packages/tui/src/component/project-templates*'
       - 'packages/tui/test/project-template*'
@@ -48,7 +50,7 @@ jobs:
         working-directory: packages/core
         run: bun test test/project-template*.test.ts
       - name: Real HTTP save and create with ordinary auto chat and orchestrator rules
-        run: bun test packages/server/test/project-templates.test.ts
+        run: bun test packages/server/test/project-templates.test.ts packages/server/test/template-operation.test.ts
       - name: Mounted Templates screen with real backend and browser persistence
         working-directory: packages/tui
         run: bun test test/project-template*.test.*

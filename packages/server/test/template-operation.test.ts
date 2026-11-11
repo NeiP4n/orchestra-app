@@ -1,3 +1,4 @@
+import { templateStage } from "@orchestra/core/project-template-errors"
 import { expect, test } from "bun:test"
 import { InvalidRequestError } from "@orchestra/protocol/errors"
 import { Effect, Logger } from "effect"
@@ -44,4 +45,13 @@ test("successful template operations return unchanged and emit no warning", asyn
   ))
   expect(result).toBe(value)
   expect(messages).toEqual([])
+})
+
+test("stage diagnosis preserves public code and logs no nested exception content", async () => {
+  let failure: unknown
+  try { await templateStage("skills", async () => { throw Object.assign(new Error("PRIVATE_PATH PRIVATE_SECRET"), { code: "EACCES" }) }) } catch (error) { failure = error }
+  const { result, messages } = await refused(failure)
+  expect(result.kind).toBe("TEMPLATE_PERMISSION")
+  expect(messages).toEqual([["project template operation refused", { operation: "prepareSave", kind: result.kind, reason: result.message, stage: "skills" }]])
+  expect(JSON.stringify({ result, messages })).not.toContain("PRIVATE_")
 })
