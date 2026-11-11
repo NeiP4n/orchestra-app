@@ -48,7 +48,11 @@ export function unavailableRefusal(sessionID: string, tool: string, input: unkno
 export const remember = (sessionID: string, entries: ReadonlyArray<Entry>) => {
   active.set(sessionID, entries)
   unavailable.delete(sessionID)
-  if (active.size > 500) active.delete(active.keys().next().value as string)
+  if (active.size > 500) {
+    const evicted = active.keys().next().value as string
+    active.delete(evicted)
+    unavailable.add(evicted)
+  }
 }
 export const recall = (sessionID: string): ReadonlyArray<Entry> => active.get(sessionID) ?? []
 

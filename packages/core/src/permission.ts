@@ -327,8 +327,9 @@ const layer = Layer.effect(
       })
       // Standing hard rules are final too: a plugin's allow cannot erase
       // them, and nested tool calls must use the real resolved resources.
+      const ruleAgent = input.agent ?? (yield* sessions.get(input.sessionID)).agent
       const ruleMessage = RuleEnforce.resourceRefusal(String(input.sessionID), {
-        ...policyInput, agent: String(input.agent ?? ""),
+        ...policyInput, agent: String(ruleAgent ?? ""),
       })
       if (ruleMessage) return {
         effect: "deny" as const,

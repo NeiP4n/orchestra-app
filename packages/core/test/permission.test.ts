@@ -378,6 +378,8 @@ describe("Permission", () => {
       expect(yield* service.ask(assertion({ sessionID: id, action: "edit", resources: ["safe/../.env"] }))).toMatchObject({ effect: "deny" })
       expect(yield* service.ask(assertion({ sessionID: id, action: "shell", resources: ["python decode.py"] }))).toMatchObject({ effect: "deny" })
       expect(yield* service.ask(assertion({ sessionID: id, action: "read", resources: ["src/index.ts"] }))).toMatchObject({ effect: "allow" })
+      RuleEnforce.remember(String(id), [{ title: "Project", text: "deny command git push for role test", by: "operator" }])
+      expect(yield* service.ask(assertion({ sessionID: id, agent: undefined, action: "shell", resources: ["git push origin dev"] }))).toMatchObject({ effect: "deny" })
       expect(yield* service.list()).toEqual([])
       RuleEnforce.remember(String(id), [])
     }),

@@ -118,3 +118,12 @@ describe("resource-level rule enforcement", () => {
    const command = [{ title: "Project", text: "deny command git push", by: "operator" }]
    expect(RuleEnforce.violation(command, { tool: "console", agent: "lead", input: { action: "write", text: "git push\n" } })).toBe(command[0])
  })
+
+ test("evicted active rulebooks fail closed instead of becoming unrestricted", () => {
+   const id = "ses_rule_eviction_target"
+   RuleEnforce.remember(id, [{ title: "Project", text: "deny tool edit", by: "operator" }])
+   for (let n = 0; n < 501; n++) RuleEnforce.remember("ses_rule_eviction_" + n, [])
+   expect(RuleEnforce.resourceRefusal(id, { action: "edit", agent: "build", resources: ["a"] })).toContain("could not be loaded")
+   RuleEnforce.remember(id, [])
+   expect(RuleEnforce.resourceRefusal(id, { action: "edit", agent: "build", resources: ["a"] })).toBeUndefined()
+ })
