@@ -200,13 +200,16 @@ export const layer = Layer.effect(
               (id) =>
                 Effect.gen(function* () {
                   yield* kv.set(SessionContinuation.pausedKey(id), true)
-                  yield* coordinator.interrupt(id, "pause", { awaitSettlement: true })
+                  yield* coordinator.interrupt(id, "pause")
                 }),
               { concurrency: 4, discard: true },
             )
             // A running OS command cannot be safely frozen and replayed. Stop it and retain
             // its cancelled outcome so ON can review it instead of silently repeating it.
             yield* jobs.cancelShells
+            // Signal every owner before waiting for any slow cleanup. Otherwise the
+            // first four finalizers could leave the remaining sessions running.
+            yield* Effect.forEach([...active], coordinator.awaitIdle, { concurrency: 4, discard: true })
           }),
     )
     yield* Effect.addFinalizer(() => Effect.sync(removePauseListener))

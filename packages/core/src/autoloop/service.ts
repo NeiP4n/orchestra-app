@@ -3,21 +3,7 @@ export * as Autoloop from "./service.js"
 
 import { randomBytes } from "node:crypto"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
-import {
-  Cause,
-  Context,
-  Deferred,
-  Duration,
-  Effect,
-  Layer,
-  Option,
-  PubSub,
-  Ref,
-  Schema,
-  Scope,
-  Semaphore,
-  Stream,
-} from "effect"
+import { Cause, Context, Deferred, Duration, Effect, Layer, Option, PubSub, Ref, Schema, Scope, Semaphore, Stream } from "effect"
 import { Bus } from "../bus.js"
 import { SessionContinuation } from "../session/continuation.js"
 import { Config } from "../config.js"
@@ -25,13 +11,7 @@ import { Database } from "../database/database.js"
 import type { Entry } from "@orchestra/schema/config"
 import { AutoloopCards } from "./cards.js"
 import type { CardChange, CardsEnv } from "./cards.js"
-import {
-  autonomyFromConfig,
-  batchLimitsFromConfig,
-  limitsFromConfig,
-  mergeDispatchRule,
-  orchestraRules,
-} from "./orchestrator.js"
+import { autonomyFromConfig, batchLimitsFromConfig, limitsFromConfig, mergeDispatchRule, orchestraRules } from "./orchestrator.js"
 import {
   decide,
   resolveLimits,
@@ -41,7 +21,12 @@ import {
   type DeliveryRow,
   type EventInput,
 } from "./kernel/decide.js"
-import { resolveBatchLimits, shouldFlushBatch, type AutonomyMode, type BatchLimits } from "./kernel/autonomy.js"
+import {
+  resolveBatchLimits,
+  shouldFlushBatch,
+  type AutonomyMode,
+  type BatchLimits,
+} from "./kernel/autonomy.js"
 import { deadlines, MINUTE, type DueLimits } from "./kernel/due.js"
 import type { View } from "./kernel/evolve.js"
 import { emptyRules, type Rules } from "./kernel/rules.js"
@@ -108,7 +93,10 @@ export interface Interface {
   /** The view after each execute that committed facts, for live subscribers. */
   readonly subscribe: () => Stream.Stream<View>
   /** A worker says it is alive, and lists the runs it still holds. */
-  readonly heartbeat: (worker: string, running: ReadonlyArray<number>) => Effect.Effect<void, ServiceFailure>
+  readonly heartbeat: (
+    worker: string,
+    running: ReadonlyArray<number>,
+  ) => Effect.Effect<void, ServiceFailure>
   /**
    * Start the clock: one timer on the nearest due. Idempotent — a second
    * start is a no-op. The loop lives in the caller's scope and stops when
@@ -160,6 +148,7 @@ export interface Options {
 
 interface State {
   readonly isEnabled: () => boolean
+  readonly isClockReady: () => boolean
   /** Set at build, replaced by `configure` at server boot. */
   readonly rules: Ref.Ref<Rules | undefined>
   /** Set at build, replaced by `configure` at server boot. */
@@ -244,7 +233,7 @@ const drainDelivery = (state: State): Effect.Effect<void> =>
       state.tokenSecret,
       yield* Ref.get(state.autonomy),
     )
-    while (true) {
+    while (state.isClockReady()) {
       const handed = yield* AutoloopCards.nextCard("web", env).pipe(Effect.exit)
       if (handed._tag === "Failure") {
         yield* Effect.logError("autoloop: не удалось взять карточку для доставки", { cause: handed.cause })
@@ -255,7 +244,9 @@ const drainDelivery = (state: State): Effect.Effect<void> =>
       const opened = yield* AutoloopStore.openView().pipe(Effect.exit)
       // The public card shape carries no version; the journal row does.
       const cardRow =
-        opened._tag === "Success" ? (opened.value.view["cards"]?.[String(card.id)] as CardRow | undefined) : undefined
+        opened._tag === "Success"
+          ? (opened.value.view["cards"]?.[String(card.id)] as CardRow | undefined)
+          : undefined
       const delivery =
         opened._tag === "Success"
           ? (opened.value.view["deliveries"]?.[`${card.id}:web`] as DeliveryRow | undefined)
@@ -269,7 +260,9 @@ const drainDelivery = (state: State): Effect.Effect<void> =>
       const published = yield* AutoloopCards.publish(state.bus, [change]).pipe(Effect.exit)
       if (published._tag === "Failure") {
         yield* Effect.logError("autoloop: не удалось доставить карточку", { cause: published.cause })
-        yield* AutoloopCards.markFailed("web", card.id, version, Cause.pretty(published.cause), env).pipe(Effect.ignore)
+        yield* AutoloopCards.markFailed("web", card.id, version, Cause.pretty(published.cause), env).pipe(
+          Effect.ignore,
+        )
         return
       }
       yield* AutoloopCards.markDelivered("web", card.id, version, null, env).pipe(
@@ -283,6 +276,14 @@ const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
   state.semaphore
     .withPermit(
       Effect.gen(function* () {
+        // Apply admission inside the journal lock as well as at the timer boundary.
+        // Configuration, incoming events and factual receipts can still persist,
+        // but callers cannot claim, sweep or deliver work around operator OFF.
+        if (
+          (!state.isEnabled() && ["claimNext", "started", "nextCard"].includes(input.type)) ||
+          (!state.isClockReady() && ["tick", "sweep"].includes(input.type))
+        )
+          return yield* new ServiceFailure({ code: "conflict", message: "Work is paused by the operator" })
         const opened = yield* AutoloopStore.openView().pipe(Effect.mapError(storeFailure))
         const stored = AutoloopCards.storedRules(opened.view)
         const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
@@ -324,7 +325,7 @@ const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
 /** One tick from the clock: run `decide(tick)` and count it. */
 const tickOnce = (state: State) =>
   Effect.gen(function* () {
-    if (!state.isEnabled()) return
+    if (!state.isClockReady()) return
     yield* executeInner(state, { type: "tick", args: [] })
     yield* Ref.update(state.stats, (stats) => ({ ticks: stats.ticks + 1, lastTickAt: Date.now() }))
   })
@@ -340,7 +341,7 @@ const tickOnce = (state: State) =>
 const loopStep = (state: State): Effect.Effect<"tick" | "wakeup", unknown, never> =>
   Effect.gen(function* () {
     const wakeup = yield* Ref.get(state.wakeup)
-    if (!state.isEnabled()) {
+    if (!state.isClockReady()) {
       yield* Deferred.await(wakeup)
       return "wakeup" as const
     }
@@ -374,7 +375,9 @@ const loop = (state: State): Effect.Effect<void, never, never> =>
     while (true) {
       const step = yield* loopStep(state).pipe(
         Effect.catchCause((cause) =>
-          Effect.logError("autoloop: не удалось узнать ближайшее due", { cause }).pipe(Effect.as("failed" as const)),
+          Effect.logError("autoloop: не удалось узнать ближайшее due", { cause }).pipe(
+            Effect.as("failed" as const),
+          ),
         ),
       )
       if (step === "failed") {
@@ -384,7 +387,9 @@ const loop = (state: State): Effect.Effect<void, never, never> =>
       if (step === "tick") {
         yield* tickOnce(state).pipe(
           Effect.catchCause((cause) =>
-            Effect.logError("autoloop: tick не удался", { cause }).pipe(Effect.andThen(Effect.sleep("5 seconds"))),
+            Effect.logError("autoloop: tick не удался", { cause }).pipe(
+              Effect.andThen(Effect.sleep("5 seconds")),
+            ),
           ),
         )
       }
@@ -412,8 +417,13 @@ const make = (options: Options = {}) =>
     if (opened.format !== null && opened.format !== FORMAT) {
       yield* AutoloopStore.rebuildProjections()
     }
+    // On resume, admission and task recovery run before the clock is rearmed.
+    // A heartbeat during recovery signals this loop too, but cannot race the
+    // recovery pass and expire a deliberately paused, still-owned run.
+    let clockReady = Option.isNone(continuation) || continuation.value.isEnabled()
     const state: State = {
       isEnabled: () => Option.isNone(continuation) || continuation.value.isEnabled(),
+      isClockReady: () => clockReady && (Option.isNone(continuation) || continuation.value.isEnabled()),
       rules: yield* Ref.make(options.rules),
       limits: yield* Ref.make(options.limits),
       autonomy: yield* Ref.make<AutonomyMode>(options.autonomy ?? "auto"),
@@ -430,7 +440,13 @@ const make = (options: Options = {}) =>
       stats: yield* Ref.make<Stats>({ ticks: 0, lastTickAt: null }),
     }
     if (Option.isSome(continuation)) {
-      const remove = continuation.value.listen(() => signal(state))
+      const remove = continuation.value.listen(
+        (enabled) =>
+          Effect.sync(() => {
+            clockReady = enabled
+          }).pipe(Effect.andThen(signal(state))),
+        100,
+      )
       yield* Effect.addFinalizer(() => Effect.sync(remove))
     }
     /**
@@ -449,7 +465,9 @@ const make = (options: Options = {}) =>
         if (yield* Ref.get(state.configured)) return
         const config = yield* Effect.serviceOption(Config.Service)
         if (Option.isNone(config)) return
-        const entries = yield* config.value.entries().pipe(Effect.orElseSucceed(() => [] as Entry[]))
+        const entries = yield* config.value.entries().pipe(
+          Effect.orElseSucceed(() => [] as Entry[]),
+        )
         const info = Config.latest(entries, "orchestra")
         const autoloop = info?.autoloop
         const opened = yield* AutoloopStore.openView().pipe(
@@ -509,7 +527,9 @@ const make = (options: Options = {}) =>
           const limits = yield* Ref.get(state.batch)
           yield* Effect.sleep(Duration.millis(limits.windowMs))
           yield* flushPending(state).pipe(
-            Effect.catchCause((cause) => Effect.logError("autoloop: сброс пачки событий не удался", { cause })),
+            Effect.catchCause((cause) =>
+              Effect.logError("autoloop: сброс пачки событий не удался", { cause }),
+            ),
           )
         }
       })

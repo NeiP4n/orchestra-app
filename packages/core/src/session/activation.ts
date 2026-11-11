@@ -49,7 +49,16 @@ export function checkDelayMs(minutes?: number): number {
   return clamped * 60_000
 }
 
-export const Status = Schema.Literals(["watching", "started", "restarted", "escalated", "held", "paused", "gone", "settled"])
+export const Status = Schema.Literals([
+  "watching",
+  "started",
+  "restarted",
+  "escalated",
+  "held",
+  "paused",
+  "gone",
+  "settled",
+])
 export type Status = typeof Status.Type
 
 export const Record = Schema.Struct({
@@ -191,15 +200,13 @@ const escalate = Effect.fn("SessionActivation.escalate")(function* (
 
 const scanRecords = Effect.fn("SessionActivation.scanRecords")(function* (deps: Deps) {
   const read = (after?: string): Effect.Effect<Array<KV.Entry>> =>
-    deps.kv
-      .scan({ prefix: "orchestra/activation/", after, limit: 1000 })
-      .pipe(
-        Effect.flatMap((result) =>
-          result.next
-            ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
-            : Effect.succeed([...result.entries]),
-        ),
-      )
+    deps.kv.scan({ prefix: "orchestra/activation/", after, limit: 1000 }).pipe(
+      Effect.flatMap((result) =>
+        result.next
+          ? read(result.next).pipe(Effect.map((rest) => [...result.entries, ...rest]))
+          : Effect.succeed([...result.entries]),
+      ),
+    )
   return (yield* read()).flatMap((entry) => Option.toArray(decodeRecord(entry.value)))
 })
 
@@ -289,10 +296,9 @@ export const watch = Effect.fn("SessionActivation.watch")(function* (
   const checkAfterMs = input.checkAfterMs ?? checkDelayMs()
   // The baseline is read here, at dispatch time: any tokens the worker
   // already consumed belong to earlier work, not to this dispatch.
-  const baseline = yield* deps.store.get(input.sessionID).pipe(
-    Effect.map((info) => info?.tokens.input),
-    Effect.orElseSucceed(() => undefined),
-  )
+  const baseline = yield* deps.store
+    .get(input.sessionID)
+    .pipe(Effect.map((info) => info?.tokens.input), Effect.orElseSucceed(() => undefined))
   const record: Record = {
     sessionID: input.sessionID,
     projectID: input.projectID,

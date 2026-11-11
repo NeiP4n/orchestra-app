@@ -3411,7 +3411,25 @@ const layer: Layer.Layer<
       reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
       changes: Stream.fromPubSub(changed),
     })
-    const removeContinuationListener = continuationControl.listen((enabled) => enabled ? service.recoverPendingTasks() : Effect.void)
+    const removeContinuationListener = continuationControl.listen(
+      (enabled) =>
+        !enabled
+          ? Effect.void
+          : Effect.gen(function* () {
+              // Restart admission runs first. Renew only actually resumed workers' existing
+              // claims through the normal heartbeat path before the clock resumes. Never
+              // fabricate completion, revive unknown runs, or change lease/DoD rules.
+              const active = yield* sessions.active
+              for (const entry of yield* scanAll(TASK)) {
+                const id = SessionID.make(entry.key.slice(TASK.length)),
+                  task = decodeTask(entry.value)
+                if (active.has(id) && Option.isSome(task) && task.value.autoloopRun !== undefined)
+                  yield* AutoloopOrchestrator.heartbeatRun(autoloop, task.value.autoloopRun).pipe(Effect.ignore)
+              }
+              yield* service.recoverPendingTasks()
+            }),
+      20,
+    )
     yield* Effect.addFinalizer(() => Effect.sync(removeContinuationListener))
     return service
   }),

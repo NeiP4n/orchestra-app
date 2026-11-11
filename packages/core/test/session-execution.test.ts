@@ -36,6 +36,57 @@ const it = testEffect(
 )
 
 describe("operator continuation switch", () => {
+  it.effect("signals every session before waiting for slow cleanup and reports settled OFF only afterward", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service
+      const ids = Array.from({ length: 6 }, (_, index) => Session.ID.make(`ses_pause_many_${index}`))
+      yield* seedSessions(database, ids)
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const ready = yield* Deferred.make<void>(),
+        stopped = yield* Deferred.make<void>(),
+        cleanup = yield* Deferred.make<void>()
+      let starts = 0,
+        interrupts = 0,
+        reported = false
+      const context = yield* buildExecution(scope, () =>
+        Effect.gen(function* () {
+          if (++starts === ids.length) yield* Deferred.succeed(ready, undefined)
+          yield* Effect.never
+        }).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              if (++interrupts === ids.length) yield* Deferred.succeed(stopped, undefined)
+              yield* Deferred.await(cleanup)
+            }),
+          ),
+        ),
+      )
+      const control = Context.get(context, SessionContinuation.Service),
+        execution = Context.get(context, SessionExecution.Service)
+      yield* Effect.forEach(ids, execution.wake, { discard: true })
+      yield* Deferred.await(ready)
+      const pause = yield* control.set(false).pipe(Effect.forkChild)
+      yield* Deferred.await(stopped)
+      yield* control.settled.pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            reported = true
+          }),
+        ),
+        Effect.forkChild,
+      )
+      yield* Effect.yieldNow
+      expect(control.isEnabled()).toBe(false)
+      expect(interrupts).toBe(6)
+      expect(reported).toBe(false)
+      yield* Deferred.succeed(cleanup, undefined)
+      yield* Fiber.join(pause)
+      expect(yield* control.settled).toBe(false)
+      expect(yield* execution.active).toEqual(new Set())
+    }),
+  )
+
   it.effect(
     "defaults ON, pauses all active sessions durably, blocks every admission, and resumes without spending crash budget",
     () =>
@@ -134,7 +185,7 @@ describe("paused child admissions", () => {
       const id = Session.ID.make("ses_pause_child"),
         parent = Session.ID.make("ses_pause_parent")
       yield* seedSessions(database, [parent, id])
-      yield* database.db.update(SessionTable).set({ parentID: parent }).where(eq(SessionTable.id, id))
+      yield* database.db.update(SessionTable).set({ parent_id: parent }).where(eq(SessionTable.id, id))
       yield* kv.set(SessionContinuation.KEY, false)
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
@@ -145,6 +196,7 @@ describe("paused child admissions", () => {
         }),
       )
       const execution = Context.get(context, SessionExecution.Service)
+      expect((yield* SessionStore.Service.use((store) => store.get(id)))?.parentID).toBe(parent)
       yield* execution.wake(id)
       expect(seen).toEqual([])
       expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(true)
@@ -178,11 +230,13 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.gen(function* () {
-          drained.push(current)
-          yield* SessionInbox.promote(database.db, bus, current, "input")
-        }).pipe(Effect.asVoid),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) =>
+          Effect.gen(function* () {
+            drained.push(current)
+            yield* SessionInbox.promote(database.db, bus, current, "input")
+          }).pipe(Effect.asVoid),
       )
       const restart = Context.get(context, SessionRestart.Service)
       const execution = Context.get(context, SessionExecution.Service)
@@ -218,8 +272,9 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
       const execution = Context.get(context, SessionExecution.Service)
@@ -256,8 +311,9 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
 
@@ -297,8 +353,9 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
       yield* restart.resumeSuspendedSessions

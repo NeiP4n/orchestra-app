@@ -1,0 +1,57 @@
+name: continuation-regression
+
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/session/**'
+      - 'packages/core/src/autoloop/**'
+      - 'packages/core/src/orchestra.ts'
+      - 'packages/core/src/job.ts'
+      - 'packages/core/test/session*'
+      - 'packages/core/test/autoloop/**'
+      - 'packages/core/test/job.test.ts'
+      - 'packages/server/src/handlers/config.ts'
+      - 'packages/server/test/continuation.test.ts'
+      - 'packages/tui/src/component/continuation-switch.tsx'
+      - 'packages/tui/test/continuation-switch.test.tsx'
+      - 'packages/app/src/shell/continuation-switch.tsx'
+      - 'packages/app/test-browser/continuation-switch.test.tsx'
+      - 'packages/client/src/solid/continuation.ts'
+      - '.github/workflows/continuation-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  continuation:
+    name: operator pause (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Core pause, resume, crash, shell and timer regression
+        working-directory: packages/core
+        run: bun test test/session-execution.test.ts test/session-run-coordinator.test.ts test/session-worker-activation.test.ts test/job.test.ts test/autoloop/service.test.ts
+      - name: Real HTTP state and restart persistence
+        run: bun test packages/server/test/continuation.test.ts
+      - name: Mounted TUI and stale response handling
+        working-directory: packages/tui
+        run: bun test test/continuation-switch.test.tsx
+      - name: Shared web controller failure and stale response handling
+        working-directory: packages/app
+        run: bun test --conditions=browser --preload ./happydom.ts ./test-browser/continuation-switch.test.tsx

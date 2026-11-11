@@ -14,7 +14,7 @@ export interface Interface {
   readonly settled: Effect.Effect<boolean>
   readonly isEnabled: () => boolean
   readonly set: (enabled: boolean) => Effect.Effect<void>
-  readonly listen: (listener: Listener) => () => void
+  readonly listen: (listener: Listener, priority?: number) => () => void
 }
 export class Service extends Context.Service<Service, Interface>()("@orchestra/SessionContinuation") {}
 export const layer = Layer.effect(
@@ -22,7 +22,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const kv = yield* KV.Service
     const lock = yield* Semaphore.make(1)
-    const listeners = new Set<Listener>()
+    const listeners = new Set<{ listener: Listener; priority: number }>()
     const initial = yield* kv.get(KEY)
     // Read once per owning runtime. Admission is synchronous with the local gate;
     // awaiting IO before registering a run would race startup's awaitIdle callers.
@@ -40,14 +40,15 @@ export const layer = Layer.effect(
               // leaves orphaned claims parked for the next boot, not forgotten or replayed.
               yield* kv.set(KEY, value)
               state = value
-              for (const listener of listeners) yield* listener(value)
+              for (const entry of [...listeners].sort((a, b) => a.priority - b.priority)) yield* entry.listener(value)
             }),
           ),
         ),
-      listen: (listener) => {
-        listeners.add(listener)
+      listen: (listener, priority = 0) => {
+        const entry = { listener, priority }
+        listeners.add(entry)
         return () => {
-          listeners.delete(listener)
+          listeners.delete(entry)
         }
       },
     })

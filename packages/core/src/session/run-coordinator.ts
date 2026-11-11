@@ -133,10 +133,7 @@ export const make = <Key, E, Reason = never>(options: {
                       execution,
                       Exit.failCause(
                         Exit.isFailure(exit)
-                          ? Cause.combine(
-                              exit.cause,
-                              Cause.map(settledExit.cause, () => undefined as never),
-                            )
+                          ? Cause.combine(exit.cause, Cause.map(settledExit.cause, () => undefined as never))
                           : Cause.map(settledExit.cause, () => undefined as never),
                       ),
                     )

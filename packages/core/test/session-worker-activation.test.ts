@@ -37,6 +37,48 @@ const WORKER = Session.ID.make("ses_activation_worker")
 const MAIN = Session.ID.make("ses_activation_main")
 
 describe("SessionActivation", () => {
+  it.live("parks activation on OFF and re-arms the same watch after ON without spending a restart", () =>
+    Effect.gen(function* () {
+      const database = yield* Database.Service,
+        kv = yield* KV.Service,
+        sessions = yield* Session.Service,
+        store = yield* SessionStore.Service
+      yield* seedSessions(database, [WORKER, MAIN])
+      yield* kv.set(SessionContinuation.KEY, false)
+      yield* (yield* SessionInbox.Service).admit({
+        id: SessionMessage.ID.create(),
+        sessionID: WORKER,
+        item: {
+          type: "user",
+          payload: SessionInbox.UserPayload.make({ text: "retained", resumeOnStart: true }),
+          delivery: "queue",
+        },
+      })
+      const scope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+      const context = yield* buildExecution(scope, () => Effect.never)
+      const control = Context.get(context, SessionContinuation.Service),
+        deps = activationDeps({ kv, sessions, store }, context)
+      yield* SessionActivation.watch(deps, {
+        sessionID: WORKER,
+        projectID: "project-test",
+        mainID: MAIN,
+        checkAfterMs: 10,
+      }).pipe(Effect.provideService(SessionContinuation.Service, control))
+      const before = Schema.decodeUnknownSync(SessionActivation.Record)(yield* kv.get(SessionActivation.key(WORKER)))
+      expect(before).toMatchObject({ status: "paused", restarts: 0 })
+      expect(yield* Context.get(context, SessionExecution.Service).active).toEqual(new Set())
+      yield* control.set(true)
+      yield* SessionActivation.recover(deps, { scope, checkAfterMs: 10 }).pipe(
+        Effect.provideService(SessionContinuation.Service, control),
+      )
+      yield* Effect.sleep(50)
+      expect(
+        Schema.decodeUnknownSync(SessionActivation.Record)(yield* kv.get(SessionActivation.key(WORKER))),
+      ).toMatchObject({ status: "started", restarts: 0 })
+    }),
+  )
+
   test("isStarted needs new tokens since dispatch or a live execution", () => {
     // Cumulative tokens alone prove nothing: 100 tokens consumed before
     // the dispatch must not read as started.
@@ -501,7 +543,9 @@ function activationDeps(
 function seedSessions(
   database: Database.Service["Service"],
   sessionIDs: ReadonlyArray<Session.ID>,
-  values: Partial<Pick<typeof SessionTable.$inferInsert, "time_suspended" | "resume_attempts" | "parent_id" | "tokens_input">> = {},
+  values: Partial<
+    Pick<typeof SessionTable.$inferInsert, "time_suspended" | "resume_attempts" | "parent_id" | "tokens_input">
+  > = {},
 ) {
   return Effect.gen(function* () {
     yield* database.db
@@ -578,6 +622,7 @@ function buildExecution(
         Layer.provide(Layer.succeed(Bus.Service, bus)),
         Layer.provide(Layer.succeed(SessionStore.Service, store)),
         Layer.provide(Layer.succeed(Job.Service, jobs)),
+        Layer.provide(Layer.succeed(KV.Service, yield* KV.Service)),
         // Do not reuse the outer harness's selector with its already-captured Location map.
         Layer.provide(
           AppNodeBuilder.build(Instance.node, [LocationServiceMap.node.replace(locations)]).pipe(Layer.fresh),

@@ -378,7 +378,7 @@ export const layer = (options?: Options) =>
         // so its early notices keep resume: false and do not wake a parked parent.
         // The set is local to this sweep and is dropped with it once the fibers finish.
       })
-      const removeListener = continuation.listen((enabled) => (enabled ? resumeSuspendedSessions : Effect.void))
+      const removeListener = continuation.listen((enabled) => (enabled ? resumeSuspendedSessions : Effect.void), 10)
       yield* Effect.addFinalizer(() => Effect.sync(removeListener))
       return Service.of({ resumeSuspendedSessions })
     }),

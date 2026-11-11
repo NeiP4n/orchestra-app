@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import path from "path"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
-import { Effect, Fiber, Layer, Ref, Scope, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Ref, Scope, Stream } from "effect"
 import { AutoloopCard } from "@orchestra/schema/autoloop-card"
 import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { Bus } from "@orchestra/core/bus"
@@ -150,6 +150,80 @@ const runManual = <A, E>(
   )
 
 describe("AutoloopService tick", () => {
+  it.live("holds the clock until resume recovery refreshes a still-owned lease", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service,
+        control = yield* SessionContinuation.Service
+      yield* setRules(svc, rules)
+      yield* svc.execute({
+        type: "ingest",
+        args: ["user", { id: "pause-lease", type: "task.created", subject: "lease" }],
+      })
+      const job = (yield* svc.execute({ type: "claimNext", args: ["worker-1", "paused-claim"] })) as {
+        run: number
+        token: string
+      }
+      yield* control.set(false)
+      yield* AutoloopStore.commitLatest([
+        putRow("runs", String(job.run), {
+          ...runRow(yield* svc.getView(), job.run)!,
+          seen_at: iso(Date.now() - 30 * MINUTE),
+        }),
+      ])
+      const ready = yield* Deferred.make<void>(),
+        allow = yield* Deferred.make<void>()
+      const remove = control.listen(
+        (enabled) =>
+          !enabled
+            ? Effect.void
+            : Effect.gen(function* () {
+                yield* Deferred.succeed(ready, undefined)
+                yield* Deferred.await(allow)
+                yield* svc.heartbeat("worker-1", [job.run])
+              }),
+        20,
+      )
+      yield* Effect.addFinalizer(() => Effect.sync(remove))
+      yield* svc.start()
+      const resume = yield* control.set(true).pipe(Effect.forkChild)
+      yield* Deferred.await(ready)
+      yield* Effect.sleep(100)
+      expect(runRow(yield* svc.getView(), job.run)?.state).toBe("claimed")
+      expect((yield* svc.stats()).ticks).toBe(0)
+      yield* Deferred.succeed(allow, undefined)
+      yield* Fiber.join(resume)
+      yield* Effect.sleep(100)
+      const after = runRow(yield* svc.getView(), job.run)
+      expect(after?.state).toBe("claimed")
+      expect(after?.claim).toBe("paused-claim")
+      expect(Date.parse(after!.seen_at!)).toBeGreaterThan(Date.now() - 5000)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("rejects direct work admission while OFF but retains incoming events", () =>
+    Effect.gen(function* () {
+      const svc = yield* Autoloop.Service,
+        control = yield* SessionContinuation.Service
+      yield* setRules(svc, rules)
+      yield* control.set(false)
+      yield* svc.execute({
+        type: "ingest",
+        args: ["user", { id: "paused-incoming", type: "task.created", subject: "retained" }],
+      })
+      for (const input of [
+        { type: "tick", args: [] },
+        { type: "claimNext", args: ["worker-1", "bypass"] },
+        { type: "sweep", args: [] },
+      ] as const) {
+        const result = yield* svc.execute({ ...input, args: [...input.args] }).pipe(Effect.result)
+        expect(result._tag).toBe("Failure")
+      }
+      expect(runRow(yield* svc.getView(), 1)?.state).toBe("queued")
+      yield* control.set(true)
+      expect(yield* svc.execute({ type: "claimNext", args: ["worker-1", "now-allowed"] })).toMatchObject({ run: 1 })
+    }),
+  )
+
   it.live("does not fire due timers while operator-paused and wakes the clock on ON", () =>
     Effect.gen(function* () {
       const svc = yield* Autoloop.Service,
