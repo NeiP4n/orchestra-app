@@ -433,7 +433,7 @@ export const layer = Layer.effect(
           ...base.http,
           headers: {
             ...modelHook.headers,
-            ...kiloTaskHeaders(route.endpoint.baseURL, affinity),
+            ...kiloTaskHeaders(route.endpoint.baseURL, affinity, modelHook.headers),
           },
         }),
       })
@@ -640,8 +640,8 @@ export const node = makeLocationNode({
 
 /** Kilo documents TaskId as prompt-cache keying, not a cache-hit guarantee.
  * Apply only after routing hooks select the actual official gateway endpoint. */
-export function kiloTaskHeaders(baseURL: unknown, affinity: string): Record<string, string> {
-  if (typeof baseURL !== "string") return {}
+export function kiloTaskHeaders(baseURL: unknown, affinity: string, headers: Record<string, string> = {}): Record<string, string> {
+  if (typeof baseURL !== "string" || Object.keys(headers).some(name => name.toLowerCase() === "x-kilocode-taskid")) return {}
   const url = URL.parse(baseURL)
   if (!url || url.protocol !== "https:" || url.hostname !== "ai-gateway.kilo.ai" || url.port || url.username || url.password || !/^\/api\/v1\/?$/.test(url.pathname)) return {}
   return { "X-KiloCode-TaskId": createHash("sha256").update(affinity).digest("hex") }

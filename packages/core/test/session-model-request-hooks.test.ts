@@ -297,9 +297,11 @@ it.effect("Kilo task cache header follows the effective official route, not a pr
   Effect.gen(function* () {
     const hooks = yield* PluginHooks.Service
     let destination = "https://ai-gateway.kilo.ai/api/v1"
+    let explicitTask: string | undefined
     yield* hooks.register("session", "model.request", (event) =>
       Effect.sync(() => {
         event.baseURL = destination
+        if (explicitTask !== undefined) event.headers["x-kilocode-taskid"] = explicitTask
       }),
     )
     const registry = yield* Tool.Service
@@ -327,5 +329,10 @@ it.effect("Kilo task cache header follows the effective official route, not a pr
       destination = url
       expect((yield* prepare()).request.http?.headers?.["X-KiloCode-TaskId"]).toBeUndefined()
     }
+    destination = "https://ai-gateway.kilo.ai/api/v1"
+    explicitTask = "plugin-selected-task"
+    const customized = yield* prepare()
+    expect(customized.request.http?.headers?.["x-kilocode-taskid"]).toBe(explicitTask)
+    expect(customized.request.http?.headers?.["X-KiloCode-TaskId"]).toBeUndefined()
   }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
 )
