@@ -676,7 +676,7 @@ describe("Orchestra team", () => {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-delete-child-")))
       const orchestra = yield* Orchestra.Service, sessions = yield* Session.Service, store = yield* SessionStore.Service
       const project = yield* orchestra.create({ name: "Keep foreign child", directory: tmp.path })
-      const child = yield* sessions.create({ location: { directory: AbsolutePath.make(tmp.path) }, parentID: project.main!, title: "Foreign child", metadata: { [OrchestraSchema.SessionOwnerMetadataKey]: { projectID: "prj_foreign" } } })
+      const child = yield* sessions.create({ parentID: project.main!, title: "Foreign child", metadata: { [OrchestraSchema.SessionOwnerMetadataKey]: { projectID: "prj_foreign" } } })
       const exit = yield* orchestra.remove(project.id).pipe(Effect.exit)
       expect(Exit.isFailure(exit)).toBe(true)
       expect(yield* store.get(project.main!)).toBeDefined()
