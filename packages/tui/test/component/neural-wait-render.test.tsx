@@ -25,6 +25,7 @@ for (const themeName of ["sculk", "orchestra"] as const) {
         kind: "field",
         palette: neuralPalette(theme),
         backdrop: theme.background.base,
+        backgroundColor: theme.background.base,
         activity,
         functionalEffects: true,
         session: "ses_a",
