@@ -33,6 +33,7 @@ export const read = Effect.fn("ProjectTemplateV2Runtime.read")(function* (kv: KV
   const parsed = V2.preview(value.source)
   if (!parsed.ok || parsed.value.digest !== value.digest) return undefined
   const process = parsed.value.bundle.process
+  if (process.unresolvedRoles?.length) return undefined
   const map = new Map(
     process.roles.map((role, i) => [
       role.agent,

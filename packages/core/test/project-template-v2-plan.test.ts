@@ -74,3 +74,19 @@ test("auto session role survives codec and local remap without a fabricated role
   expect(plan.roles.map(row => row.source)).toEqual(b.process.roles.map(row => row.agent))
   expect(plan.permissionsGranted).toBe(false)
 })
+
+test("an archived unresolved role cannot be made executable by a destination role of the same name", () => {
+  const { b, d } = setup()
+  const absent = b.process.roles.pop()!
+  b.process.unresolvedRoles = [absent.agent]
+  const preview = V2.preview(JSON.stringify(b))
+  expect(preview.ok).toBe(true)
+  if (!preview.ok) throw Error(preview.error)
+  expect(preview.value.bundle.process.roles.some(r => r.agent === absent.agent)).toBe(false)
+  expect(preview.value.bundle.process.recommendedRoles).toEqual(b.process.recommendedRoles)
+  expect(preview.value.bundle.process.skillAssignments).toEqual(b.process.skillAssignments)
+  expect(() => Plan.prepare(preview.value.text, { ...d, reviewedDigest: preview.value.digest, roles: [...d.roles, absent] })).toThrow("Unresolved source role definitions")
+  // Even duplicating an unresolved identity into executable definitions is invalid.
+  b.process.roles.push(absent)
+  expect(V2.preview(JSON.stringify(b)).ok).toBe(false)
+})

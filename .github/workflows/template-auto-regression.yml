@@ -10,6 +10,10 @@ on:
       - 'packages/server/test/template-operation.test.ts'
       - 'packages/server/test/project-templates.test.ts'
       - 'packages/tui/src/component/project-templates*'
+      - 'packages/tui/src/context/notes.tsx'
+      - 'packages/tui/src/component/project-tree.tsx'
+      - 'packages/tui/src/util/browser-chat-lifecycle.ts'
+      - 'packages/tui/test/browser-chat*'
       - 'packages/tui/test/project-template*'
       - '.github/workflows/template-auto-regression.yml'
   push:
@@ -53,4 +57,6 @@ jobs:
         run: bun test packages/server/test/project-templates.test.ts packages/server/test/template-operation.test.ts
       - name: Mounted Templates screen with real backend and browser persistence
         working-directory: packages/tui
-        run: bun test test/project-template*.test.*
+        run: |
+          bun test test/project-template*.test.* test/browser-chat*.test.* test/browser-sessions*.test.ts
+          bun test test/project-tree.test.tsx --test-name-pattern "actual Browser 2"

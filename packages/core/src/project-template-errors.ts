@@ -1,6 +1,6 @@
 export const templateStages = ["project", "vault", "browser-links", "process-source", "roles", "playbook", "skills", "programs", "library-read", "library-write", "reservation", "source-read", "session-models", "skill-graph", "skill-files", "source-stability", "base-project", "base-sessions", "base-browsers", "base-rules", "base-schedules", "base-vault", "base-integrations", "base-schema", "process-bindings", "process-roles", "process-playbook", "process-skills", "process-assignments", "process-models", "process-programs", "process-schema"] as const
 export type TemplateStage = typeof templateStages[number]
-export const templateReasons = ["read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "ownership-invalid", "browser-chat-missing", "browser-chat-child", "browser-chat-foreign", "browser-chat-unlisted", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
+export const templateReasons = ["read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "session-role-missing", "rule-role-missing", "playbook-role-missing", "skill-role-missing", "ownership-invalid", "browser-chat-missing", "browser-chat-child", "browser-chat-foreign", "browser-chat-unlisted", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
 export type TemplateReason = typeof templateReasons[number]
 export interface TemplateDiagnostic { stage: TemplateStage; reasonCode: TemplateReason }
 const diagnosticReason = (error: unknown): TemplateReason => {
@@ -65,10 +65,17 @@ export const templateErrorMessages = {
   TEMPLATE_BROWSER_OWNER: "A selected browser has an invalid project or session identity. Review the project's Browsers list.",
   TEMPLATE_OWNERSHIP: "Project ownership or session metadata is incomplete. Reopen the project and review again.",
   TEMPLATE_UNSAFE: "Template content is not portable or contains secret-like data. Review configuration before saving.",
+  TEMPLATE_SESSION_ROLE: "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.",
+  TEMPLATE_RULE_ROLE: "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.",
+  TEMPLATE_PLAYBOOK_ROLE: "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.",
+  TEMPLATE_SKILL_ROLE: "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.",
+  TEMPLATE_UNRESOLVED_ROLES: "This template preserves unavailable role references. Restore the original source roles and update the template before creating a project. No permissions were invented or removed.",
   TEMPLATE_FAILED: "Could not finish the template operation. Review changes and retry the same operation.",
 } as const
 export type TemplateErrorCode = keyof typeof templateErrorMessages
 const exact = new Map<string, TemplateErrorCode>([
+  ["Unresolved source role definitions must be restored before creating a project.", "TEMPLATE_UNRESOLVED_ROLES"],
+  ["Unresolved source role definitions require review before saving.", "TEMPLATE_UNRESOLVED_ROLES"],
   ["Browser chat no longer exists.", "TEMPLATE_BROWSER_CHAT_MISSING"],
   ["Browser chat is a child task.", "TEMPLATE_BROWSER_CHAT_CHILD"],
   ["Browser chat belongs to another project.", "TEMPLATE_BROWSER_CHAT_FOREIGN"],
@@ -94,7 +101,14 @@ const exact = new Map<string, TemplateErrorCode>([
   ["Saved URLs require HTTP(S) with no credentials, query or fragment.", "TEMPLATE_LINKS"],
 ])
 export function templateError(error: unknown): { kind: TemplateErrorCode; message: string } {
-  if (error instanceof TemplateStageError) return templateError(error.original)
+  if (error instanceof TemplateStageError) {
+    const roleCodes = { "session-role-missing":"TEMPLATE_SESSION_ROLE", "rule-role-missing":"TEMPLATE_RULE_ROLE", "playbook-role-missing":"TEMPLATE_PLAYBOOK_ROLE", "skill-role-missing":"TEMPLATE_SKILL_ROLE" } as const
+    if (error.reasonCode in roleCodes) {
+      const kind = roleCodes[error.reasonCode as keyof typeof roleCodes]
+      return {kind,message:templateErrorMessages[kind]}
+    }
+    return templateError(error.original)
+  }
   let kind: TemplateErrorCode = "TEMPLATE_FAILED"
   if (error instanceof Error) {
     const code = (error as NodeJS.ErrnoException).code

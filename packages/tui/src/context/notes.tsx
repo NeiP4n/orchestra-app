@@ -1,3 +1,4 @@
+import { browserChat, removeBrowserChat } from "../util/browser-chat-lifecycle"
 import { ensureImportedBrowsers, type ImportedBrowsers } from "../util/project-template-browsers"
 import { BrowserLifecycle } from "@orchestra/core/browser/lifecycle"
 import {
@@ -285,6 +286,7 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         claimed.add(created.id)
         await projects.claim(created.id, projectID, created.request)
         await changeBrowser((draft) => void bindBrowserChat(draft, projectID, sessionID, created.id))
+        return created.id
       } catch {
         // The browser works without its chat; the next open tries again.
       } finally {
@@ -314,12 +316,36 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
         if (directory) void added.then(() => giveBrowserAgent(projectID, id, directory, title))
       },
       // A session that has no BrowserAgent yet (made before BrowserAgent existed) gets one the first time it is opened.
-      ensureBrowserAgent: (projectID: string, id: string, directory: string) => {
+      ensureBrowserAgent: async (projectID: string, id: string, directory: string) => {
         const item = browser.projects?.[projectID]?.find((entry) => entry.id === id)
-        if (item && !item.chat) void giveBrowserAgent(projectID, id, directory, item.name)
-        // A chat made before the role existed runs the default agent: put it on the BrowserAgent role.
-        else if (item?.chat && data.session.get(item.chat)?.agent !== "team-browser-agent")
-          void client.api.session.switchAgent({ sessionID: item.chat, agent: "team-browser-agent" }).catch(() => undefined)
+        if (!item) return
+        if (item.chat) {
+          const chatID = item.chat
+          // The cache can be stale after a crash or deletion on another client.
+          const session = await browserChat(() => client.api.session.get({ sessionID: chatID }))
+          if (session) {
+            const owners = await client.api.orchestra.owner.list()
+            if (session.parentID || owners[chatID] !== projectID)
+              throw new Error("Browser chat does not belong to this project's top-level sessions")
+            if (session.agent !== "team-browser-agent")
+              await client.api.session.switchAgent({ sessionID: chatID, agent: "team-browser-agent" })
+            return chatID
+          }
+          await changeBrowser(draft => {
+            const current = draft.projects[projectID]?.find(entry => entry.id === id)
+            if (current?.chat === chatID) delete current.chat
+          })
+          data.session.evict(chatID)
+        }
+        return giveBrowserAgent(projectID, id, directory, item.name)
+      },
+      removeBoundBrowserChat: async (projectID: string, chatID: string) => {
+        const session = await browserChat(() => client.api.session.get({sessionID:chatID}))
+        if (!session) return
+        const owners = await client.api.orchestra.owner.list()
+        if (session.parentID || owners[chatID] !== projectID)
+          throw new Error("Browser chat does not belong to this project's top-level sessions")
+        await removeBrowserChat(() => client.api.session.remove({sessionID:chatID}))
       },
       closedBrowserSessions: (projectID: string) => browser.closed?.[projectID] ?? [],
       reopenBrowserSession: (projectID: string, id: string) =>

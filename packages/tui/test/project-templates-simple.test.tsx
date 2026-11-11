@@ -181,3 +181,34 @@ test("plain Save offers an explicit same-name update and never overwrites before
     expect(keys).toBeDefined()
   } finally {app.renderer.destroy()}
 })
+
+for(const width of [80,120]) test(`unavailable role save uses one visible warning and explicit consent at ${width}`,async()=>{
+ const calls:unknown[][]=[]
+ const access:ProjectTemplatesAccess={
+  list:async()=>[],
+  prepareSave:async()=>({token:"missing-role",name:"Test2",details:JSON.stringify({format:"orchestra.project-template",version:2,process:{skills:[],unresolvedRoles:["team_deleted"]}}),unresolvedRoles:["team_deleted"]}),
+  confirmSave:async(...args)=>{calls.push(args)},prepareCreate:async()=>{throw Error("not create")},confirmCreate:async()=>{throw Error("not create")},
+ }
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple access={access} canSave /></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:40})
+ app.renderer.start()
+ const click=async(id:string)=>{
+  await app.waitFor(()=>!!app.renderer.root.findDescendantById(id))
+  const box=app.renderer.root.findDescendantById(id)!
+  await app.mockMouse.click(box.x+1,box.y);await app.renderOnce()
+ }
+ try{
+  await app.waitForFrame(f=>f.includes("Шаблонов пока нет")&&!f.includes("Подготовка"))
+  await click("project-templates.save")
+  await app.waitForFrame(f=>f.includes("Сохранить неполный шаблон"))
+  const frame=app.captureCharFrame().replace(/\s+/g," ")
+  expect(frame).toContain("Создание проекта заблокировано")
+  expect(frame).toContain("правила и назначения навыков сохранятся")
+  expect(calls).toEqual([])
+  if(process.env.CAPTURE_ROLE_REVIEW)await Bun.write(`/tmp/template-role-review-${width}.spans.json`,JSON.stringify(app.captureSpans()))
+  await click("project-templates.details")
+  expect(app.captureCharFrame()).toContain("Недоступная роль: team_deleted")
+  await click("project-templates.confirm")
+  await app.waitForFrame(f=>f.includes("Проект сохранён как шаблон"))
+  expect(calls).toEqual([["missing-role",false,false,true]])
+ }finally{app.renderer.destroy()}
+})

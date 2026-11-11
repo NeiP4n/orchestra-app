@@ -34,7 +34,6 @@ test("capture keeps recommended unopened roles, dependency closure, empty assign
   expect(JSON.stringify(result)).not.toContain("ses_source")
 })
 for (const [name, change] of [
-  ["missing used role", (p: S.ProcessSource) => p.roles = p.roles.slice(0, 1)],
   ["missing model snapshot", (p: S.ProcessSource) => p.sessionModels = []],
   ["foreign model snapshot", (p: S.ProcessSource) => p.sessionModels[0].sessionID = "ses_foreign"],
   ["foreign skill assignment", (p: S.ProcessSource) => p.skillAssignments.push({ target: { kind: "session", sessionID: "ses_foreign" }, skills: [] })],
@@ -82,4 +81,14 @@ test("explicit skill assignment keeps its role even without an opened or recomme
   if (!result.ok) throw Error(result.error)
   expect(result.value.bundle.process.roles.map((r) => r.agent)).toEqual(["orchestrator", "team-seller"])
   expect(result.value.bundle.process.skillAssignments.at(-1)).toEqual({ target: { kind: "role", role: "team-seller" }, skills: ["marketplace"] })
+})
+
+test("missing recommended role is archived without dropping its reference",()=>{
+ const {source,process}=fixture();process.roles=process.roles.slice(0,1)
+ const result=S.capture(source,metadata,process)
+ expect(result.ok).toBe(true)
+ if(!result.ok)throw Error(result.error)
+ expect(result.value.bundle.process.unresolvedRoles).toEqual(process.recommendedRoles)
+ expect(result.value.bundle.process.recommendedRoles).toEqual(process.recommendedRoles)
+ expect(result.value.bundle.process.roles).toEqual([...process.roles])
 })

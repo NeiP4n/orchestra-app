@@ -106,7 +106,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
     return handlers
       .handle("orchestra.projectTemplate.list",()=>templateOperation("list",()=>operator.list()))
       .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation("prepareSave",()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
-      .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation("confirmSave",()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks,ctx.payload.omitInvalidBrowserBindings)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
+      .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation("confirmSave",()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks,ctx.payload.omitInvalidBrowserBindings,ctx.payload.acceptUnresolvedRoles)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
       .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation("prepareCreate",()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory)))
       .handle("orchestra.projectTemplate.confirmCreate",ctx=>templateOperation("confirmCreate",()=>operator.confirmCreate(ctx.payload.token)))
       .handle("orchestra.projectTemplate.finishCreate",ctx=>templateOperation("finishCreate",()=>operator.finishCreate(ctx.payload.token)).pipe(Effect.as(HttpApiSchema.NoContent.make())))

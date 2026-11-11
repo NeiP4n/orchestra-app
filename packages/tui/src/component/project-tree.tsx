@@ -384,7 +384,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               dialog.replace(() => <DialogConfirm title="Удалить закрытый чат браузера?" message={`${item.name}: чат удалится, профиль и логины сохранятся.`} onConfirm={() => {
                 void (async () => {
                   await beforeRemoveChat({ id: chatID })
-                  await client.api.session.remove({ sessionID: chatID })
+                  await notes.removeBoundBrowserChat(project.id, chatID)
                   await afterRemoveChat({ id: chatID })
                   if (route.data.type === "session" && route.data.sessionID === chatID) route.navigate({ type: "home" })
                   next(again)
@@ -711,7 +711,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         if (warning) toast.show({ message: warning, variant: "warning", duration: 6000 })
         await BrowserRuntime.open(id)
         void notes.selectBrowserSession(project.id, id)
-        notes.ensureBrowserAgent(project.id, id, project.directory)
+        await notes.ensureBrowserAgent(project.id, id, project.directory)
         notes.setProject(project.id)
         notes.setTab("browser")
         if (!inProject(project)) void openMain(project)
@@ -784,16 +784,18 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                           setHover={setHover}
                           selected={chosen() && inProject(project)}
                           onClick={() => {
-                            notes.selectBrowserSession(project.id, item.id)
-                            notes.ensureBrowserAgent(project.id, item.id, project.directory)
+                            void (async () => {
+                            await notes.selectBrowserSession(project.id, item.id)
+                            const chat = await notes.ensureBrowserAgent(project.id, item.id, project.directory)
                             notes.setProject(project.id)
                             // From the Projects tab the row opens only its chat; the tab stays (the user's explicit pick).
-                            if (notes.tab() !== "browser" && item.chat) {
-                              if (!(route.data.type === "session" && route.data.sessionID === item.chat)) openedFromProjects.add(item.chat)
-                              route.navigate({ type: "session", sessionID: item.chat })
+                            if (notes.tab() !== "browser" && chat) {
+                              if (!(route.data.type === "session" && route.data.sessionID === chat)) openedFromProjects.add(chat)
+                              route.navigate({ type: "session", sessionID: chat })
                               return
                             }
                             if (!inProject(project)) void openMain(project)
+                            })().catch(error => toast.show({message:errorMessage(error),variant:"error"}))
                           }}
                         >
                           <Branch lit={chosen() && inProject(project)} />
@@ -849,10 +851,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 await BrowserRuntime.closeBlockedBrowser(item.id)
                                 if (item.chat) {
                                   const chatID = item.chat
-                                  await client.api.session.remove({ sessionID: chatID })
+                                  await notes.removeBoundBrowserChat(project.id, chatID)
                                   await afterRemoveChat({ id: chatID })
                                   if (route.data.type === "session" && route.data.sessionID === chatID) route.navigate({ type: "home" })
-                                } else await notes.removeBrowserSession(project.id, item.id)
+                                }
+                                await notes.removeBrowserSession(project.id, item.id)
                               })()
                                 .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
                             }}

@@ -21035,6 +21035,19 @@
                     "details": {
                       "type": "string"
                     },
+                    "unresolvedRoles": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "browserBindings": {
                       "anyOf": [
                         {
@@ -21365,6 +21378,16 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "acceptUnresolvedRoles": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": ["token", "browsers"],
@@ -21398,6 +21421,19 @@
                     },
                     "details": {
                       "type": "string"
+                    },
+                    "unresolvedRoles": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "browserBindings": {
                       "anyOf": [

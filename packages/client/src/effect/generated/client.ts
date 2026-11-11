@@ -2484,6 +2484,7 @@ const EndpointOrchestraProjectTemplateConfirmSave =
           browsers: input["browsers"],
           omitUnsafeLinks: input["omitUnsafeLinks"],
           omitInvalidBrowserBindings: input["omitInvalidBrowserBindings"],
+          acceptUnresolvedRoles: input["acceptUnresolvedRoles"],
         },
       }).pipe(Effect.mapError(mapClientError)),
     )
