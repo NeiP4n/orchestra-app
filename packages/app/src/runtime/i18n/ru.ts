@@ -394,6 +394,7 @@ export const dict = {
   "notification.session.error.title": "Ошибка сессии",
   "notification.session.error.fallbackDescription": "Произошла ошибка",
 
+  "session.tui.ready": "Готово",
   "neural.status.ready": "сеть готова",
   "neural.status.connecting": "подключение…",
   "home.overview.title": "Обзор проекта",

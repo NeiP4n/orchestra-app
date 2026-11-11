@@ -22,11 +22,14 @@ for (const width of [1440, 390]) {
     await expect(editor).toBeEditable()
     await editor.fill("TUI session draft")
     const tree = workspace.locator('[data-slot="tui-project-tree"]')
+
     if (width === 1440) {
       await expect(tree).toBeVisible()
+
       const target = tree
         .locator('[data-component="home-session-row"]')
         .filter({ hasText: fixture.expected.sourceTitle })
+
       await expect(target).toBeVisible()
       await target.click()
       await expect(page).toHaveURL(sessionHref(fixture.sourceID))
@@ -35,6 +38,14 @@ for (const width of [1440, 390]) {
     } else {
       await expect(tree).toHaveCount(0)
     }
+
+    await expect(workspace.locator("[data-timeline-virtual-content]")).toHaveCSS("visibility", "visible")
+    const latest = width === 1440 ? fixture.expected.sourceMessageIDs.at(-1) : fixture.expected.targetMessageIDs.at(-1)
+
+    const jump = workspace.getByRole("button", { name: "Jump to latest", exact: true })
+
+    if (await jump.isVisible()) await jump.click()
+    await expect(workspace.locator(`[data-message-id="${latest}"]`).last()).toBeInViewport()
     await expect.poll(() => workspace.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true)
     await page.screenshot({ path: info.outputPath(`tui-session-${width}.png`), fullPage: true })
   })

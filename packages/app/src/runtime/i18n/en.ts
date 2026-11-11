@@ -559,6 +559,7 @@ export const dict = {
   "dod.board.freeCard": "Free this card",
   "dod.board.freeing": "Freeing…",
 
+  "session.tui.ready": "Ready",
   "neural.status.ready": "network ready",
   "neural.status.connecting": "connecting…",
   "home.overview.title": "Project overview",

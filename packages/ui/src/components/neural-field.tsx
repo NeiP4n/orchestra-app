@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { getSharedNeuralActivity, type NeuralSignalKind } from "./neural-activity"
+import { buildNeuralMesh } from "./neural-mesh"
 import { createNeuralHazePainter } from "./neural-haze"
 import { createNeuralFrameLoop } from "./neural-frame-loop"
 
@@ -118,21 +119,6 @@ function buildNodes(count: number, seed: number): Node[] {
   return Array.from({ length: count }, () => ({ x: 0.06 + random() * 0.88, y: 0.08 + random() * 0.84, flash: 0 }))
 }
 
-function buildLinks(nodes: readonly Node[], maxDistance: number): Array<[number, number]> {
-  const links: Array<[number, number]> = []
-
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const dx = nodes[i].x - nodes[j].x
-      const dy = nodes[i].y - nodes[j].y
-
-      if (Math.hypot(dx, dy) < maxDistance) links.push([i, j])
-    }
-  }
-
-  return links
-}
-
 function fitCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
   const ctx = canvas.getContext("2d")
 
@@ -241,16 +227,31 @@ function spawnPulses(
   }
 }
 
-export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {
+export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: string; variant?: "overview" }> = (
+  props,
+) => {
   const activity = getSharedNeuralActivity()
   const paintHaze = createNeuralHazePainter()
   let drift = 0
-  const nodes = buildNodes(24, 42)
-  const links = buildLinks(nodes, 0.3)
+  let mesh = buildNeuralMesh(1, 1)
+  let meshKey = ""
+  let nodes: Node[] = []
+  let links: Array<[number, number]> = []
   const pulses: Pulse[] = []
   const cursor = { value: activity.cursor }
 
   const ref = useCanvasLoop((ctx, width, height, dt, palette) => {
+    const cols = Math.max(1, Math.floor(width / 8))
+    const rows = Math.max(1, Math.floor(height / 16))
+    const key = `${cols}x${rows}`
+
+    if (key !== meshKey) {
+      mesh = buildNeuralMesh(cols, rows)
+      nodes = mesh.nodes.map((node) => ({ x: node.x / cols, y: node.y / rows, flash: node.flash }))
+      links = mesh.edges.map((edge): [number, number] => [edge.from, edge.to])
+      pulses.length = 0
+      meshKey = key
+    }
     const energy = activity.level(props.sessionIDs)
     const tempo = 0.25 + energy * 1.5
     spawnPulses(activity, cursor, nodes, links, palette, pulses, 96)
@@ -258,19 +259,20 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
     ctx.clearRect(0, 0, width, height)
     drift += dt * tempo
     paintHaze(ctx, width, height, drift, energy, palette, nodes)
-    const scale = Math.min(width, height)
     const px = (x: number) => x * width
     const py = (y: number) => y * height
 
     ctx.lineWidth = 1
 
-    for (const [a, b] of links) {
-      ctx.strokeStyle = palette.synapse
-      ctx.globalAlpha = 0.12 + energy * 0.18
-      ctx.beginPath()
-      ctx.moveTo(px(nodes[a].x), py(nodes[a].y))
-      ctx.lineTo(px(nodes[b].x), py(nodes[b].y))
-      ctx.stroke()
+    ctx.font = "16px monospace"
+    ctx.textBaseline = "top"
+    ctx.fillStyle = palette.synapse
+
+    for (let index = 0; index < mesh.edges.length; index++) {
+      ctx.globalAlpha = 0.9 * (dt === 0 ? 0.8 : 0.55 + 0.45 * Math.sin((drift * 1000) / 1700 + index * 0.9))
+      for (const [x, y] of mesh.edges[index].cells) {
+        ctx.fillText("·", (x * width) / cols, (y * height) / rows)
+      }
     }
 
     ctx.globalAlpha = 1
@@ -301,20 +303,25 @@ export const NeuralField: Component<{ sessionIDs?: readonly string[]; class?: st
 
     ctx.globalAlpha = 1
 
-    for (const node of nodes) {
-      node.flash = Math.max(0, node.flash - dt * 0.6)
-      const radius = 1.5 + node.flash * 2.5 + energy * 0.5
-      ctx.fillStyle = node.flash > 0.05 ? palette.signal : palette.dormant
+    for (let index = 0; index < nodes.length; index++) {
+      const node = nodes[index]
+      node.flash = Math.max(0, node.flash - dt * 1.4)
+      ctx.fillStyle = palette.signal
       ctx.globalAlpha = 0.5 + node.flash * 0.5 + energy * 0.2
-      ctx.beginPath()
-      ctx.arc(px(node.x), py(node.y), Math.min(radius, scale * 0.02), 0, Math.PI * 2)
-      ctx.fill()
+      ctx.fillText(node.flash > 0.45 ? "◉" : mesh.nodes[index].degree > 3 ? "●" : "•", px(node.x), py(node.y))
     }
 
     ctx.globalAlpha = 1
   })
 
-  return <canvas ref={ref} data-component="neural-field" class={props.class} aria-hidden="true" />
+  return (
+    <canvas
+      ref={ref}
+      data-component={props.variant === "overview" ? "neural-overview" : "neural-field"}
+      class={props.class}
+      aria-hidden="true"
+    />
+  )
 }
 
 export const NeuralLine: Component<{ sessionIDs?: readonly string[]; class?: string }> = (props) => {

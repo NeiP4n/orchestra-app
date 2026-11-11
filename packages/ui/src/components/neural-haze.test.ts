@@ -14,7 +14,9 @@ describe("TUI ordered-dither haze", () => {
     const end = "// The cells between two nodes"
     const noise = tui.slice(tui.indexOf(start), tui.indexOf(end)).trim()
 
-    expect(web).toContain(noise)
+    // Lint adds blank lines before returns. Ignore only empty lines, not tokens,
+    // comments, operators or constants when comparing the copied implementation.
+    expect(web.replace(/\n[ \t]*\n/g, "\n")).toContain(noise.replace(/\n[ \t]*\n/g, "\n"))
   })
 
   test("a quiet still frame has deterministic visible haze, and activity adds density", () => {

@@ -1,3 +1,4 @@
+import { NeuralField } from "@orchestra/ui/neural-field"
 import { createMediaQuery } from "@solid-primitives/media"
 import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js"
 import { ServerConnection } from "@/runtime/server/registry"
@@ -96,6 +97,9 @@ export function Home() {
         </section>
         <section data-slot="tui-network-overview">
           <h3>{language.t("home.overview.network")}</h3>
+          <div class="pointer-events-none h-24" aria-hidden="true">
+            <NeuralField variant="overview" />
+          </div>
           <dl>
             <dt>{language.t("home.overview.sessions")}</dt>
             <dd>{roots().length}</dd>

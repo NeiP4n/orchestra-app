@@ -180,29 +180,6 @@
   background: currentColor;
 }
 
-[data-running="true"] [data-slot="tui-header-bands"] > span {
-  animation: tui-header-band 720ms ease-in-out infinite alternate;
-}
-
-@keyframes tui-header-band {
-  from {
-    height: 22%;
-  }
-  to {
-    height: 88%;
-  }
-}
-
-:root[data-motion="off"] [data-slot="tui-header-bands"] > span {
-  animation: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="on"]) [data-slot="tui-header-bands"] > span {
-    animation: none;
-  }
-}
-
 [data-session-title] > div {
   border-bottom: 1px solid var(--v2-border-border-base);
 }
@@ -257,4 +234,28 @@
   [data-component="tui-session-status"] > span:first-child {
     display: none;
   }
+}
+
+
+[data-slot="tui-project-overview"] section {
+  position: relative;
+  border-radius: 0;
+  padding-top: 20px;
+}
+
+[data-slot="tui-project-overview"] section h3 {
+  position: absolute;
+  top: -10px;
+  inset-inline-start: 12px;
+  background: var(--v2-background-bg-base);
+  padding-inline: 6px;
+}
+
+[data-slot="tui-network-overview"] {
+  flex: 1;
+  min-height: 240px;
+}
+
+[data-slot="tui-home-stage"] [data-slot="new-session-prompt"] {
+  border-radius: 0;
 }

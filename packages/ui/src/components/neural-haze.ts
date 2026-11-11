@@ -29,7 +29,7 @@ function fbm(x: number, y: number, seed: number) {
   return noise(x, y, seed) * 0.65 + noise(x * 2.3, y * 2.3, seed + 17) * 0.35
 }
 
-export function neuralHazeLevel(x: number, y: number, drift: number, energy: number, warmth = 0, seed = 42) {
+export function neuralHazeLevel(x: number, y: number, drift: number, energy: number, warmth = 0, seed = 7) {
   const value =
     (fbm(x * 0.06 + drift * 0.9, y * 0.21 + Math.sin(drift * 0.3) * 0.6, seed) - 0.5) * 1.1 -
     0.12 +

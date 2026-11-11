@@ -30,6 +30,7 @@ export function TuiProjectTree() {
     const directory = context?.data.session.get(params.id)?.location.directory
 
     if (!context || !directory) return
+
     const project = context.projects
       .list()
       .find((item) => item.worktree === directory || item.sandboxes?.includes(directory))
@@ -41,7 +42,7 @@ export function TuiProjectTree() {
     <aside data-slot="tui-project-tree" aria-label={projects.copy.language.t("home.projects")}>
       <HomeProjects projects={projects} scroll={scroll} />
       <div data-slot="tui-session-tree">
-        <HomeSessions sessions={sessions} search={search} scroll={scroll} />
+        <HomeSessions navigationLinks sessions={sessions} search={search} scroll={scroll} />
       </div>
       <HomeUtilityNav
         class="flex"

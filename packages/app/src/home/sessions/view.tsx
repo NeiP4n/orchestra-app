@@ -1,4 +1,5 @@
 import type { SessionInfo } from "@orchestra/client/promise"
+import { Dynamic } from "solid-js/web"
 import { Key } from "@solid-primitives/keyed"
 import { createMemo, createSignal, For, Index, onCleanup, Show } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
@@ -13,6 +14,7 @@ import { Tooltip } from "@orchestra/ui/tooltip"
 import { useLanguage } from "@/runtime/i18n/language"
 import { ServerConnection } from "@/runtime/server/registry"
 import { SessionTabAvatarView } from "@/shell/layout/session-tab-avatar"
+import { sessionHref } from "@/shell/routes/session"
 import { sessionLabel } from "@/session/title"
 import { shouldOpenSessionInBackground } from "./open"
 import { createAltHold } from "./alt-hold"
@@ -47,6 +49,7 @@ function isBackgroundOpen(event: MouseEvent) {
 }
 
 export type HomeSessionsViewProps = {
+  navigationLinks?: boolean
   language: ReturnType<typeof useLanguage>
   groups: HomeSessionGroup[]
   archivedGroups: HomeSessionGroup[]
@@ -565,8 +568,7 @@ function HomeSessionRow(
   // deferred focus runs.
   const rowSelector = () => `[data-component="home-session-row-container"][data-session-id="${sessionID()}"]`
 
-  const rowButton = () =>
-    document.querySelector<HTMLButtonElement>(`${rowSelector()} [data-component="home-session-row"]`)
+  const rowButton = () => document.querySelector<HTMLElement>(`${rowSelector()} [data-component="home-session-row"]`)
 
   const renameInput = () =>
     document.querySelector<HTMLInputElement>(`${rowSelector()} [data-component="home-session-rename"]`)
@@ -694,8 +696,10 @@ function HomeSessionRow(
           </div>
         }
       >
-        <button
-          type="button"
+        <Dynamic
+          component={props.navigationLinks ? "a" : "button"}
+          type={props.navigationLinks ? undefined : "button"}
+          href={props.navigationLinks ? sessionHref(props.server, props.record.session.id) : undefined}
           data-component="home-session-row"
           aria-haspopup="menu"
           aria-expanded={!!menu()}
@@ -750,6 +754,7 @@ function HomeSessionRow(
             openMenu(event.currentTarget, bounds.left + 12, bounds.bottom)
           }}
           onClick={(event) => {
+            event.preventDefault()
             // The flag stays set until the long-press compatibility click
             // arrives, however delayed; keyboard activation (detail 0) is
             // never that click and passes through.
@@ -792,7 +797,7 @@ function HomeSessionRow(
               desktop={props.desktop}
             />
           </div>
-        </button>
+        </Dynamic>
       </Show>
       <Menu
         modal={false}
