@@ -107,7 +107,7 @@ function getBindAddress() {
  * Starts a lightweight HTTP server that listens for the Antigravity OAuth redirect
  * and resolves with the captured callback URL.
  */
-export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000 } = {}) {
+export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000, deferResult = false } = {}) {
     const port = redirectUri.port
         ? Number.parseInt(redirectUri.port, 10)
         : redirectUri.protocol === "https:"
@@ -265,6 +265,19 @@ export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000 } = {}) {
         rejectCallback(new Error("Timed out waiting for OAuth callback"));
     }, timeoutMs);
     timeoutHandle.unref?.();
+    let pendingResponse;
+    const page = (title, text) => successResponse
+        .replace("All set!", title)
+        .replace("You've successfully authenticated with Antigravity. You can now return to Opencode.", text)
+        .replace('d="M5 13l4 4L19 7"', 'd="M6 6l12 12M18 6L6 18"')
+        .replaceAll("#10B981", "#B45309").replaceAll("#34D399", "#FBBF24");
+    const finish = (success) => {
+        if (!pendingResponse)
+            return;
+        pendingResponse.writeHead(success ? 200 : 400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Connection": "close" });
+        pendingResponse.end(success ? successResponse : page("Sign-in not completed", "The account was not connected. Return to Orchestra for the error and try again."));
+        pendingResponse = undefined;
+    };
     const handler = (request, response) => {
         if (!request.url) {
             response.writeHead(400, { "Content-Type": "text/plain" });
@@ -279,8 +292,17 @@ export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000 } = {}) {
             response.end("Not found");
             return;
         }
-        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        response.end(successResponse);
+        if (settled) {
+            response.writeHead(409, { "Content-Type": "text/plain" });
+            response.end("This callback has already been received. Return to Orchestra.");
+            return;
+        }
+        if (deferResult)
+            pendingResponse = response;
+        else {
+            response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Connection": "close" });
+            response.end(page("Callback received", "Return to Orchestra to finish connecting the account. This page does not confirm a successful sign-in."));
+        }
         resolveCallback(url);
         setImmediate(() => {
             server.close();
@@ -324,7 +346,9 @@ export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000 } = {}) {
     }
     return {
         waitForCallback: () => callbackPromise,
+        finish,
         close: () => new Promise((resolve, reject) => {
+            finish(false);
             loopback6?.close();
             server.close((error) => {
                 if (error && error.code !== "ERR_SERVER_NOT_RUNNING") {

@@ -1,5 +1,5 @@
 import { generatePKCE } from "@openauthjs/openauth/pkce";
-import { ANTIGRAVITY_CLIENT_ID, requireAntigravityClientSecret, ANTIGRAVITY_REDIRECT_URI, ANTIGRAVITY_SCOPES, ANTIGRAVITY_ENDPOINT, getAntigravityUserAgent, GEMINI_CLI_HEADERS, } from "../constants.js";
+import { ANTIGRAVITY_CLIENT_ID, AntigravityOAuthConfigurationError, requireAntigravityClientSecret, ANTIGRAVITY_REDIRECT_URI, ANTIGRAVITY_SCOPES, ANTIGRAVITY_ENDPOINT, getAntigravityUserAgent, GEMINI_CLI_HEADERS, } from "../constants.js";
 import { createLogger } from "../plugin/logger.js";
 import { calculateTokenExpiry } from "../plugin/auth.js";
 const log = createLogger("oauth");
@@ -29,6 +29,8 @@ function decodeState(state) {
  * Build the Antigravity OAuth authorization URL including PKCE and optional project metadata.
  */
 export async function authorizeAntigravity(projectId = "") {
+    // Fail before opening Google. A received callback code is not a connected account.
+    requireAntigravityClientSecret();
     const pkce = (await generatePKCE());
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.searchParams.set("client_id", ANTIGRAVITY_CLIENT_ID);
@@ -127,7 +129,16 @@ export async function exchangeAntigravity(code, state) {
         });
         if (!tokenResponse.ok) {
             const errorText = await tokenResponse.text();
-            return { type: "failed", error: errorText };
+            try {
+                const rejected = JSON.parse(errorText);
+                if (rejected?.error === "invalid_client" || rejected?.error === "unauthorized_client")
+                    throw new AntigravityOAuthConfigurationError("invalid_oauth_client");
+            }
+            catch (error) {
+                if (error instanceof AntigravityOAuthConfigurationError)
+                    throw error;
+            }
+            return { type: "failed", error: "Google did not complete the token exchange. Please try signing in again." };
         }
         const tokenPayload = (await tokenResponse.json());
         const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v1/userinfo?alt=json", {
@@ -158,6 +169,9 @@ export async function exchangeAntigravity(code, state) {
         };
     }
     catch (error) {
+        // Preserve the bounded local configuration reason, not arbitrary Google response bodies.
+        if (error instanceof AntigravityOAuthConfigurationError)
+            throw error;
         return {
             type: "failed",
             error: error instanceof Error ? error.message : "Unknown error",

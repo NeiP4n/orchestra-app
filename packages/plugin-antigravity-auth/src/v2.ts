@@ -504,7 +504,7 @@ export const AntigravityV2Plugin = Plugin.define({
               listeners.clear()
               let listener: OAuthListener
               try {
-                listener = await startOAuthListener()
+                listener = await startOAuthListener({ deferResult: true })
               } catch (error) {
                 // The local callback is unavailable (port taken, no loopback); pasting still works.
                 log.warn("Antigravity callback listener unavailable", { error: String(error) })
@@ -512,7 +512,16 @@ export const AntigravityV2Plugin = Plugin.define({
               }
               listeners.add(listener)
               const callback = listener.waitForCallback()
-                .then((url) => complete(url.toString()))
+                .then(async (url) => {
+                  try {
+                    const credential = await complete(url.toString())
+                    listener.finish(true)
+                    return credential
+                  } catch (error) {
+                    listener.finish(false)
+                    throw error
+                  }
+                })
                 .finally(async () => {
                   listeners.delete(listener)
                   await listener.close()

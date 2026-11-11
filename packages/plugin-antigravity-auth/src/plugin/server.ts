@@ -1,4 +1,4 @@
-import { createServer, type RequestListener, type Server } from "node:http";
+import { createServer, type RequestListener, type Server, type ServerResponse } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 
 import { ANTIGRAVITY_REDIRECT_URI } from "../constants";
@@ -8,6 +8,8 @@ interface OAuthListenerOptions {
    * How long to wait for the OAuth redirect before timing out (in milliseconds).
    */
   timeoutMs?: number;
+  /** Keep the callback page pending until the token exchange finishes. */
+  deferResult?: boolean;
 }
 
 export interface OAuthListener {
@@ -15,6 +17,7 @@ export interface OAuthListener {
    * Resolves with the callback URL once Google redirects back to the local server.
    */
   waitForCallback(): Promise<URL>;
+  finish(success: boolean): void;
   /**
    * Cleanly stop listening for callbacks.
    */
@@ -138,7 +141,7 @@ function getBindAddress(): string {
  * and resolves with the captured callback URL.
  */
 export async function startOAuthListener(
-  { timeoutMs = 5 * 60 * 1000 }: OAuthListenerOptions = {},
+  { timeoutMs = 5 * 60 * 1000, deferResult = false }: OAuthListenerOptions = {},
 ): Promise<OAuthListener> {
   const port = redirectUri.port
     ? Number.parseInt(redirectUri.port, 10)
@@ -297,6 +300,18 @@ const successResponse = `<!DOCTYPE html>
   }, timeoutMs);
   timeoutHandle.unref?.();
 
+  let pendingResponse: ServerResponse | undefined;
+  const page = (title: string, text: string) => successResponse
+    .replace("All set!", title)
+    .replace("You've successfully authenticated with Antigravity. You can now return to Opencode.", text)
+    .replace('d="M5 13l4 4L19 7"', 'd="M6 6l12 12M18 6L6 18"')
+    .replaceAll("#10B981", "#B45309").replaceAll("#34D399", "#FBBF24");
+  const finish = (success: boolean) => {
+    if (!pendingResponse) return;
+    pendingResponse.writeHead(success ? 200 : 400, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Connection": "close" });
+    pendingResponse.end(success ? successResponse : page("Sign-in not completed", "The account was not connected. Return to Orchestra for the error and try again."));
+    pendingResponse = undefined;
+  };
   const handler: RequestListener = (request, response) => {
     if (!request.url) {
       response.writeHead(400, { "Content-Type": "text/plain" });
@@ -313,9 +328,16 @@ const successResponse = `<!DOCTYPE html>
       return;
     }
 
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    response.end(successResponse);
-
+    if (settled) {
+      response.writeHead(409, { "Content-Type": "text/plain" });
+      response.end("This callback has already been received. Return to Orchestra.");
+      return;
+    }
+    if (deferResult) pendingResponse = response;
+    else {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Connection": "close" });
+      response.end(page("Callback received", "Return to Orchestra to finish connecting the account. This page does not confirm a successful sign-in."));
+    }
     resolveCallback(url);
 
     setImmediate(() => {
@@ -367,8 +389,10 @@ const successResponse = `<!DOCTYPE html>
 
   return {
     waitForCallback: () => callbackPromise,
+    finish,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        finish(false);
         loopback6?.close();
         server.close((error) => {
           if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") {
