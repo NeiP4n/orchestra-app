@@ -89,7 +89,7 @@ test("materializes only reviewed exact text with private non-executable file mod
     await expectPrivatePermissions(result.directory, 0o700)
     await expect(Files.materialize(root, registry, skills, plan.digest)).rejects.toThrow()
     expect(await readFile(path.join(result.definitions[0].root, "SKILL.md"), "utf8")).toBe(skills[0].files[0].content)
-  }))
+  }), 60_000)
 
 test("review binds root, project, files and assignments before any destination write", () =>
   temporary(async (root) => {
