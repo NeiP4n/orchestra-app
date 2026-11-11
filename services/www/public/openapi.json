@@ -25170,6 +25170,9 @@
               "context_governor": {
                 "type": "boolean"
               },
+              "neural_functional_effects": {
+                "type": "boolean"
+              },
               "subagent_depth": {
                 "type": "integer",
                 "minimum": 0

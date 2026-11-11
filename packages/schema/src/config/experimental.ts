@@ -15,6 +15,10 @@ export class Info extends Schema.Class<Info>("ConfigExperimental.Info")({
   subagent_depth: NonNegativeInt.pipe(optional).annotate({
     description: "Maximum subagent nesting depth. Defaults to 1.",
   }),
+  neural_functional_effects: Schema.Boolean.pipe(optional).annotate({
+    description:
+      "Show functional effects in the neuron network, starting with the approval wait: a flipping half-circle beside a session whose question or permission is still open. Defaults to false.",
+  }),
   policies: ConfigPolicy.Info.pipe(Schema.Array, optional).annotate({
     description: "Ordered policies controlling access to configured resources",
   }),
