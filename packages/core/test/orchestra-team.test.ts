@@ -71,6 +71,8 @@ const suppressTerminalEvent = new Set<Session.ID>()
 // Adds a tool-heavy assistant turn to exercise report extraction beyond one message page.
 const longTurnMessages = new Map<Session.ID, number>()
 const deliverRegularInput = new Set<Session.ID>()
+const noFinalReport = new Set<Session.ID>()
+const mainWakeRequests = new Set<Session.ID>()
 
 // Stands in for the runner: a woken team session answers with its title and ends
 // its run the way the title asks ("fails", "stops at shutdown" or succeeds).
@@ -92,7 +94,10 @@ const executionNode = makeGlobalNode({
           yield* bus.publish(SessionEvent.Moved, { sessionID, ...move.payload })
           return
         }
-        if (session.agent === Orchestra.agent) return
+        if (session.agent === Orchestra.agent) {
+          mainWakeRequests.add(sessionID)
+          return
+        }
         const task = pending.find((item) => item.type === "user" && item.payload.metadata?.orchestra !== undefined)
         let taskDelivered = false
         if (task && !deferTaskDelivery.has(sessionID)) {
@@ -110,6 +115,15 @@ const executionNode = makeGlobalNode({
           model,
           started: 0,
         })
+        if (noFinalReport.has(sessionID)) {
+          for (let i = 0; i < 3; i++) {
+            const id = `browser-call-${i}`
+            yield* bus.publish(SessionEvent.Tool.Input.Started, { sessionID, assistantMessageID, id, name: "browser" })
+            yield* bus.publish(SessionEvent.Tool.Input.Ended, { sessionID, assistantMessageID, id, text: '{"action":"snapshot"}' })
+            yield* bus.publish(SessionEvent.Tool.Called, { sessionID, assistantMessageID, id, input: { action: "snapshot" }, executed: true })
+            yield* bus.publish(SessionEvent.Tool.Success, { sessionID, assistantMessageID, id, content: [{ type: "text", text: `page snapshot ${i}` }], executed: true })
+          }
+        } else {
         yield* bus.publish(SessionEvent.Text.Started, { sessionID, assistantMessageID, ordinal: 0 })
         yield* bus.publish(SessionEvent.Text.Ended, {
           sessionID,
@@ -117,6 +131,7 @@ const executionNode = makeGlobalNode({
           ordinal: 0,
           text: `${session.title}: ${taskDelivered ? "task answer" : "unrelated answer"}`,
         })
+        }
         yield* bus.publish(SessionEvent.Step.Ended, {
           sessionID,
           assistantMessageID,
@@ -1461,6 +1476,64 @@ describe("Orchestra team", () => {
       expect(report).toContain('state="done"')
       expect(report).not.toContain('state="recovered"')
       expect(report).toContain("Developer: task answer")
+      yield* untilNoPending(worker.id)
+    }).pipe(Effect.scoped),
+  ),
+
+  it.live("recovers a durable terminal without final text even when its execution claim remains fresh", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-terminal-claim-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const bus = yield* Bus.Service
+      const project = yield* orchestra.create({ name: "Durable terminal", directory: tmp.path, template: "bugfix" })
+      const worker = yield* orchestra.createMember({ project: project, title: "Developer", agent: Orchestra.role("developer") })
+      yield* Effect.acquireRelease(
+        Effect.sync(() => { suppressTerminalEvent.add(worker.id); noFinalReport.add(worker.id) }),
+        () => Effect.sync(() => { suppressTerminalEvent.delete(worker.id); noFinalReport.delete(worker.id) }),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
+      yield* Effect.sleep("50 millis")
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      // Simulate the crash window: persist Execution.Succeeded without publishing a live
+      // notification to the Orchestra subscriber. Recovery must trust the ordered durable log.
+      const events = yield* Stream.runCollect(sessions.log({ sessionID: worker.id, follow: false }))
+      const lastSequence = events.reduce(
+        (last, item) =>
+          item.type === "log.synced" ? Math.max(last, Number(item.seq ?? -1)) : Math.max(last, Number(item.durable.seq)),
+        -1,
+      )
+      yield* (yield* SessionStore.Service).claim(worker.id)
+      yield* bus.replay(
+        {
+          id: Event.ID.create(),
+          type: Bus.versionedType(
+            SessionEvent.Execution.Succeeded.type,
+            SessionEvent.Execution.Succeeded.durable.version,
+          ),
+          created: Date.now(),
+          seq: lastSequence + 1,
+          aggregateID: worker.id,
+          data: { sessionID: worker.id },
+        },
+        { publish: false },
+      )
+
+      yield* orchestra.recoverPendingTasks()
+      const [report] = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(report).toContain('state="done"')
+      expect(report).not.toContain('state="recovered"')
+      expect(report).toContain("NO FINAL ANSWER")
+      expect(report).toContain('outcome="incomplete"')
+      expect(report).toContain("page snapshot 2")
+      expect(mainWakeRequests.has(project.main!)).toBe(true)
       yield* untilNoPending(worker.id)
     }).pipe(Effect.scoped),
   ),
@@ -2941,3 +3014,39 @@ it.live("reviewed trigger activation checks current KV configuration and keeps p
     expect(unboundResult.message).toContain("Браузер")
     expect(Trigger.parse(yield* kv.get(key))?.enabled).toBe(false)
   }),30_000)
+
+
+for (const recovery of [false, true]) {
+  it.live(`terminal BrowserAgent without a final report wakes main exactly once (${recovery ? "recovery" : "live"})`, () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-no-final-report-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "No final report", directory: tmp.path, template: "bugfix" })
+      const worker = yield* orchestra.createMember({ project, title: "BrowserAgent", agent: Orchestra.role("tester") })
+      yield* Effect.acquireRelease(Effect.sync(() => {
+        noFinalReport.add(worker.id)
+        mainWakeRequests.delete(project.main!)
+        if (recovery) suppressTerminalEvent.add(worker.id)
+      }), () => Effect.sync(() => {
+        noFinalReport.delete(worker.id)
+        suppressTerminalEvent.delete(worker.id)
+        mainWakeRequests.delete(project.main!)
+      }))
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Inspect the form and report the result" })
+      yield* Effect.sleep("50 millis")
+      if (recovery) {
+        expect(yield* reports(project.main!)).toHaveLength(0)
+        yield* orchestra.recoverPendingTasks()
+      }
+      const delivered = yield* reports(project.main!).pipe(Effect.filterOrFail(items => items.length > 0), Effect.retry(Schedule.spaced("10 millis")), Effect.timeout("2 seconds"))
+      expect(delivered).toHaveLength(1)
+      expect(delivered[0]).toContain('outcome="incomplete"')
+      expect(delivered[0]).toContain("NO FINAL ANSWER")
+      expect(delivered[0]).toContain("page snapshot 2")
+      yield* untilNoPending(worker.id)
+      expect(mainWakeRequests.has(project.main!)).toBe(true)
+      yield* orchestra.recoverPendingTasks()
+      expect(yield* reports(project.main!)).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  )
+}
