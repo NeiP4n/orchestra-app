@@ -35,7 +35,7 @@ function waitForPaint() {
 
     const timer = setTimeout(finish, 50)
 
-    if (typeof requestAnimationFrame !== "function") return
+    if (!globalThis.requestAnimationFrame) return
     requestAnimationFrame(() => {
       setTimeout(() => {
         clearTimeout(timer)
@@ -46,7 +46,7 @@ function waitForPaint() {
 }
 
 function errors(list: PromiseSettledResult<unknown>[]) {
-  return list.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason)
+  return list.flatMap((item) => (item.status === "rejected" ? [item.reason] : []))
 }
 
 function runAll<T>(list: Array<() => Promise<T>>) {

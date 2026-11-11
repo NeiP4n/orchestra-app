@@ -76,6 +76,7 @@ test("an empty project list from a refetch never wipes projects already on scree
     time: { created: number; updated: number }
     sandboxes: string[]
   }> = [{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }]
+
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
     fetch: Object.assign(
@@ -168,6 +169,7 @@ test("a failed project list is recorded instead of silently showing zero project
   // is the only retry layer: a default QueryClient must not multiply it to 9.
   let failProjects = true
   let projectCalls = 0
+
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
     fetch: Object.assign(
@@ -182,9 +184,12 @@ test("a failed project list is recorded instead of silently showing zero project
 
         if (url.pathname === "/api/project") {
           projectCalls += 1
+
           if (failProjects) throw new TypeError("failed to fetch")
+
           return Response.json([{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }])
         }
+
         throw new Error(`Unexpected request: ${url.pathname}`)
       },
       { preconnect() {} },
@@ -285,21 +290,26 @@ describe("query keys", () => {
 
 test("projects settle independently while an unrelated location bootstrap is still pending", async () => {
   let release: () => void = () => {}
+
   const waiting = new Promise<void>((resolve) => {
     release = resolve
   })
+
   const api = OpenCode.make({
     baseUrl: "http://opencode.local",
     fetch: Object.assign(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(new Request(input, init).url)
+
         if (url.pathname === "/api/location") {
           await waiting
+
           return Response.json({
             directory: "/repo",
             project: { id: "project", directory: "/repo", canonical: "/repo" },
           })
         }
+
         if (url.pathname === "/api/project")
           return Response.json([{ id: "project", canonical: "/repo", time: { created: 1, updated: 1 }, sandboxes: [] }])
         throw new Error(`Unexpected request: ${url.pathname}`)
@@ -307,6 +317,7 @@ test("projects settle independently while an unrelated location bootstrap is sti
       { preconnect() {} },
     ),
   })
+
   const [store, setStore] = createStore<ServerSync["data"]>({
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: [],
@@ -314,8 +325,10 @@ test("projects settle independently while an unrelated location bootstrap is sti
     config: {},
     reload: undefined,
   })
+
   const queryClient = new QueryClient()
   let complete = false
+
   const bootstrap = bootstrapGlobal({
     serverAPI: api,
     scope: ServerScope.local,
@@ -324,6 +337,7 @@ test("projects settle independently while an unrelated location bootstrap is sti
   }).then(() => {
     complete = true
   })
+
   try {
     for (let attempt = 0; attempt < 100 && !store.projectsReady; attempt++) await Bun.sleep(1)
     expect(store.projectsReady).toBe(true)
