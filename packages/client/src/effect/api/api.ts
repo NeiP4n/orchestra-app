@@ -4724,6 +4724,9 @@ export type OrchestraProjectTemplatePrepareSaveOutput = {
   readonly token: string
   readonly name: string
   readonly details: string
+  readonly browserBindings?:
+    | ReadonlyArray<{ readonly browser: number; readonly reason: "missing" | "child" | "foreign" | "unlisted" }>
+    | undefined
   readonly triggerReview?:
     | ReadonlyArray<{
         readonly schedule: number
@@ -4752,6 +4755,7 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
     readonly mode?: "headless" | "window" | "capture" | undefined
   }>
   readonly omitUnsafeLinks?: boolean | undefined
+  readonly omitInvalidBrowserBindings?: boolean | undefined
 }
 export type OrchestraProjectTemplateConfirmSaveOutput = void
 export type OrchestraProjectTemplateConfirmSaveOperation<E = never> = (
@@ -4766,6 +4770,9 @@ export type OrchestraProjectTemplatePrepareCreateOutput = {
   readonly token: string
   readonly name: string
   readonly details: string
+  readonly browserBindings?:
+    | ReadonlyArray<{ readonly browser: number; readonly reason: "missing" | "child" | "foreign" | "unlisted" }>
+    | undefined
   readonly triggerReview?:
     | ReadonlyArray<{
         readonly schedule: number

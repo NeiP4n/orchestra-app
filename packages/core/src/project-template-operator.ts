@@ -31,6 +31,7 @@ interface Save {
   text: string
   name: string
   previousDigest?: string
+  browserReview?: { issues: ProjectTemplateReader.BrowserBindingIssue[]; fingerprint: string }
   linkReview?: ProjectTemplateBrowser.Review
 }
 interface Create {
@@ -140,6 +141,15 @@ export function make(deps: Deps) {
       providers,
       mcp,
     }
+    const browserReview = { issues: [] as ProjectTemplateReader.BrowserBindingIssue[], fingerprint: "" }
+    const browserSource = await run(ProjectTemplateReader.readSource({
+      kv: deps.kv, getSession: id => deps.store.get(SessionID.make(id)),
+      listSessionsInTree: directory => deps.store.list({ directoryPrefix: AbsolutePath.make(directory), parentID: null }),
+    }, projectID, linked, browserReview.issues))
+    // Bind raw IDs privately too: changing an invalid binding to a different invalid
+    // binding must invalidate confirmation even if both produce the same template.
+    browserReview.fingerprint = createHash("sha256").update(JSON.stringify([browsers, browserReview.issues])).digest("hex")
+    linked.browsers = browserSource.browsers
     const metadata = {
       name: project.name,
       description: "Настройки проекта без чатов, данных и секретов.",
@@ -161,7 +171,7 @@ export function make(deps: Deps) {
             linked,
           ),
         )
-    return { ...preview, linkReview }
+    return { ...preview, linkReview, browserReview }
   }
   const prepared = async (token: string) => {
     if (!/^(?:pts_|pti_)[A-Za-z0-9_-]{1,100}$/.test(token)) throw Error("Invalid prepared operation.")
@@ -190,6 +200,7 @@ export function make(deps: Deps) {
         text: preview.text,
         name: preview.bundle.name,
         linkReview: preview.linkReview,
+        browserReview: preview.browserReview,
       }
       await run(
         deps.kv.atomicUpdate(PREPARED + token, (current) => {
@@ -202,16 +213,18 @@ export function make(deps: Deps) {
         name: value.name,
         details: preview.text,
         omittedLinks: preview.linkReview.issues,
+        browserBindings: preview.browserReview.issues,
         triggerReview: ProjectTemplateTriggerReview.review(
           { ...preview.bundle, version: 1 },
           preview.linkReview.issues,
         ),
       }
     },
-    confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false) =>
+    confirmSave: async (token: string, browsers: readonly BrowserInput[], omitUnsafeLinks = false, omitInvalidBrowserBindings = false) =>
       Flock.withLock(token, async () => {
         const pending = await prepared(token)
         if (pending.kind !== "save") throw Error("Wrong operation kind.")
+        if (pending.browserReview?.issues.length && !omitInvalidBrowserBindings) throw Error("Browser bindings require review before saving.")
         if (pending.linkReview?.issues.length && !omitUnsafeLinks)
           throw Error("Saved links contain nonportable parameters. Review before saving.")
         if (pending.previousDigest !== undefined) {
@@ -223,7 +236,7 @@ export function make(deps: Deps) {
           if (pending.phase === "saved" || existing.digest !== pending.previousDigest)
             throw Error("Template changed after preview. Review it again.")
           const current = await capture(pending.projectID, browsers, processID(pending.libraryID) !== undefined)
-          if (current.digest !== pending.digest || (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)))
+          if ((pending.browserReview && JSON.stringify(current.browserReview) !== JSON.stringify(pending.browserReview)) || current.digest !== pending.digest || (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview)))
             throw Error("Project changed after confirmation preview. Review it again.")
           await templateStage("library-write", () => library.replaceSerialized(pending.text, pending.libraryID, pending.previousDigest!, pending.digest))
           await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
@@ -241,6 +254,7 @@ export function make(deps: Deps) {
           if (pending.phase === "saved") throw Error("Saved template is missing.")
           const current = await capture(pending.projectID, browsers)
           if (
+            (pending.browserReview && JSON.stringify(current.browserReview) !== JSON.stringify(pending.browserReview)) ||
             current.digest !== pending.digest ||
             (pending.linkReview && JSON.stringify(current.linkReview) !== JSON.stringify(pending.linkReview))
           )

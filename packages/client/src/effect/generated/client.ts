@@ -2479,7 +2479,12 @@ const EndpointOrchestraProjectTemplateConfirmSave =
   (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateConfirmSaveInput) =>
     preserveEffect<OrchestraProjectTemplateConfirmSaveOutput>()(
       raw["orchestra.projectTemplate.confirmSave"]({
-        payload: { token: input["token"], browsers: input["browsers"], omitUnsafeLinks: input["omitUnsafeLinks"] },
+        payload: {
+          token: input["token"],
+          browsers: input["browsers"],
+          omitUnsafeLinks: input["omitUnsafeLinks"],
+          omitInvalidBrowserBindings: input["omitInvalidBrowserBindings"],
+        },
       }).pipe(Effect.mapError(mapClientError)),
     )
 
