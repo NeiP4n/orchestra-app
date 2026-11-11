@@ -1,0 +1,36 @@
+name: dispatch-capacity-regression
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/orchestra.ts'
+      - 'packages/core/src/autoloop/orchestrator.ts'
+      - 'packages/core/test/orchestra-team.test.ts'
+      - '.github/workflows/dispatch-capacity-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Dispatch capacity blocker (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Actual saturated cycle rejects worker delivery and directs escalation, not main takeover
+        run: bun test packages/core/test/orchestra-team.test.ts --test-name-pattern 'full dispatch cycle'
+      - name: Run claim and receipt lifecycle
+        run: bun test packages/core/test/autoloop/orchestrator.test.ts

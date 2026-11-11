@@ -14,7 +14,7 @@ import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Database } from "@orchestra/core/database/database"
 import { Bus } from "@orchestra/core/bus"
 import { Autoloop } from "@orchestra/core/autoloop/service"
-import { orchestraRules } from "@orchestra/core/autoloop/orchestrator"
+import { createRun, orchestraRules } from "@orchestra/core/autoloop/orchestrator"
 import type { RunRow } from "@orchestra/core/autoloop/kernel/decide"
 import { Skill } from "@orchestra/core/skill"
 import { Model } from "@orchestra/core/model"
@@ -2941,3 +2941,25 @@ it.live("reviewed trigger activation checks current KV configuration and keeps p
     expect(unboundResult.message).toContain("Браузер")
     expect(Trigger.parse(yield* kv.get(key))?.enabled).toBe(false)
   }),30_000)
+
+
+it.live("a full dispatch cycle escalates the blocker without telling main to do the worker task", () =>
+  Effect.gen(function* () {
+    const orchestra = yield* Orchestra.Service
+    const cycle = yield* Autoloop.Service
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-capacity-escalation-")))
+    const project = yield* orchestra.create({ name: "Capacity", directory: tmp.path, template: "bugfix" })
+    const worker = yield* orchestra.createMember({ project, title: "Blocked worker", agent: Orchestra.role("tester") })
+    for (let i = 0; i < 30; i++) {
+      expect(yield* createRun(cycle, { projectID: project.id, sessionID: `capacity-worker-${i}`, messageID: `capacity-task-${i}`, text: "Existing independent task" })).not.toBeNull()
+    }
+    const rejected = yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Work that main must not take over" }).pipe(Effect.flip)
+    expect(rejected.message).toContain("task was NOT sent")
+    expect(rejected.message).toContain("re-delegate")
+    expect(rejected.message).toContain("exact blocker")
+    expect(rejected.message).not.toContain("until then do the work in this session")
+    expect(rejected.message).not.toContain('operator sets orchestra.society.autonomy to "auto"')
+    expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+    expect((yield* (yield* Session.Service).inbox(worker.id)).filter(item => item.type === "user")).toHaveLength(0)
+  }).pipe(Effect.scoped),
+)
