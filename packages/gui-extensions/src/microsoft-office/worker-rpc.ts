@@ -174,7 +174,7 @@ export function serveWorker<M extends Methods>(handlers: {
 
       state.current = { id: request.id, controller }
 
-      if (typeof handler !== "function") {
+      if (!handler) {
         reply({ id: request.id, ok: false, superseded: false, message: `Unknown method ${request.method}` })
         continue
       }
