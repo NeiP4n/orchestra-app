@@ -3,18 +3,16 @@ import { Config } from "@orchestra/core/config"
 import { Mcp } from "@orchestra/core/mcp/index"
 import { Orchestra } from "@orchestra/core/orchestra"
 import { Session } from "@orchestra/core/session"
-import { Tool } from "@orchestra/core/tool"
 import { McpManagerTool } from "@orchestra/core/tool/plugin/mcp-manager"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import { Agent } from "@orchestra/core/agent"
 import { Model } from "@orchestra/core/model"
 import { Provider } from "@orchestra/core/provider"
-import { Project } from "@orchestra/core/project"
 import { PluginHooks } from "@orchestra/core/plugin/hooks"
 import { McpSurvey } from "@orchestra/core/mcp/survey"
 import { Effect, Layer, Stream } from "effect"
 import { testEffect } from "./lib/effect"
-import { executeTool, registerToolPlugin, toolIdentity, waitForTool } from "./lib/tool"
+import { registerToolPlugin } from "./lib/tool"
 import { PluginTestLayer } from "./plugin/fixture"
 
 let writes = 0,
@@ -28,7 +26,7 @@ const configLayer = Layer.succeed(Config.Service, {
     }),
 })
 const mcpLayer = Layer.mock(Mcp.Service, {
-  servers: () => inspectFails ? Effect.fail(new Error("inspect offline")) :
+  servers: () => inspectFails ? Effect.die(new Error("inspect offline")) :
     Effect.succeed(["context7", "deepwiki", "serena", "xerj"].map((name) => ({
       name, config: { type: "local" as const, command: ["unused"] }, status: { status: "disabled" as const },
     }))),
@@ -43,6 +41,7 @@ let main = true
 let inspectFails = false
 const orchestraLayer = Layer.mock(Orchestra.Service, { roles: () => Effect.succeed([]), mainOf: () => Effect.succeed(main ? ({} as Orchestra.Project) : undefined) })
 const sessionsLayer = Layer.mock(Session.Service, {
+  revert: () => Effect.die("unused revert"),
   get: () => Effect.succeed({ metadata } as Session.Info),
   setMetadata: (input) => Effect.sync(() => { metadata = input.metadata }),
 })

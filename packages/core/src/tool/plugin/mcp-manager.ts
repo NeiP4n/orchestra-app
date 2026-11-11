@@ -417,7 +417,12 @@ export const autoSurvey = () => {
     const previous = cache.get(input.sessionID)
     if (previous && McpSurvey.isFresh(input.metadata, now) && now >= previous.at && now - previous.at < McpSurvey.SURVEY_TTL_MS)
       return previous.output
-    const result = yield* input.inspect.pipe(Effect.option)
+    const result = yield* input.inspect.pipe(
+      // A read failure must close the dispatch gate even when a service exposes
+      // its failure as a defect. Interruptions still propagate normally.
+      Effect.catchDefect(() => Effect.fail(new Error("MCP inspect failed"))),
+      Effect.option,
+    )
     if (Option.isNone(result)) {
       cache.delete(input.sessionID)
       yield* input.invalidate
