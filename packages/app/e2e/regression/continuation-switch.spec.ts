@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { Schema } from "effect"
 import { mockWorkspace } from "../utils/workspace"
 
 test.use({ serviceWorkers: "block" })
@@ -21,8 +22,7 @@ for (const width of [1440, 390]) {
     const writes: boolean[] = []
     await page.route("**/api/config/continuation", async (route) => {
       if (route.request().method() === "PUT") {
-        const value = route.request().postDataJSON()
-        expect(typeof value.enabled).toBe("boolean")
+        const value = Schema.decodeUnknownSync(Schema.Struct({ enabled: Schema.Boolean }))(route.request().postDataJSON())
         writes.push(value.enabled)
         await new Promise<void>((resolve) => {
           finish = resolve
