@@ -1,0 +1,44 @@
+name: model-fallback-regression
+
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/session/runner/error-taxonomy.ts'
+      - 'packages/core/src/session/runner/llm.ts'
+      - 'packages/core/test/session-runner-fallback.test.ts'
+      - '.github/workflows/model-fallback-regression.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'packages/core/src/session/runner/error-taxonomy.ts'
+      - 'packages/core/src/session/runner/llm.ts'
+      - 'packages/core/test/session-runner-fallback.test.ts'
+      - '.github/workflows/model-fallback-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fallback:
+    name: Automatic model fallback (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Runner fallback regression with fake provider transport
+        run: bun test packages/core/test/session-runner-fallback.test.ts

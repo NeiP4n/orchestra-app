@@ -221,6 +221,15 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     info("lix", "lix-test-model"),
   ]
 
+  test("Kilo 503 never discovers OpenCode as an automatic fallback", () => {
+    const gateway = new ProviderInternalError({ message: "Gateway unavailable", http: http(503) })
+    const available = [info("kilo-free", "kilo-auto/free"), info("opencode", "beam-free"), info("lix", "lix-test-model")]
+    expect(chain({ cause: asFailure(gateway), current: "kilo-free/kilo-auto/free", catalog: available })).toEqual([model("lix/lix-test-model")])
+    expect(chain({ cause: asFailure(gateway), current: "kilo-free/kilo-auto/free", catalog: available.slice(0, 2) })).toEqual([])
+    const explicit = model("opencode/beam-free")
+    expect(SessionRunnerLLM.fallbackModel({ cause: asFailure(gateway), current: model("kilo-free/kilo-auto/free"), models: [explicit], refused: new Set() })).toEqual(explicit)
+  })
+
   test("a main session outside Anymodel falls back across providers", () => {
     expect(chain({ cause: asFailure(invalidRequest), current: "opencode/crouton-alpha-free", catalog })).toEqual([
       model("opencode/minimax-free"),
@@ -260,8 +269,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     ])
     expect(chain({ cause: asFailure(auth), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
   })
 
@@ -269,8 +276,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     expect(chain({ cause: asFailure(invalidRequest), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("anymodel/anymodel-coder"),
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
   })
 
@@ -309,8 +314,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     const gatewayDown = new ProviderInternalError({ message: "bad gateway", http: http(502) })
     expect(chain({ cause: asFailure(gatewayDown), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
     // A 500 is a model-level failure, not the gateway: Anymodel's other
     // models are still tried first.
@@ -318,8 +321,6 @@ describe("mainSessionFallbackChain (G2-14)", () => {
     expect(chain({ cause: asFailure(modelDown), current: "anymodel/sonnet-5", catalog })).toEqual([
       model("anymodel/anymodel-coder"),
       model("lix/lix-test-model"),
-      model("opencode/crouton-alpha-free"),
-      model("opencode/minimax-free"),
     ])
   })
 

@@ -252,6 +252,10 @@ export function mainSessionFallbackChain(input: {
     )
   const seen = new Set<string>([`${input.current.providerID}/${input.current.id}`])
   const push = (ref: Model.Ref): Model.Ref | undefined => {
+    // Console/Go are opt-in routes, not an automatic escape from a failed Kilo
+    // or other provider. A current OpenCode route still gets its own siblings;
+    // explicit session fallback lists are handled separately and unchanged.
+    if (ref.providerID === "opencode" && input.current.providerID !== "opencode") return undefined
     if (ref.providerID === "anymodel" && isDeadModelId(ref.id)) return undefined
     if (wholeProviderDead && ref.providerID === input.current.providerID) return undefined
     if (input.coolingDown?.has(ref.providerID)) return undefined
