@@ -216,7 +216,7 @@ testEffect(Layer.empty).effect(
     }),
 )
 
-it.effect("stateless generation surfaces unavailable configured default without another provider request", () =>
+testEffect(Layer.empty).effect("stateless generation surfaces unavailable configured default without another provider request", () =>
   Effect.gen(function* () {
     const modelFailure = new Model.ConfiguredDefaultUnavailableError({providerID:Provider.ID.make("klinch"),modelID:ID.make("gpt-5.4-mini")})
     const unavailable = Layer.mock(ModelResolver.Service, {resolve: () => Effect.fail(modelFailure)})
