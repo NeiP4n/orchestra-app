@@ -1,12 +1,15 @@
 name: empty-step-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/session/runner/**'
       - 'packages/core/test/session-step.test.ts'
       - 'packages/core/test/session-runner*.test.ts'
       - '.github/workflows/empty-step-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

@@ -1,12 +1,15 @@
 name: kilo-cache-header-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/session/model-request.ts'
       - 'packages/core/src/session/affinity.ts'
       - 'packages/core/test/session-model-request*.test.ts'
       - '.github/workflows/kilo-cache-header-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

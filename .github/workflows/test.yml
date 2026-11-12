@@ -87,7 +87,7 @@ jobs:
           node-version: "24"
 
       - name: Setup Bun
-        uses: ./.github/actions/setup-bun
+        uses: ./.github/actions/setup-bun # zizmor: ignore[self-repository] Local action syntax is required by GitHub Actions and actionlint.
 
       - name: Configure git identity
         run: |
@@ -230,7 +230,7 @@ jobs:
 
       - name: Setup Bun
         if: env.E2E_ENABLED == 'true'
-        uses: ./.github/actions/setup-bun
+        uses: ./.github/actions/setup-bun # zizmor: ignore[self-repository] Local action syntax is required by GitHub Actions and actionlint.
 
       - name: Read Playwright version
         if: env.E2E_ENABLED == 'true'

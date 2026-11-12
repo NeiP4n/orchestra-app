@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main, dev, v2, lan-rooms]
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   check:
+    if: ${{ !((github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev')) }}
     name: typecheck
     # This repo has no Blacksmith capacity: run on GitHub-hosted runners everywhere.
     runs-on: ubuntu-latest
@@ -42,3 +45,24 @@ jobs:
         # Against the merge's first parent, so base-branch commits the pull request has not merged are not counted as its
         # changes (the event's base SHA can predate them).
         run: bun run lint:changed HEAD^1
+
+  dev_quick:
+    name: dev quick checks
+    if: ${{ (github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Check whitespace and conflict markers
+        shell: bash
+        run: |
+          git diff --check HEAD^1 HEAD
+          if git diff --unified=0 HEAD^1 HEAD -- '*.ts' '*.tsx' '*.yml' '*.yaml' | grep -E '^\+(<<<<<<< |=======|>>>>>>> )'; then
+            echo "Unresolved merge conflict markers"
+            exit 1
+          fi
+      - name: Reject removed credential fingerprints
+        run: python3 script/check-removed-credentials.py

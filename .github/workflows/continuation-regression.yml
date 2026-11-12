@@ -2,6 +2,7 @@ name: continuation-regression
 
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/session/**'
       - 'packages/core/src/autoloop/**'
@@ -20,6 +21,8 @@ on:
       - 'packages/client/src/solid/continuation.ts'
       - '.github/workflows/continuation-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read

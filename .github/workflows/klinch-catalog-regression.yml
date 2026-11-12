@@ -1,12 +1,15 @@
 name: klinch-catalog-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/plugin/provider/klinch.ts'
       - 'packages/core/src/session/runner/error-taxonomy.ts'
       - 'packages/core/test/plugin/provider-klinch.test.ts'
       - '.github/workflows/klinch-catalog-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

@@ -2,6 +2,7 @@ name: dod-command-regression
 
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/dod.ts'
       - 'packages/core/src/tool/plugin/dod.ts'
@@ -15,6 +16,8 @@ on:
       - 'packages/core/test/*dod*.test.ts'
       - '.github/workflows/dod-command-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read

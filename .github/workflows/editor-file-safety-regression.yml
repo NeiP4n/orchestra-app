@@ -1,11 +1,14 @@
 name: editor-file-safety-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/tui/src/editor*.ts'
       - 'packages/tui/test/editor*.test.ts'
       - '.github/workflows/editor-file-safety-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

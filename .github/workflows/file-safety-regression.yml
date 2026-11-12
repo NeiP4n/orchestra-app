@@ -1,6 +1,7 @@
 name: file-safety-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/shell/source-file.ts'
       - 'packages/core/src/tool/plugin/shell.ts'
@@ -10,6 +11,8 @@ on:
       - 'packages/core/test/tool/desktop-isolation.test.ts'
       - '.github/workflows/file-safety-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

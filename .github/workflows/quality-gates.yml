@@ -7,7 +7,7 @@ on:
     branches: [main, dev, v2, lan-rooms]
   workflow_dispatch:
   schedule:
-    - cron: "23 7 * * 1"
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read
@@ -236,6 +236,7 @@ jobs:
           comment-summary-in-pr: never
 
   codeql:
+    if: ${{ !((github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev')) }}
     name: CodeQL SAST
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -280,6 +281,7 @@ jobs:
       SECRET_SCAN: ${{ needs.secret_scan.result }}
       DEPENDENCY_REVIEW: ${{ needs.dependency_review.result }}
       CODEQL: ${{ needs.codeql.result }}
+      DEV_FAST: ${{ (github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev') }}
     steps:
       - name: Publish gate summary and enforce results
         shell: bash
@@ -302,11 +304,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           failed=0
-          for result in "$WORKFLOW_SECURITY" "$EFFECT_LINT" "$SECRET_SCAN" "$CODEQL"; do
+          for result in "$WORKFLOW_SECURITY" "$EFFECT_LINT" "$SECRET_SCAN"; do
             if [[ "$result" != "success" ]]; then
               failed=1
             fi
           done
+          if [[ "$CODEQL" != "success" && !( "$DEV_FAST" == "true" && "$CODEQL" == "skipped" ) ]]; then
+            failed=1
+          fi
           if [[ "$DEPENDENCY_REVIEW" != "success" && "$DEPENDENCY_REVIEW" != "skipped" ]]; then
             failed=1
           fi

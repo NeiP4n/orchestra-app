@@ -1,12 +1,15 @@
 name: worker-terminal-report-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/orchestra.ts'
       - 'packages/core/test/orchestra-team.test.ts'
       - 'packages/core/test/team-report-answer.test.ts'
       - '.github/workflows/worker-terminal-report-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

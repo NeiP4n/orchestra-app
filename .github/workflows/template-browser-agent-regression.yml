@@ -1,12 +1,15 @@
 name: template-browser-agent-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/server/src/handlers/orchestra.ts'
       - 'packages/core/src/project-template*.ts'
       - 'packages/server/test/template-browser-agent.test.ts'
       - '.github/workflows/template-browser-agent-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

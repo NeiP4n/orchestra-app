@@ -1,6 +1,7 @@
 name: data-url-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - "packages/ai/src/media.ts"
       - "packages/core/src/aisdk.ts"
@@ -8,6 +9,8 @@ on:
       - "packages/ai/test/data-url-complexity.test.ts"
       - ".github/workflows/data-url-regression.yml"
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

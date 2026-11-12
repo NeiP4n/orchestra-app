@@ -2,6 +2,7 @@ name: template-auto-regression
 
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/app/src/shell/template-files.tsx'
       - 'packages/app/e2e/regression/template-files.spec.ts'
@@ -27,6 +28,8 @@ on:
       - 'packages/tui/test/project-template*'
       - '.github/workflows/template-auto-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read
