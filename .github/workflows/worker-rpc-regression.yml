@@ -2,8 +2,9 @@ name: worker-rpc-regression
 on:
   pull_request:
     paths:
-      - 'packages/gui-extensions/src/microsoft-office/worker-rpc*'
-      - '.github/workflows/worker-rpc-regression.yml'
+      - "packages/gui-extensions/src/microsoft-office/worker-rpc*"
+      - ".github/workflows/worker-rpc-regression.yml"
+      - "script/worker-rpc-browser.mjs"
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,3 +24,8 @@ jobs:
       - uses: ./.github/actions/setup-bun
       - name: Actual worker dispatch, cancellation and transferred resources
         run: bun test packages/gui-extensions/src/microsoft-office/worker-rpc.test.ts
+      - name: Install Chromium for actual browser worker regression
+        working-directory: packages/app
+        run: bunx playwright install --with-deps chromium
+      - name: Actual Chromium Worker protocol and transferred browser resources
+        run: bun script/worker-rpc-browser.mjs
