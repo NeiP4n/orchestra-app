@@ -711,7 +711,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         gap={1}
         alignItems="center"
         flexShrink={0}
-        backgroundColor={hover.background() ?? (active() ? theme.background.action.primary.focused : theme.background.action.primary.base)}
+        backgroundColor={disabled() ? theme.background.action.primary.disabled : active() ? theme.background.action.primary.focused : hover.background() ?? theme.background.base}
         onMouseOver={hover.onMouseOver}
         onMouseOut={hover.onMouseOut}
         onMouseUp={() => trigger(item)}
@@ -730,7 +730,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           {item.title}
         </text>
         <box
-          backgroundColor={active() ? theme.background.action.primary.focused : theme.background.raised.base}
+          backgroundColor={disabled() ? theme.background.action.primary.disabled : active() ? theme.background.action.primary.focused : theme.background.raised.base}
           paddingLeft={1}
           paddingRight={1}
         >

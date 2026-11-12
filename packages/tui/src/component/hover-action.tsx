@@ -19,7 +19,7 @@ type Props = ParentProps<{
   flexDirection?: "row" | "column"
   justifyContent?: "flex-start" | "flex-end" | "center" | "space-between" | "space-around"
   variant?: HoverVariant
-  /** Resting background (for example a focused button); hover still takes over on mouse-over. */
+  /** Explicit state background (focused/selected). Retained on hover so its paired text stays readable. */
   background?: ColorInput
   onHoverChange?: (hovered: boolean) => void
   onMouseEnter?: () => void
@@ -50,7 +50,7 @@ export function HoverAction(props: Props) {
       gap={props.gap}
       flexDirection={props.flexDirection ?? "row"}
       justifyContent={props.justifyContent}
-      backgroundColor={hovered() && !props.disabled ? hoverBackground(theme, props.variant) : props.background}
+      backgroundColor={props.background ?? (hovered() && !props.disabled ? hoverBackground(theme, props.variant) : undefined)}
       onMouseOver={() => {
         setHovered(true)
         props.onHoverChange?.(true)
