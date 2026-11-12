@@ -14,7 +14,7 @@ import { useConfig } from "../config"
 import { useClient } from "../context/client"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import type { DialogContext } from "../ui/dialog"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -1524,7 +1524,7 @@ function TabLabel(props: { active: boolean; onClick: () => void; children: strin
     >
       <text
         fg={
-          props.active ? theme.text.action.primary.selected : hovered() ? theme.text.action.secondary.hovered : theme.text.muted
+          props.active ? theme.text.action.primary.selected : hovered() ? hoverForeground(theme, "secondary") : theme.text.muted
         }
         attributes={props.active || hovered() ? TextAttributes.UNDERLINE : undefined}
         wrapMode="none"

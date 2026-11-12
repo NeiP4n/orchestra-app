@@ -3,7 +3,7 @@ import type { NoteInfo, NoteStatus } from "@orchestra/client"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
 import { useTheme } from "../context/theme"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import { ago, matchesNote, NOTE_STATUS_MARKER, noteTitle } from "../util/note"
 import { useT } from "../util/i18n"
 import { Row } from "./panel-row"
@@ -183,7 +183,7 @@ export function NotesPanel(props: {
                 <text
                   fg={
                     armed() === note.name || hover() === `note:${note.name}`
-                      ? theme.text.action.destructive.hovered
+                      ? hoverForeground(theme, "destructive")
                       : theme.text.muted
                   }
                   wrapMode="none"
@@ -210,7 +210,7 @@ export function NotesPanel(props: {
             </text>
             <Row id="notes:empty-new" hover={hover} setHover={setHover} onClick={() => props.onCreating(true)}>
               <text
-                fg={hover() === "notes:empty-new" ? theme.text.action.primary.hovered : theme.text.action.primary.base}
+                fg={hover() === "notes:empty-new" ? hoverForeground(theme, "primary") : theme.text.action.primary.base}
               >
                 {t("+ New note")}
               </text>

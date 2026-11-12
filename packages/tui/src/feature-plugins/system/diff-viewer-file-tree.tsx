@@ -4,7 +4,7 @@ import { truncateFilePath } from "../../ui/file-path"
 import { stringWidth } from "../../util/string-width"
 import { useTheme } from "../../context/theme"
 import { tint } from "../../theme/color"
-import { hoverBackground } from "../../ui/hover"
+import { hoverBackground, hoverForeground } from "../../ui/hover"
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
 import { buildFileTree, flattenFileTree, type FileTreeItem, type FileTreeRow } from "./diff-viewer-file-tree-utils"
 
@@ -88,7 +88,7 @@ export function DiffViewerFileTree(props: DiffViewerFileTreeProps) {
               fg={
                 props.onSwitchSource
                   ? sourceHovered()
-                    ? theme.text.action.secondary.hovered
+                    ? hoverForeground(theme, "secondary")
                     : theme.text.action.secondary.base
                   : theme.text.base
               }

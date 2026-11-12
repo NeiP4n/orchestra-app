@@ -1,7 +1,7 @@
 import { createSignal, Show } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useT } from "../util/i18n"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import { cleanupErrorMessage } from "../util/backend-compatibility"
 
 type CleanupApi = {
@@ -36,7 +36,7 @@ export function ClearOrphansAction(props: {
   }
   return <Show when={props.local}><box id="project-tree.clear-orphans" flexShrink={0} paddingLeft={1} paddingRight={1}>
     <box id="project-tree.clear-orphans.action" backgroundColor={hovered() ? hoverBackground(theme, "destructive") : undefined} onMouseOver={() => setHovered(true)} onMouseOut={() => setHovered(false)} onMouseUp={event => { event.stopPropagation(); void clear() }}>
-      <text fg={hovered() ? theme.text.action.destructive.hovered : theme.text.muted} wrapMode="none" truncate>{busy() ? t("Checking…") : t("Clear orphans")}</text>
+      <text fg={hovered() ? hoverForeground(theme, "destructive", theme.text.feedback.error.base) : theme.text.muted} wrapMode="none" truncate>{busy() ? t("Checking…") : t("Clear orphans")}</text>
     </box>
   </box></Show>
 }

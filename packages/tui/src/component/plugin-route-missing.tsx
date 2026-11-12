@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 
 export function PluginRouteMissing(props: { id: string; name: string; onHome: () => void }) {
   const theme = useTheme()
@@ -22,7 +22,7 @@ export function PluginRouteMissing(props: { id: string; name: string; onHome: ()
           props.onHome()
         }}
       >
-        <text fg={hovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>go home</text>
+        <text fg={hovered() ? hoverForeground(theme, "primary") : theme.text.action.primary.base}>go home</text>
       </box>
     </box>
   )

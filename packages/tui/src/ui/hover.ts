@@ -167,3 +167,12 @@ function computeBackground<T>(theme: HoverTheme<T>, variant: HoverVariant, minim
   if (fallback !== undefined) return fallback
   throw new Error("Cannot determine hover background: theme has no available color")
 }
+
+/** Pair a label with the actual safe hover surface, not its unrelated authored action token. */
+export function hoverForeground(theme: HoverTheme<RGBA>, variant: HoverVariant = "primary", preferred = theme.text?.base): RGBA {
+  const background = hoverBackground(theme, variant)
+  if (preferred && contrast(preferred, background) >= 4.5) return preferred
+  if (theme.text?.base && contrast(theme.text.base, background) >= 4.5) return theme.text.base
+  const black = RGBA.fromValues(0, 0, 0, 1), white = RGBA.fromValues(1, 1, 1, 1)
+  return contrast(black, background) > contrast(white, background) ? black : white
+}

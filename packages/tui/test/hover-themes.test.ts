@@ -3,7 +3,7 @@ import { RGBA } from "@opentui/core"
 import { resolveThemeDocument, themeModes } from "@orchestra/theme/tui"
 import { allThemes, parseTheme, setCustomThemes, setSystemTheme } from "../src/theme"
 import { generateSystem, contrastRatio } from "../src/theme/system"
-import { hoverBackground, selectionBackground } from "../src/ui/hover"
+import { hoverBackground, selectionBackground, hoverForeground } from "../src/ui/hover"
 
 function over(color: RGBA, base: RGBA) {
   return RGBA.fromValues(color.r * color.a + base.r * (1 - color.a),
@@ -27,6 +27,10 @@ function audit() {
             : authoredBase
           const bg = over(color, base)
           const text = contrastRatio(view.text.base, bg)
+          if(variant !== "selected") {
+            const fg=hoverForeground(view,variant,variant === "destructive" ? view.text.feedback.error.base : undefined)
+            if(contrastRatio(fg,bg)<4.5)failures.push(`${name}/${mode}/${surface}/${variant}: hover foreground unreadable`)
+          }
           const muted = contrastRatio(view.text.muted, bg)
           const visible = contrastRatio(bg, base)
           if (text < 4.5 || muted < 3 || visible < 1.15)

@@ -5,6 +5,7 @@ import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
 import { Row } from "./panel-row"
+import { hoverForeground } from "../ui/hover"
 import { HoverAction } from "./hover-action"
 
 const FINISHED = new Set(["DONE", "OUT_OF_SCOPE"])
@@ -535,7 +536,7 @@ function DodItemActions(props: {
                   props.armed() === props.actionId
                     ? theme.text.action.destructive.focused
                     : releaseHovered()
-                      ? theme.text.action.destructive.hovered
+                      ? hoverForeground(theme,"destructive")
                       : theme.text.action.destructive.base
                 }
               >

@@ -167,3 +167,14 @@ test("delete all asks first, then empties the project's board", async () => {
     setup.renderer.destroy()
   }
 })
+
+ test("delete-all hover keeps its label visible on the actual panel surface",async()=>{
+ const {setup,frame}=await mount(board,20)
+ try{
+  await frame(t=>t.includes("Delete all"))
+  const node=setup.renderer.root.findDescendantById("dod.panel.delete-all")!
+  await setup.mockMouse.moveTo(node.x+1,node.y);await setup.renderOnce()
+  if(process.env.CAPTURE_DOD_CONTRAST)await Bun.write(process.env.CAPTURE_DOD_CONTRAST,JSON.stringify(setup.captureSpans()))
+  expect(setup.captureCharFrame()).toContain("Delete all")
+ }finally{setup.renderer.destroy()}
+ })

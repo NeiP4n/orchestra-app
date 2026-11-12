@@ -25,7 +25,7 @@ import { useT } from "../util/i18n"
 import { Locale } from "../util/locale"
 import { useCompactLayout } from "../ui/compact-layout"
 import { homeContentWidth } from "../ui/layout"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 
 let once = false
 const placeholder = {
@@ -319,7 +319,7 @@ function UpdateNotification(props: { width: number }) {
             >
               <FadeInText fg={theme.text.muted} backdrop={backdrop()}>
                 <Show when={!remote}>
-                  <span style={{ fg: hovered() ? theme.text.action.primary.hovered : theme.text.action.primary.selected }}>
+                  <span style={{ fg: hovered() ? hoverForeground(theme, "primary") : theme.text.action.primary.selected }}>
                     {state.type === "installed" ? "/exit" : "/upgrade"}
                   </span>
                 </Show>

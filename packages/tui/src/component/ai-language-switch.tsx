@@ -1,7 +1,7 @@
 import { createSignal, For } from "solid-js"
 import { useConfig } from "../config"
 import { useTheme } from "../context/theme"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import { useToast } from "../ui/toast"
 import type { AiLanguage } from "../util/ai-language"
 import { useT } from "../util/i18n"
@@ -61,7 +61,7 @@ export function AiLanguageSwitch(props: { compact?: boolean }) {
                   active()
                     ? theme.text.action.primary.focused
                     : hovered() === item.value
-                      ? theme.text.action.primary.hovered
+                      ? hoverForeground(theme, "primary")
                       : theme.text.muted
                 }
               >

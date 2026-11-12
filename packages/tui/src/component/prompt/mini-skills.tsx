@@ -9,7 +9,7 @@ import { useTuiPaths } from "../../context/runtime"
 import { useTheme } from "../../context/theme"
 import { useDialog } from "../../ui/dialog"
 import { DialogSelect, type DialogSelectOption, type DialogSelectRef } from "../../ui/dialog-select"
-import { hoverBackground } from "../../ui/hover"
+import { hoverBackground, hoverForeground } from "../../ui/hover"
 import { useToast } from "../../ui/toast"
 import { useConfig } from "../../config"
 import { stringWidth } from "../../util/string-width"
@@ -511,7 +511,7 @@ function Chip(props: {
       }}
     >
       <text
-        fg={lit() ? theme.text.action.primary.hovered : props.muted ? theme.text.muted : theme.text.base}
+        fg={lit() ? hoverForeground(theme, "primary") : props.muted ? theme.text.muted : theme.text.base}
         // A chip is pressed and dragged, not read: a drag must not start a text selection.
         selectable={false}
         wrapMode="none"

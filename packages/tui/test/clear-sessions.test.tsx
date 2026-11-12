@@ -106,6 +106,7 @@ test("the action highlights while the pointer is on it", async () => {
     await app.mockMouse.moveTo(label().x, label().y)
     await app.renderOnce()
     const after = color()
+    if(process.env.CAPTURE_CLEAR_CONTRAST) await Bun.write(process.env.CAPTURE_CLEAR_CONTRAST,JSON.stringify(app.captureSpans()))
     expect(after).toBeDefined()
     expect(after).not.toEqual(before)
   } finally {

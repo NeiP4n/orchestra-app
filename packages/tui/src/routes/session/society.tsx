@@ -6,7 +6,7 @@ import { Federation } from "@orchestra/schema/federation"
 import { DialogRules } from "../../component/dialog-rules"
 import { useClient } from "../../context/client"
 import { useDialog } from "../../ui/dialog"
-import { hoverBackground } from "../../ui/hover"
+import { hoverBackground, hoverForeground } from "../../ui/hover"
 import { useData } from "../../context/data"
 import { useProjects } from "../../context/projects"
 import { usePromptRef } from "../../context/prompt"
@@ -107,7 +107,7 @@ export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOpt
             locked() && !picked()
               ? theme.text.action.secondary.disabled
               : hover()
-                ? theme.text.action.secondary.hovered
+                ? hoverForeground(theme, "secondary")
                 : theme.text.action.secondary.base
           return (
             <box
@@ -234,7 +234,7 @@ export function SocietyRoster(props: { sessionID: string }) {
         >
           <text
             wrapMode="none"
-            fg={holdHover() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}
+            fg={holdHover() ? hoverForeground(theme, "secondary") : theme.text.action.secondary.base}
             attributes={held() ? TextAttributes.BOLD : undefined}
           >
             {held() ? `⏸ ${tr("Resume")}` : `⏸ ${tr("Hold")}`}

@@ -4,7 +4,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import { Plugin } from "@orchestra/plugin/tui"
 import type { PanelInput } from "@orchestra/plugin/tui/context"
 import { useT } from "../../util/i18n"
-import { hoverBackground } from "../../ui/hover"
+import { hoverBackground, hoverForeground } from "../../ui/hover"
 import { useTheme } from "../../context/theme"
 
 export const DOD_PANEL = "orchestra.sidebar.dod"
@@ -463,7 +463,7 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
               }}
             >
               <text
-                fg={deleteHovered() ? theme.text.action.destructive.hovered : theme.text.action.destructive.base}
+                fg={deleteHovered() ? hoverForeground(theme, "destructive", theme.text.feedback.error.base) : theme.text.feedback.error.base}
                 wrapMode="none"
               >
                 {t("Delete all")}
@@ -635,7 +635,7 @@ function DodFilterChip(props: { text: string; selected: boolean; onClick: () => 
           props.selected
             ? theme.text.action.primary.selected
             : hovered()
-              ? theme.text.action.primary.hovered
+              ? theme.text.base
               : theme.text.muted
         }
         selectable={false}

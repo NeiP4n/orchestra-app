@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useTheme } from "../../context/theme"
 import { Keymap } from "../../context/keymap"
 import { useT } from "../../util/i18n"
-import { hoverBackground } from "../../ui/hover"
+import { hoverBackground, hoverForeground } from "../../ui/hover"
 import type { PartRef } from "./grouping/session"
 import type { OutlineCategory } from "./outline"
 
@@ -134,7 +134,7 @@ export function OutlineRail(props: {
     ],
   }))
   const color = (line: Line) => {
-    if (hovered() === line.key) return theme.text.action.primary.hovered
+    if (hovered() === line.key) return hoverForeground(theme, "primary")
     if (isActive(line)) return theme.text.action.primary.base
     return line.level === 0 ? theme.text.base : theme.text.muted
   }
@@ -225,7 +225,7 @@ export function OutlineRail(props: {
                     else jump(line)
                   }}
                 >
-                  <text fg={theme.text.action.primary.hovered} wrapMode="none" flexShrink={0}>
+                  <text fg={hoverForeground(theme, "primary")} wrapMode="none" flexShrink={0}>
                     {hovered() === line.key ? "› " : "  "}
                   </text>
                   <text fg={color(line)} wrapMode="none" truncate paddingLeft={line.level * 3}>

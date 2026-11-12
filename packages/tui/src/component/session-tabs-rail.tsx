@@ -3,7 +3,7 @@ import type { RGBA } from "@opentui/core"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
 import { tint } from "../theme/color"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import type { SessionTabsController } from "./session-tabs"
 
 export function SessionTabsRailControls(props: {
@@ -51,7 +51,7 @@ export function SessionTabsRailControls(props: {
         <text
           width={1}
           height={1}
-          fg={hovered() ? theme.text.action.primary.hovered : theme.text.action.secondary.base}
+          fg={hovered() ? hoverForeground(theme, "primary") : theme.text.action.secondary.base}
           selectable={false}
           wrapMode="none"
         >

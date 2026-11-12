@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import { useT } from "../util/i18n"
 import { cleanupErrorMessage } from "../util/backend-compatibility"
 import { listEverySession, removeEverySession, type SessionCleanupApi } from "../util/clear-sessions"
@@ -93,9 +93,9 @@ export function ClearSessionsAction(props: {
           void clear()
         }}
       >
-        {/* The destructive text color is drawn for the destructive background, so the hovered
-            state pairs them. At rest the label is muted: a control that is rarely right to press should not shout. */}
-        <text fg={hovered() ? theme.text.action.destructive.hovered : theme.text.muted}>
+        {/* Safe hover surfaces retain a readable foreground; action tokens can be inverted
+            for a different authored background and must not be paired with this surface. */}
+        <text fg={hovered() ? hoverForeground(theme, "destructive", theme.text.feedback.error.base) : theme.text.muted}>
           {busy() ? t("Clearing…") : t("Clear all sessions")}
         </text>
       </box>

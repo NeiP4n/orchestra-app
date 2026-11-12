@@ -25,7 +25,7 @@ import { ErrorCard, FoldedText } from "./fold"
 import { SplitBorder } from "../../ui/border"
 import { NeuralAxon, neuralPalette } from "../../component/neural"
 import { tint } from "../../theme/color"
-import { hoverBackground } from "../../ui/hover"
+import { hoverBackground, hoverForeground } from "../../ui/hover"
 import { useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner, SPINNER_FRAMES } from "../../component/spinner"
 import { PatchDiff } from "../../component/patch-diff"
@@ -1630,7 +1630,7 @@ export function Session(props: {
                   onMouseOut={() => setLatestHovered(false)}
                   onMouseUp={toBottom}
                 >
-                  <text fg={latestHovered() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}>
+                  <text fg={latestHovered() ? hoverForeground(theme, "secondary") : theme.text.action.secondary.base}>
                     {t("Jump to latest")} ↓
                   </text>
                 </box>

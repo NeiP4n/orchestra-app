@@ -6,7 +6,7 @@ import { usePromptRef } from "../context/prompt"
 import { useTheme } from "../context/theme"
 import { usePlugin } from "../plugin/context"
 import { emptyPrompt } from "../prompt/history"
-import { hoverBackground } from "../ui/hover"
+import { hoverBackground, hoverForeground } from "../ui/hover"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -89,7 +89,7 @@ export function NoteQuickActions() {
             }}
           >
             <text
-              fg={hovered() === action.label ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}
+              fg={hovered() === action.label ? hoverForeground(theme, "secondary") : theme.text.action.secondary.base}
               wrapMode="none"
             >
               {t(action.label)}
@@ -123,7 +123,7 @@ export function NoteChip(props: { sessionID: string; note: NoteInfo }) {
       }}
     >
       <text
-        fg={hovered() ? theme.text.action.secondary.hovered : theme.text.action.secondary.base}
+        fg={hovered() ? hoverForeground(theme, "secondary") : theme.text.action.secondary.base}
         wrapMode="none"
         truncate
       >

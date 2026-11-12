@@ -50,7 +50,7 @@ import { DialogMode } from "./dialog-mode"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 import { browserIndicator, browserRunningColor } from "../util/browser-indicator"
-import { hoverBackground, selectionBackground } from "../ui/hover"
+import { hoverBackground, selectionBackground, hoverForeground } from "../ui/hover"
 import { Branch, NeuralChip, NeuralLine, NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { AllSessionsField, useEmptyRoom } from "./session-network"
 
@@ -946,7 +946,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           onHoverChange={setHovered}
           onClick={() => remove(session.id)}
         >
-          <text fg={hovered() ? theme.text.action.destructive.hovered : armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
+          <text fg={hovered() ? hoverForeground(theme, "destructive") : armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
             {armed() === session.id ? ` ${t("delete?")} ` : " × "}
           </text>
         </HoverAction>
@@ -1433,7 +1433,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   onHoverChange={setModeHovered}
                                   onClick={() => DialogMode.show(dialog, session.id)}
                                 >
-                                  <text fg={modeHovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
+                                  <text fg={modeHovered() ? hoverForeground(theme, "primary") : theme.text.action.primary.base}>
                                     {` ${Mode.fromMetadata(session.metadata)?.id ?? "auto"} `}
                                   </text>
                                 </HoverAction>
@@ -1444,7 +1444,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   onHoverChange={setCategoryHovered}
                                   onClick={() => categorize(session.id)}
                                 >
-                                  <text fg={categoryHovered() ? theme.text.action.primary.hovered : theme.text.muted}>
+                                  <text fg={categoryHovered() ? hoverForeground(theme, "primary") : theme.text.muted}>
                                     {" # "}
                                   </text>
                                 </HoverAction>
@@ -1455,7 +1455,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                   onHoverChange={setAccessHovered}
                                   onClick={() => cycle(session.id)}
                                 >
-                                  <text fg={accessHovered() ? theme.text.action.primary.hovered : theme.text.base}>{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
+                                  <text fg={accessHovered() ? hoverForeground(theme, "primary") : theme.text.base}>{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
                                 </HoverAction>
                               </Show>
                               <HoverAction
@@ -1477,7 +1477,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 <text
                                   fg={
                                     deleteHovered()
-                                      ? theme.text.action.destructive.hovered
+                                      ? hoverForeground(theme, "destructive")
                                       : armed() === session.id
                                         ? theme.text.feedback.error.base
                                         : theme.text.muted
@@ -2081,7 +2081,7 @@ function RoomPeople(props: {
                   onHoverChange={setRoleHovered}
                   onClick={() => cycle(item.room, item.member)}
                 >
-                  <text fg={roleHovered() ? theme.text.action.primary.hovered : theme.text.base}>
+                  <text fg={roleHovered() ? hoverForeground(theme, "primary") : theme.text.base}>
                     {` [${t(ROLE_LABEL[item.member.role])}]`}
                   </text>
                 </HoverAction>
@@ -2101,7 +2101,7 @@ function RoomPeople(props: {
                   <text
                     fg={
                       kickHovered()
-                        ? theme.text.action.destructive.hovered
+                        ? hoverForeground(theme, "destructive")
                         : destructive(`kick:${item.member.id}`)
                     }
                   >
@@ -2124,7 +2124,7 @@ function RoomPeople(props: {
                   <text
                     fg={
                       banHovered()
-                        ? theme.text.action.destructive.hovered
+                        ? hoverForeground(theme, "destructive")
                         : destructive(`ban:${item.member.id}`)
                     }
                   >
