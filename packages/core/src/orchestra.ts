@@ -1600,7 +1600,13 @@ const layer: Layer.Layer<
             const sessionID = SessionID.make(entry.key.slice(TASK.length))
             if (active.has(sessionID)) return
             let staleClaim = false
-            if (suspended.has(sessionID)) {
+            // A terminal committed after this exact task delivery wins over a leftover
+            // execution claim. The live notification can be lost before claim cleanup;
+            // waiting for claim age in that window leaves main asleep despite a finished run.
+            const terminal = task.value.messageID
+              ? yield* terminalAfterDelivery(sessionID, task.value.messageID)
+              : undefined
+            if (suspended.has(sessionID) && !terminal) {
               // A fresh claim belongs to boot recovery, which resumes the run; a
               // stale one is dead (see STALE_CLAIM_MS). Release the dead claim and
               // fall through to the normal recovery below, so the task ends with a
@@ -1643,9 +1649,6 @@ const layer: Layer.Layer<
                 .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
               if (!recent.some((message) => finalText(message).length > 0)) return
             }
-            const terminal = task.value.messageID
-              ? yield* terminalAfterDelivery(sessionID, task.value.messageID)
-              : undefined
             yield* report(
               sessionID,
               terminal?.state ?? "recovered",

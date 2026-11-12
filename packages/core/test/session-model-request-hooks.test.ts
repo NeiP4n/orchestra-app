@@ -292,3 +292,47 @@ describe("SessionModelRequest HTTP hooks", () => {
     }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
   )
 })
+
+it.effect("Kilo task cache header follows the effective official route, not a provider label", () =>
+  Effect.gen(function* () {
+    const hooks = yield* PluginHooks.Service
+    let destination = "https://ai-gateway.kilo.ai/api/v1"
+    let explicitTask: string | undefined
+    yield* hooks.register("session", "model.request", (event) =>
+      Effect.sync(() => {
+        event.baseURL = destination
+        if (explicitTask !== undefined) event.headers["x-kilocode-taskid"] = explicitTask
+      }),
+    )
+    const registry = yield* Tool.Service
+    const tools = yield* registry.snapshot()
+    const requests = yield* SessionModelRequest.Service.pipe(Effect.provide(SessionModelRequest.layer))
+    const prepare = (target = session) =>
+      requests.primary({ session: target, agent: Agent.ID.make("build"), model, tools, system: [], messages: [] })
+    const first = yield* prepare()
+    const again = yield* prepare()
+    const taskID = first.request.http?.headers?.["X-KiloCode-TaskId"]
+    expect(taskID).toMatch(/^[a-f0-9]{64}$/)
+    expect(taskID).not.toContain(session.id)
+    expect(again.request.http?.headers?.["X-KiloCode-TaskId"]).toBe(taskID)
+    const other = yield* prepare(Session.Info.make({ ...session, id: Session.ID.make("ses_other_kilo") }))
+    expect(other.request.http?.headers?.["X-KiloCode-TaskId"]).not.toBe(taskID)
+    const child = yield* prepare(
+      Session.Info.make({ ...session, id: Session.ID.make("ses_child_kilo"), parentID: session.id }),
+    )
+    expect(child.request.http?.headers?.["X-KiloCode-TaskId"]).toBe(taskID)
+    for (const url of [
+      "https://ai-gateway.kilo.ai.evil.test/api/v1",
+      "http://ai-gateway.kilo.ai/api/v1",
+      "https://other.test/api/v1",
+    ]) {
+      destination = url
+      expect((yield* prepare()).request.http?.headers?.["X-KiloCode-TaskId"]).toBeUndefined()
+    }
+    destination = "https://ai-gateway.kilo.ai/api/v1"
+    explicitTask = "plugin-selected-task"
+    const customized = yield* prepare()
+    expect(customized.request.http?.headers?.["x-kilocode-taskid"]).toBe(explicitTask)
+    expect(customized.request.http?.headers?.["X-KiloCode-TaskId"]).toBeUndefined()
+  }).pipe(Effect.provideService(SessionModelTransport.Service, transport)),
+)
