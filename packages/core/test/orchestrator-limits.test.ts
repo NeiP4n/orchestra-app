@@ -161,3 +161,11 @@ test("zero MCP brief and rejected positive budget distinguish native browser wit
   expect(rejected.message).toContain("Nothing was sent")
   expect(rejected.message).toContain("not built-in tools such as browser")
 })
+
+test("DoD bookkeeping and operator interaction stay usable at the delegation limit", () => {
+ const counted=Array.from({length:LIMIT},(_,i)=>String(i))
+ for(const tool of ["dod","interact"])for(const action of ["list","check","verify","block","send"]){
+  expect(gate(counted,{tool,messageID:"after_limit",action})).toEqual({counted,blocked:false,reset:false})
+ }
+ expect(gate(counted,{tool:"shell",messageID:"after_limit"}).blocked).toBe(true)
+})

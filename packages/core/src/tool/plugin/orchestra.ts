@@ -206,7 +206,7 @@ export function delegationGate(
   // Team management, Society building, the MCP survey and asking the
   // operator are always available and never count as the Orchestrator
   // doing the work itself.
-  if (input.tool === name || input.tool === "question" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action) || isBrowserLook(input.tool, input.action))
+  if (input.tool === name || input.tool === "question" || input.tool === "dod" || input.tool === "interact" || isSocietyTool(input.tool) || isSurveyCall(input.tool, input.action) || isBrowserLook(input.tool, input.action))
     return { counted, blocked: false, reset: false }
   if (counted.includes(input.messageID)) return { counted, blocked: false, reset: false }
   if (counted.length >= ORCHESTRATOR_MESSAGE_LIMIT) return { counted, blocked: true, reset: false }
