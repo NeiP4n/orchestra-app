@@ -309,7 +309,7 @@ jobs:
               failed=1
             fi
           done
-          if [[ "$CODEQL" != "success" && !( "$DEV_FAST" == "true" && "$CODEQL" == "skipped" ) ]]; then
+          if [[ "$CODEQL" != "success" && ! ( "$DEV_FAST" == "true" && "$CODEQL" == "skipped" ) ]]; then
             failed=1
           fi
           if [[ "$DEPENDENCY_REVIEW" != "success" && "$DEPENDENCY_REVIEW" != "skipped" ]]; then
