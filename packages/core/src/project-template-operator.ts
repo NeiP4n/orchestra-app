@@ -52,7 +52,7 @@ interface Deps {
   store: SessionStore.Interface
   dataDirectory: string
   installedVersion: string
-  coreRoles?: () => Promise<readonly V2.Role[]>
+  coreRoles?: (directory: string) => Promise<readonly V2.Role[]>
   processStores?: (projectID: string) => ProjectTemplateV2Reader.Stores
   live: (settingsDirectory: string) => ReturnType<typeof Live.make>
 }
@@ -309,7 +309,7 @@ export function make(deps: Deps) {
     prepareCreate: async (libraryID: string, settingsDirectory: string, migrateCore = false) => {
       if (!path.isAbsolute(settingsDirectory)) throw Error("A verified model settings directory is required.")
       const source = await library.preview(libraryID)
-      const migration = migrateCore && deps.coreRoles ? ProjectTemplateCoreMigration.prepare(source.text, await deps.coreRoles()) : undefined
+      const migration = migrateCore && deps.coreRoles ? ProjectTemplateCoreMigration.prepare(source.text, await deps.coreRoles(settingsDirectory)) : undefined
       if (migrateCore && !migration) throw Error("Canonical built-in role is unavailable or ambiguous.")
       const preview = migration ?? source
       if (preview.bundle.version === 2 && preview.bundle.process.unresolvedRoles?.length) throw Error("Unresolved source role definitions must be restored before creating a project.")

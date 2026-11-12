@@ -169,7 +169,15 @@ export function ProjectTemplatesSimple(props: {
     if (busy() || !id) return
     setCursor(id)
     if (id === "migrate-core" && props.access.prepareMigration && failedTemplate()) void run(async () => {
-      const result = await props.access.prepareMigration!(failedTemplate()!)
+      let result
+      try { result = await props.access.prepareMigration!(failedTemplate()!) }
+      catch(error) {
+        const hint = templateFailureReason(error)
+        setReason(hint === templateErrorMessages.TEMPLATE_CORE_ROLE ? "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately." : hint)
+        setMessage("")
+        return
+      }
+      if (!result.roleChanges) { setReason("Role comparison is unavailable on this server. Update and restart the background server and TUI."); setMessage(""); return }
       setReason(); setMessage(""); setPrepared({kind:"create",...result}); setCursor("confirm")
     }, "create")
     else if (id === "import-path") pathInput?.focus()

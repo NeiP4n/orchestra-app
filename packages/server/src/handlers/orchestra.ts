@@ -88,7 +88,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       return yield* agents.list()
     }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(directory) })))))
     const coreRoles = async () => ProjectTemplateCoreRoles.current(await Effect.runPromise(orchestra.roles()))
-    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version, coreRoles,
+    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version, coreRoles: async directory => [...await coreRoles(), ...(await runtimeRoles(directory)).filter(role => ["build","plan","general","explore","compaction","title","summary"].includes(role.id)).map(role=>ProjectTemplateRuntimeRoles.portable(role,{config:global.config,home:global.home}))],
       processStores: projectID => ProjectTemplateV2OwnerReader.make({ kv, store, orchestra, coreRoles,
         runtimeRoles: async input => ProjectTemplateRuntimeRoles.merge(await Promise.all(input.sessionIDs.map(async id => {
           const info = await Effect.runPromise(store.get(SessionID.make(id)))

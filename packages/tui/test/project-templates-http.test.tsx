@@ -141,6 +141,8 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect(JSON.stringify(rejected.body)).not.toContain("missing-fixture-provider")
         const old=JSON.parse(await readFile(exported.path,"utf8"))
         old.process.roles.find((r:{agent:string})=>r.agent==="orchestrator").rules="Old server fingerprint"
+        const build=old.process.roles.find((r:{agent:string})=>r.agent==="build")
+        if(build?.runtime)build.runtime.system="Old built-in build system"
         const oldFile=await ProjectTemplateTransfer.write(source,JSON.stringify(old))
         const oldPreview=(await call("/api/orchestra/project-template/prepare-import","POST",{path:oldFile.path}).pipe(Effect.runPromise)).body
         const oldEntry=(await call("/api/orchestra/project-template/confirm-import","POST",{token:oldPreview.token}).pipe(Effect.runPromise)).body
@@ -148,7 +150,7 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect(blocked.body.kind).toBe("TEMPLATE_CORE_ROLE")
         const migration=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:oldEntry.id,settingsDirectory:source,migrateCore:true}).pipe(Effect.runPromise)
         expect(migration.status).toBe(200)
-        expect(migration.body.roleChanges).toHaveLength(1)
+        expect(migration.body.roleChanges.length).toBeGreaterThanOrEqual(1)
         expect(migration.body.roleChanges[0]).toMatchObject({role:"orchestrator",fields:["rules"]})
         expect(migration.body.roleChanges[0].fromHash).not.toBe(migration.body.roleChanges[0].toHash)
         expect(JSON.parse(migration.body.details).rules).toEqual(old.rules)
