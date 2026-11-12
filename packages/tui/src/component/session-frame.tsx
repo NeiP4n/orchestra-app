@@ -16,7 +16,6 @@ import { useProjects } from "../context/projects"
 import { owningProject } from "../util/project-owner"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { activeBrowserSession, isBrowserChat, openedFromProjects } from "../util/browser-sessions"
-import { publishSelection, publishSessions, trace } from "../util/browser-runtime"
 import { Keymap } from "../context/keymap"
 import { InteractivityProvider } from "../context/interactivity"
 import { useSessionTerminals } from "../context/session-terminals"
@@ -96,37 +95,6 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       (info ? owningProject(projectList.list(), info.location.directory) : undefined)
     return activeBrowserSession(project ? notes.browserSelected(project.id) : undefined, bound && !bound.closed ? bound.item : undefined)
   }
-  // The chat agent's browser tool reads which browser session each project has selected from a small file.
-  createEffect(() => {
-    for (const project of projectList.list()) {
-      const selected = notes.browserSelected(project.id)
-      try {
-        publishSelection(project.directory, selected?.id)
-      } catch {
-        // The file is a convenience for the agent; the tab works without it.
-      }
-    }
-  })
-  // The same for the list itself, so the agent can name every session, see which run and hand one to another agent.
-  createEffect(() => {
-    try {
-      publishSessions(
-        projectList.list().flatMap((project) =>
-          notes.browserSessions(project.id).map((item) => ({
-            id: item.id,
-            name: item.name,
-            project: project.directory,
-            projectID: project.id,
-            ...(item.group ? { group: item.group } : {}),
-            ...(item.chat ? { chat: item.chat } : {}),
-          })),
-        ),
-      )
-    } catch (error) {
-      // The tab works without the file, but the agent then sees no sessions, so the failure is logged.
-      trace(`sessions publish FAILED: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })
   // In the Browser view the chat stays beside the page when the window is wide enough; the Console takes the
   // whole center, and a narrow window shows the browser alone.
   const CHAT_BESIDE_WIDTH = 46

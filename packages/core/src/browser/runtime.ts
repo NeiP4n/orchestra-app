@@ -1141,12 +1141,12 @@ export function selectedSession(directory: string) {
 let lastPublished = ""
 const STARTED_AT = Date.now()
 /** The Browser tab publishes every session (name, project) so the agents can list and address them. */
-export function publishSessions(list: readonly BrowserBridge.SessionInfo[]) {
+export function publishSessions(list: readonly BrowserBridge.SessionInfo[], options?: { authoritative?: boolean }) {
   const file = BrowserBridge.sessionsFile(Global.Path.data)
   const text = JSON.stringify(list, null, 2)
   // Right after the Browser tab starts, its project list is not loaded yet and reads empty: that must not wipe the
   // sessions of the last run for the agents (the first questions then saw no browser). A real list replaces it.
-  if (list.length === 0 && Date.now() - STARTED_AT < 20_000 && existsSync(file) && BrowserBridge.parseSessions(readFileSync(file, "utf8")).length > 0) {
+  if (!options?.authoritative && list.length === 0 && Date.now() - STARTED_AT < 20_000 && existsSync(file) && BrowserBridge.parseSessions(readFileSync(file, "utf8")).length > 0) {
     trace("sessions: empty list at start, keeping the published ones until the project list loads")
     return
   }
