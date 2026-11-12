@@ -1097,6 +1097,7 @@ const EndpointProviderDiscover = (raw: RawClient["server.provider"]) => (input: 
     raw["provider.discover"]({
       payload: {
         baseURL: input["baseURL"],
+        timeoutMs: input["timeoutMs"],
         apiKey: input["apiKey"],
         headers: input["headers"],
         providerID: input["providerID"],

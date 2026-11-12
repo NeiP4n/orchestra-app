@@ -1414,6 +1414,7 @@ export function make(options: ClientOptions) {
             path: `/api/provider/discover`,
             body: {
               baseURL: input["baseURL"],
+              timeoutMs: input["timeoutMs"],
               apiKey: input["apiKey"],
               headers: input["headers"],
               providerID: input["providerID"],

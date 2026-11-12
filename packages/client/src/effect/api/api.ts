@@ -1586,6 +1586,7 @@ export type ProviderGetOperation<E = never> = (input: ProviderGetInput) => Effec
 
 export type ProviderDiscoverInput = {
   readonly baseURL: string
+  readonly timeoutMs?: number | undefined
   readonly apiKey?: string | undefined
   readonly headers?: { readonly [x: string]: string } | undefined
   readonly providerID?: Provider.ID | undefined
