@@ -61,6 +61,11 @@ export const ProviderGroup = HttpApiGroup.make("server.provider")
     HttpApiEndpoint.post("provider.discover", "/api/provider/discover", {
       payload: Schema.Struct({
         baseURL: Schema.String,
+        /** Optional discovery budget; bounded to two minutes. */
+        timeoutMs: Schema.Number.pipe(
+          Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(120000)),
+          Schema.optional,
+        ),
         /** A key the user just typed (test before save). Omit to use the provider's stored credential. */
         apiKey: Schema.String.pipe(Schema.optional),
         headers: Schema.Record(Schema.String, Schema.String).pipe(Schema.optional),

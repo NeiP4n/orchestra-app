@@ -223,7 +223,7 @@ export const make = Effect.fn("PluginHost.make")(function* (
             if (key?.value.type === "key") apiKey = key.value.key
           }
           const result = yield* Effect.promise(() =>
-            discoverModels({ baseURL: input.baseURL, apiKey, headers: input.headers }),
+            discoverModels({ baseURL: input.baseURL, apiKey, headers: input.headers, timeoutMs: input.timeoutMs }),
           )
           return {
             ok: result.ok,

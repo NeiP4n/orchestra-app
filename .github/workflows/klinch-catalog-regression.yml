@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'packages/core/src/plugin/provider/klinch.ts'
+      - 'packages/core/src/plugin/provider/klinch-discovery.ts'
+      - 'packages/core/src/plugin/host.ts'
+      - 'packages/core/src/plugin.ts'
+      - 'packages/protocol/src/groups/provider.ts'
+      - 'packages/server/src/handlers/provider.ts'
       - 'packages/core/src/session/runner/error-taxonomy.ts'
       - 'packages/core/test/plugin/provider-klinch.test.ts'
       - '.github/workflows/klinch-catalog-regression.yml'

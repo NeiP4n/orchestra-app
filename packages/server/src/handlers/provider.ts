@@ -76,7 +76,7 @@ export const ProviderHandler = HttpApiBuilder.group(Api, "server.provider", (han
             if (key?.value.type === "key") apiKey = key.value.key
           }
           const result = yield* Effect.promise(() =>
-            discoverModels({ baseURL: payload.baseURL, apiKey, headers: payload.headers }),
+            discoverModels({ baseURL: payload.baseURL, apiKey, headers: payload.headers, timeoutMs: payload.timeoutMs }),
           )
           return {
             ok: result.ok,
