@@ -345,3 +345,10 @@ test("anti-overclaim does not mistake honest incomplete reports for full complet
   expect(SessionCompletionGate.claimsFullCompletion(text)).toBe(false)
  expect(SessionCompletionGate.claimsFullCompletion("Завершено в полном объёме")).toBe(true)
 })
+
+test("persisted pending worker prevents repeated waiting reminders for open DoD",()=>{
+ const messages=[user("ship"),assistant("",[{name:"dod",input:{action:"take",id:"L-1"}}]),nudge(),assistant("Ожидаю...")]
+ expect(SessionCompletionGate.check(messages,board(0),undefined,"main",undefined,"orchestrator",[],true)).toBeUndefined()
+ expect(SessionCompletionGate.check([...messages,assistant("Завершено в полном объёме")],board(0),undefined,"main",undefined,"orchestrator",[],true)).toContain("contradicts open")
+ expect(SessionCompletionGate.check([...messages,cutReport("worker"),assistant("Ожидаю")],board(0),undefined,"main",undefined,"orchestrator",[],true)).toContain("truncated")
+})

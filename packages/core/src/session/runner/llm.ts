@@ -517,6 +517,15 @@ const layer = Layer.effect(
           const stages = project?.main === sessionID
             ? Option.getOrElse(Schema.decodeUnknownOption(Schema.Array(OrchestraStage.Stage))(yield* kv.get("orchestra/stage/" + owner)), () => [])
             : []
+          let pendingWorkers = false
+          if (project?.main === sessionID) {
+            let after: string | undefined
+            do {
+              const page = yield* kv.scan({ prefix: "orchestra/task/", after, limit: 1000 })
+              pendingWorkers = page.entries.some(row => row.value && typeof row.value === "object" && "main" in row.value && row.value.main === sessionID)
+              after = page.next
+            } while (!pendingWorkers && after)
+          }
           const nudge = SessionCompletionGate.check(
             yield* store.context(sessionID),
             yield* Dod.status(location.project.directory),
@@ -525,6 +534,7 @@ const layer = Layer.effect(
             undefined,
             loaded.agent.id,
             stages,
+            pendingWorkers,
           )
           if (nudge) {
             yield* bus.publish(SessionEvent.Synthetic, {

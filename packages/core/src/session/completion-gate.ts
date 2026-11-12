@@ -161,6 +161,7 @@ export function check(
   reviews?: ReviewGates,
   agent?: string,
   stages: ReadonlyArray<OrchestraStage.Stage> = [],
+  pendingWorkers = false,
 ) {
   const max = limit()
   if (max === 0) return undefined
@@ -215,6 +216,10 @@ export function check(
     ...openBoard.map((item) => `- ${item.id}: ${item.state}, ${item.done}/${item.total} steps`),
     "Do not claim full completion. Report closed items 1:1 with their evidence and name every open, blocked or unverified item.",
   ])
+  // A persisted outstanding dispatch owns the next wake. Do not turn an
+  // ordinary waiting acknowledgement into a fresh model turn for open DoD.
+  // Full-completion lies and unread cut reports above still block.
+  if (pendingWorkers || hasOutstandingTasks(messages, now)) return undefined
   // The persisted plan, not the worker's prose, defines the final report's scope.
   // Require stable ids so similarly named stages cannot silently collapse into one.
   const missing = stages.filter((stage) => stage.status === "completed" && !finalText.includes(`[${stage.id}]`))
