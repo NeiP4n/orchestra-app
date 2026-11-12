@@ -1,3 +1,4 @@
+import { createLinuxClipboardFallback, LINUX_PASTE_HINT } from "./clipboard-linux"
 import {
   createClipboard,
   createHostClipboard,
@@ -11,22 +12,26 @@ import type { ClipboardContent, ClipboardService } from "./context/clipboard"
 export type OwnedClipboardService = Required<ClipboardService> & Readonly<{ dispose(): Promise<void> }>
 
 export function createTuiClipboard(renderer: RendererClipboardBoundary): OwnedClipboardService {
+  const terminal = createRendererClipboardAdapter(renderer)
+  const remote = terminal.remote || Boolean(process.env.SSH_CONNECTION || process.env.SSH_TTY || process.env.SSH_CLIENT)
   return createClipboardAdapter(
-    createClipboard({
-      host: createHostClipboard(),
-      terminal: createRendererClipboardAdapter(renderer),
-    }),
+    createClipboard({ host: createHostClipboard(), terminal: { ...terminal, remote } }),
+    process.platform === "linux" ? { fallbackRead: remote ? async () => { throw new Error(LINUX_PASTE_HINT) } : createLinuxClipboardFallback() } : undefined,
   )
 }
 
-export function createClipboardAdapter(clipboard: CoreClipboardService): OwnedClipboardService {
+export function createClipboardAdapter(clipboard: CoreClipboardService, options?: { fallbackRead?: () => Promise<ClipboardContent | undefined> }): OwnedClipboardService {
   return {
     async read(): Promise<ClipboardContent | undefined> {
-      const result = await clipboard.read({
-        preferredTypes: ["image/png", "text/plain"],
-        selection: "clipboard",
-      })
+      let result
+      try {
+        result = await clipboard.read({ preferredTypes: ["image/png", "text/plain"], selection: "clipboard" })
+      } catch (error) {
+        if (options?.fallbackRead) return options.fallbackRead()
+        throw error
+      }
       if (result.status !== "read") {
+        if (options?.fallbackRead && ["empty", "unsupported", "failed", "timed-out"].includes(result.status)) return options.fallbackRead()
         if (result.status === "failed") throw result.error
         if (result.status === "timed-out") throw new Error("Clipboard read timed out")
         if (result.status === "limit-exceeded") {

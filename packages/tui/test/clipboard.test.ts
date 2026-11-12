@@ -140,3 +140,21 @@ test("rejects only when no clipboard route accepted the write", async () => {
   expect(await clipboard.write("hello").then(undefined, (error) => error)).toBe(failure)
   expect(writes).toEqual([["hello", { destination: "all-available", selection: "clipboard" }]])
 })
+
+test("uses optional Linux fallback for unsupported native reads, not successful image reads", async () => {
+  let calls = 0
+  const fallbackRead = async () => { calls++; return { data: "fallback text", mime: "text/plain" } }
+  const unsupported = createClipboardAdapter(coreClipboard({ read: { status: "unsupported" } }), { fallbackRead })
+  expect(await unsupported.read()).toEqual({ data: "fallback text", mime: "text/plain" })
+  const image = createClipboardAdapter(coreClipboard({ read: { status: "read", representation: { mimeType: "image/png", bytes: new Uint8Array([1]) } } }), { fallbackRead })
+  expect((await image.read())?.mime).toBe("image/png")
+  expect(calls).toBe(1)
+})
+
+test("does not evade cancellation or clipboard size limits through fallback", async () => {
+  let calls = 0
+  const fallbackRead = async () => { calls++; return undefined }
+  expect(await createClipboardAdapter(coreClipboard({ read: { status: "cancelled" } }), { fallbackRead }).read()).toBeUndefined()
+  await expect(createClipboardAdapter(coreClipboard({ read: { status: "limit-exceeded" } }), { fallbackRead }).read()).rejects.toThrow("limits")
+  expect(calls).toBe(0)
+})
