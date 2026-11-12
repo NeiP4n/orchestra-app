@@ -283,6 +283,7 @@ it.live("project debug captures live worker events in the owning project file", 
     const events = text.trim().split("\n").map((line) => JSON.parse(line))
     expect(events.some((event) => event.sessionID === worker.id && event.eventType === "session.text.ended")).toBe(true)
     expect(events.some((event) => event.eventType === "session.inbox.enqueued")).toBe(true)
+    expect(events.some((event) => event.eventType === "session.step.ended" && typeof event.data.tokens.input === "number")).toBe(true)
   }).pipe(Effect.scoped),
 )
 

@@ -5,7 +5,7 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readFile, rename } from "node:fs/promises"
 import { redactSecrets } from "./secret-redaction.js"
 
-export const eventTypes = new Set(["session.inbox.enqueued", "session.synthetic", "session.text.ended", "session.tool.called", "session.tool.success", "session.tool.failed", "session.shell.started", "session.shell.ended", "session.execution.started", "session.execution.failed", "session.execution.interrupted"])
+export const eventTypes = new Set(["session.inbox.enqueued", "session.synthetic", "session.text.ended", "session.tool.called", "session.tool.success", "session.tool.failed", "session.shell.started", "session.shell.ended", "session.execution.started", "session.execution.failed", "session.execution.interrupted", "session.step.ended", "session.step.failed", "session.usage.recorded", "session.usage.updated"])
 
 export const MAX_BYTES = 10 * 1024 * 1024
 const REDACTED = "[redacted]"
@@ -16,6 +16,17 @@ const errors = new Map<string, string>()
 const locks = new Map<string, Promise<void>>()
 
 /** Redact structured fields, known secret environment values and credential shapes before disk IO. */
+// Only the exact numeric token-usage schema is diagnostic data, never a token
+// credential. Extra fields or string values remain secret-bearing and redacted.
+const usageCounters = (value: unknown): boolean => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const row = value as Record<string, unknown>
+  if (Object.keys(row).sort().join(",") !== "cache,input,output,reasoning") return false
+  if (![row.input,row.output,row.reasoning].every(value => typeof value === "number" && Number.isFinite(value))) return false
+  const cache = row.cache as Record<string, unknown> | undefined
+  return !!cache && Object.keys(cache).sort().join(",") === "read,write" &&
+    [cache.read,cache.write].every(value => typeof value === "number" && Number.isFinite(value))
+}
 export function redact(value: unknown, environment: NodeJS.ProcessEnv = process.env): unknown {
   const secrets = Object.entries(environment).filter(([key, value]) => sensitive.test(key) && value && value.length >= 1).map(([, value]) => value!)
   const clean = (value: unknown, depth = 0): unknown => {
@@ -28,7 +39,7 @@ export function redact(value: unknown, environment: NodeJS.ProcessEnv = process.
         .replace(/((?:authorization|proxy-authorization|cookie|set-cookie)["']?\s*:\s*)[^\r\n]+/gi, `$1${REDACTED}`)
     }
     if (Array.isArray(value)) return value.map((item) => clean(item, depth + 1))
-    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sensitive.test(key) ? REDACTED : clean(item, depth + 1)]))
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sensitive.test(key) && !(key === "tokens" && usageCounters(item)) ? REDACTED : clean(item, depth + 1)]))
     return value
   }
   return clean(value)

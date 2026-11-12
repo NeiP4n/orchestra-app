@@ -93,3 +93,15 @@ test("status reports last write and makes failed writes visible", () => fixture(
   await ProjectDebug.record(directory, event())
   expect((await ProjectDebug.status(directory)).error).toBeUndefined()
 }))
+
+test("numeric per-event token usage survives redaction but token credentials do not",()=>fixture(async directory=>{
+ await ProjectDebug.setEnabled(directory,true)
+ const tokens={input:11,output:7,reasoning:3,cache:{read:5,write:2}}
+ for(const eventType of ["session.step.ended","session.step.failed","session.usage.recorded","session.usage.updated"]){
+  expect(ProjectDebug.eventTypes.has(eventType)).toBe(true)
+  await ProjectDebug.record(directory,{...event(),eventType,data:{tokens,cost:0.25,apiToken:"secret",nested:{tokens:"credential"}}})
+ }
+ const rows=(await readFile(ProjectDebug.logPath(directory),"utf8")).trim().split("\n").map(line=>JSON.parse(line))
+ for(const row of rows){expect(row.data.tokens).toEqual(tokens);expect(row.data.cost).toBe(0.25);expect(row.data.apiToken).toBe("[redacted]");expect(row.data.nested.tokens).toBe("[redacted]")}
+ expect(ProjectDebug.redact({tokens:{...tokens,access_token:"secret"}})).toEqual({tokens:"[redacted]"})
+}))
