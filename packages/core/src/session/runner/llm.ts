@@ -9,7 +9,7 @@ import { Mode } from "@orchestra/schema/mode"
 import { Orchestra } from "@orchestra/schema/orchestra"
 import { SessionError } from "@orchestra/schema/session-error"
 import { and, desc, eq, sql } from "drizzle-orm"
-import { Cause, Clock, DateTime, Duration, Effect, Exit, FiberMap, Layer, Option } from "effect"
+import { Cause, Clock, Schema, DateTime, Duration, Effect, Exit, FiberMap, Layer, Option } from "effect"
 import { Database } from "../../database/database.js"
 import { Bus } from "../../bus.js"
 import { Config } from "../../config.js"
@@ -52,6 +52,9 @@ import { Location } from "../../location.js"
 import { SessionMemory } from "../../memory/session.js"
 import { scrubText } from "../../memory/scrub.js"
 import { SessionCompletionGate } from "../completion-gate.js"
+import { KV } from "../../kv.js"
+import { SessionProjectOwner } from "../project-owner.js"
+import { OrchestraStage } from "../../stage.js"
 import { RuleEnforce } from "../../rule-enforce.js"
 
 const CONTINUE_AFTER_INCOMPLETE_STREAM =
@@ -129,6 +132,7 @@ const layer = Layer.effect(
     const title = yield* SessionTitle.Service
     const steps = yield* SessionStep.make
     const location = yield* Location.Service
+    const kv = yield* KV.Service
     // Title generation starts once input is visible and must not delay model execution.
     const titles = yield* FiberMap.make<SessionSchema.ID, void, never>()
 
@@ -507,6 +511,12 @@ const layer = Layer.effect(
         })
         if (completed === false) {
           // The run would go idle: hold the session to what it took on before letting it stop.
+          const ownerSession = yield* store.get(sessionID)
+          const owner = ownerSession ? yield* SessionProjectOwner.resolve(kv, ownerSession) : undefined
+          const project = owner ? Option.getOrUndefined(Schema.decodeUnknownOption(Orchestra.Project)(yield* kv.get("orchestra/project/" + owner))) : undefined
+          const stages = project?.main === sessionID
+            ? Option.getOrElse(Schema.decodeUnknownOption(Schema.Array(OrchestraStage.Stage))(yield* kv.get("orchestra/stage/" + owner)), () => [])
+            : []
           const nudge = SessionCompletionGate.check(
             yield* store.context(sessionID),
             yield* Dod.status(location.project.directory),
@@ -514,6 +524,7 @@ const layer = Layer.effect(
             sessionID,
             undefined,
             loaded.agent.id,
+            stages,
           )
           if (nudge) {
             yield* bus.publish(SessionEvent.Synthetic, {

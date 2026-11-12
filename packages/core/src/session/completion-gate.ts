@@ -7,6 +7,7 @@ import { ReviewChecklist } from "../review/checklist.js"
 import { ReviewDual } from "../review/dual.js"
 import { ReviewRedTeam } from "../review/redteam.js"
 import type { SessionMessage } from "./message.js"
+import type { OrchestraStage } from "../stage.js"
 import { RoomRules } from "@orchestra/schema/room-rules"
 
 // The model deciding it is finished is not evidence that it is. When a run would go idle, the
@@ -141,6 +142,7 @@ export function check(
   sessionID?: string,
   reviews?: ReviewGates,
   agent?: string,
+  stages: ReadonlyArray<OrchestraStage.Stage> = [],
 ) {
   const max = limit()
   if (max === 0) return undefined
@@ -190,6 +192,24 @@ export function check(
     "Completion check: a truncated worker report has not been read in full.",
     ...Array.from(new Set(unread), (worker) => `Read sessions action=read sessionID=${worker} before finishing; inspect the complete final report and its evidence.`),
     "The cut preview is not evidence of completion. Do not report the task finished until the missing report is reviewed.",
+  ])
+  const finalText = last.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n")
+  const fullClaim = /в полном объ[её]ме|полностью (?:готов|выполн|заверш)|all (?:done|complete)|completed? in full|fully (?:done|complete|implemented)/i.test(finalText)
+  const unresolved = stages.filter((stage) => stage.status !== "completed" && stage.status !== "cancelled")
+  const openBoard = board.type === "ready" ? board.items.filter((item) => item.state !== "DONE") : []
+  if (fullClaim && (unresolved.length || openBoard.length)) return reminder([
+    "Completion check: the claim of full completion contradicts open plan/DoD items.",
+    ...unresolved.map((stage) => `- [${stage.id}] ${stage.name}: ${stage.status}`),
+    ...openBoard.map((item) => `- ${item.id}: ${item.state}, ${item.done}/${item.total} steps`),
+    "Do not claim full completion. Report closed items 1:1 with their evidence and name every open, blocked or unverified item.",
+  ])
+  // The persisted plan, not the worker's prose, defines the final report's scope.
+  // Require stable ids so similarly named stages cannot silently collapse into one.
+  const missing = stages.filter((stage) => stage.status === "completed" && !finalText.includes(`[${stage.id}]`))
+  if (missing.length && nudges.length < max) return reminder([
+    "Completion check: the operator report must enumerate completed plan items 1:1.",
+    ...missing.map((stage) => `- [${stage.id}] ${stage.name}: ${stage.result ?? "evidence missing"}`),
+    "Include each completed stage's [id], outcome and evidence; do not replace this list with a blanket DONE.",
   ])
   // A worker that came back partial, failed or blocked has not finished the task: the Orchestrator sends it on (the
   // same worker with a hint, or another role) before it tells the operator. Limited by the reminder count.

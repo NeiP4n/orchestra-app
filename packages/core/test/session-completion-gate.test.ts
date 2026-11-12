@@ -329,3 +329,13 @@ test("truncated reports require a successful later read of the exact worker even
  expect(SessionCompletionGate.check([...base,assistant("",[{name:"sessions",input:{action:"read",sessionID:"worker_a"}}]),assistant("Done")],empty)).toBeUndefined()
  expect(SessionCompletionGate.check([user("fix"),assistant("",[{name:"sessions",input:{action:"read",sessionID:"worker_a"}}]),cutReport("worker_a"),assistant("Done")],empty)).toContain("sessionID=worker_a")
 })
+
+test("final report names completed plan stages 1:1 and rejects full claims with open DoD", () => {
+ const stage = { id:"build",name:"Build",status:"completed" as const,result:"tests pass",acceptance:"tests",categories:[],roles:[],sessionIDs:[],dependsOn:[],mcp:[],created:0,updated:0 }
+ const check = (text:string, stages=[stage], status: Dod.Status=empty) => SessionCompletionGate.check([user("ship"),assistant(text)],status,undefined,undefined,undefined,"orchestra",stages)
+ expect(check("Done")).toContain("[build]")
+ expect(check("[build] Tests passed")).toBeUndefined()
+ expect(check("В полном объёме",[],board(1))).toContain("contradicts open")
+ expect(check("[build] Fully complete",[{...stage,status:"running" as any}])).toContain("contradicts open")
+ expect(check("[build] Tests passed; remaining work blocked",[],board(1))).toBeUndefined()
+})
