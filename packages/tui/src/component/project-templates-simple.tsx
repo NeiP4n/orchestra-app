@@ -261,7 +261,7 @@ export function ProjectTemplatesSimple(props: {
     </HoverAction>
   )
   return (
-    <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
+    <box flexDirection="column" flexShrink={0} gap={1} paddingTop={1} paddingBottom={1}>
       <box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")} · {templates().length}</text>
         <Action id="save" label={tr("Save template")} disabled={!props.canSave || !!prepared()} />
@@ -346,12 +346,12 @@ export function ProjectTemplatesSimple(props: {
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Some saved links cannot be copied safely. Save without them, or cancel. The original links will stay in this project.")}</text>
             </Show>
             <Show when={details()}>
-              <box flexDirection="column">
+              <box flexDirection="column" flexShrink={0}>
                 <For each={processTemplate(current().details)?.sessions}>{session => <text fg={theme.text.muted} wrapMode="word">{tr("Session {session}: role {role}", { session: session.title, role: session.role })}</text>}</For>
                 <For each={current().unresolvedRoles}>{role => <text fg={theme.text.muted} wrapMode="word">{tr("Unavailable role: {role}", { role })}</text>}</For>
                 <For each={current().triggerReview}>{(item) => <text fg={theme.text.muted} wrapMode="word">{tr("Trigger {schedule}: {reason}", { schedule: item.schedule, reason: tr(triggerReason[item.reason]) })}{item.browser ? " " + tr("Browser {browser}", { browser: item.browser }) : ""}</text>}</For>
                 <For each={current().omittedLinks}>{(issue) => <text fg={theme.text.muted} wrapMode="word">{tr("Browser {browser}, saved link {link}: {reason}", { browser: issue.browser, link: issue.link, reason: tr(linkReason[issue.reason]) })}</text>}</For>
-                <text fg={theme.text.muted} wrapMode="word">{current().details}</text>
+                <text id="project-templates.details-json" fg={theme.text.muted} flexShrink={0} wrapMode="word">{current().details}</text>
               </box>
             </Show>
           </box>

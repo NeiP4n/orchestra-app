@@ -62,7 +62,7 @@ export function Dialog(
         paddingTop={props.centered ? 0 : dimensions().height / 4}
         left={0}
         top={0}
-        backgroundColor={RGBA.fromValues(theme.background.base.r, theme.background.base.g, theme.background.base.b, 0.92)}
+        backgroundColor={RGBA.fromValues(theme.background.base.r, theme.background.base.g, theme.background.base.b, 1)}
       >
         <box
           onMouseDown={(e: { stopPropagation(): void }) => {
@@ -81,7 +81,14 @@ export function Dialog(
           }}
           width={dialogWidth(props.size ?? "medium")}
           maxWidth={dimensions().width - 2}
-          backgroundColor={theme.background.base}
+          backgroundColor={RGBA.fromValues(
+            theme.background.base.r,
+            theme.background.base.g,
+            theme.background.base.b,
+            1,
+          )}
+          overflow="hidden"
+          maxHeight={Math.max(1, dimensions().height - 1)}
           paddingTop={1}
         >
           {props.children}

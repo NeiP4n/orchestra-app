@@ -293,9 +293,10 @@ export function RegistryPanel(props: {
       // the header row and the tab row have to stay visible. The bound follows
       // the terminal alone - a floor would push the panel past the bottom of a
       // short frame instead of shrinking it.
-      maxHeight={Math.max(1, dimensions().height - 3)}
+      height={Math.max(1, dimensions().height - 3)}
+      overflow="hidden"
     >
-      <box flexDirection="row" justifyContent="space-between">
+      <box flexDirection="row" justifyContent="space-between" flexShrink={0}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {t("Registry")}
         </text>
@@ -317,9 +318,12 @@ export function RegistryPanel(props: {
       </box>
 
       <scrollbox
+        id="registry.body"
         flexGrow={1}
         flexShrink={1}
         minHeight={0}
+        viewportOptions={{ overflow: "hidden" }}
+        contentOptions={{ flexShrink: 0 }}
         ref={(value: ScrollBoxRenderable) => {
           scroll = value
         }}
@@ -505,7 +509,7 @@ export function RegistryPanel(props: {
           </text>
         )}
       </Show>
-      <text fg={theme.text.muted}>
+      <text fg={theme.text.muted} flexShrink={0}>
         {compact() ? t("Tab tabs · ↑↓ select · Enter · Esc") : tab() === "templates" ? t("tab next tab · ↑↓ select · enter action · esc close") : tab() === "programs"
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
           : tab() === "plugins"

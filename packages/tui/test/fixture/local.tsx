@@ -22,6 +22,8 @@ import { createTuiResolvedConfig } from "./tui-runtime"
 
 export async function renderLocal(
   input: {
+    width?: number
+    height?: number
     language?: "en" | "ru"
     models?: ModelInfo[]
     agents?: AgentInfo[]
@@ -91,7 +93,7 @@ export async function renderLocal(
         </ArgsProvider>
       </TestTuiContexts>
     ),
-    { width: 100, height: 30, kittyKeyboard: true },
+    { width: input.width ?? 100, height: input.height ?? 30, kittyKeyboard: true },
   )
   await waitForModel(() => local !== undefined && local.model.ready)
   await data.location.sync()

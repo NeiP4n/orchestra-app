@@ -1,3 +1,4 @@
+import { mcpRegistryState, mcpRegistryToggle } from "./util/mcp-registry"
 import { render, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { registerOrchestraSpinner } from "./component/register-spinner"
 import { setMaxListeners } from "node:events"
@@ -1343,6 +1344,19 @@ function App() {
           dialog.replace(
             () => (
               <RegistryPanel
+                aiTools={{
+                  installed: () =>
+                    mcpRegistryState(data.location.config.list(location.ref ?? data.location.default()) ?? []).installed,
+                  disabled: () =>
+                    mcpRegistryState(data.location.config.list(location.ref ?? data.location.default()) ?? []).disabled,
+                  set: (id, value) =>
+                    client.api.config.update({
+                      mcpServers: {
+                        [id]: mcpRegistryToggle(data.location.config.list(location.ref ?? data.location.default()) ?? [], id, value),
+                      },
+                    }),
+                }}
+                plugins={plugins}
                 onClose={() => dialog.clear()}
                 onShell={(shell) => void client.api.config.update({ shell }).catch(toast.error)}
               />
