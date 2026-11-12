@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import { Deferred, Effect, Fiber, Layer, Ref, Scope, Stream } from "effect"
 import { AutoloopCard } from "@orchestra/schema/autoloop-card"
+import { KV } from "@orchestra/core/kv"
 import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { Bus } from "@orchestra/core/bus"
 import { Database } from "@orchestra/core/database/database"
@@ -56,7 +57,7 @@ const cronRules: Rules = {
 }
 
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, Autoloop.node, SessionContinuation.node])),
+  AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, Autoloop.node, SessionContinuation.node, KV.node])),
 )
 
 const runRow = (view: Record<string, Record<string, unknown>>, id: number) =>
@@ -632,3 +633,26 @@ describe("AutoloopService claim tokens", () => {
     }
   })
 })
+
+
+it.live("project pause protects only its leases and claims while other projects advance",()=>Effect.gen(function*(){
+ const svc=yield* Autoloop.Service,kv=yield* KV.Service
+ yield* svc.execute({type:"rules",args:[{...rules,rules:rules.rules.map(r=>({...r,parallel:4}))}]})
+ yield* kv.set("orchestra/project/prj_pause_a",{workEnabled:true})
+ yield* kv.set("orchestra/project/prj_pause_b",{workEnabled:true})
+ const jobs:{run:number;token:string}[]=[]
+ for(const [i,p] of ["a","b"].entries()){
+  yield* svc.execute({type:"ingest",args:["user",{id:"project-pause-"+p,type:"task.created",subject:p,detail:"project:prj_pause_"+p}]})
+  jobs.push((yield* svc.execute({type:"claimNext",args:["worker-1","project-claim-"+i]})) as {run:number;token:string})
+ }
+ expect(jobs[0]).not.toBeNull();expect(jobs[1]).not.toBeNull()
+ yield* kv.set("orchestra/project/prj_pause_a",{workEnabled:false})
+ for(const job of jobs)yield* AutoloopStore.commitLatest([putRow("runs",String(job.run),{...runRow(yield* svc.getView(),job.run)!,seen_at:iso(Date.now()-30*MINUTE)})])
+ yield* svc.execute({type:"sweep",args:[]})
+ expect(runRow(yield* svc.getView(),jobs[0].run)?.state).toBe("claimed")
+ expect(runRow(yield* svc.getView(),jobs[1].run)?.state).toBe("queued")
+ yield* svc.execute({type:"ingest",args:["user",{id:"paused-new",type:"task.created",subject:"a-new",detail:"project:prj_pause_a"}]})
+ const next=(yield* svc.execute({type:"claimNext",args:["worker-1","other-claim"]})) as {run:number}
+ expect(next.run).toBe(jobs[1].run)
+ expect((yield* svc.getView()).runs["3"]).toMatchObject({state:"queued"})
+}))

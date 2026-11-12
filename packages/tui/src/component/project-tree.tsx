@@ -39,6 +39,7 @@ import { DialogRules } from "./dialog-rules"
 import * as BrowserRuntime from "../util/browser-runtime"
 import { DialogConfirm } from "../ui/dialog-confirm"
 import { ClearOrphansAction } from "./clear-orphans"
+import { ProjectWorkSwitch } from "./project-work-switch"
 import { ClearSessionsAction } from "./clear-sessions"
 import { useNotes, type NotesTab } from "../context/notes"
 import { NotesPanel } from "./notes-panel"
@@ -1264,6 +1265,12 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       {project.name}
                     </text>
                   </box>
+                  <ProjectWorkSwitch project={project} set={async enabled => {
+                    if (client.supports("projectWork") === false) throw Error(t("Project work control needs a server update and restart."))
+                    const updated = await client.api.orchestra.project.update({projectID:project.id,workEnabled:enabled})
+                    projectList.mutate(rows => rows?.map(row => row.id === updated.id ? updated : row))
+                    return updated
+                  }} error={error => toast.error(error)} />
                   {/* Visible while the project is collapsed, so a question is never hidden in a folded tree. */}
                   <Show when={projectWaiting(project)}>
                     <text flexShrink={0} fg={theme.text.feedback.warning.base} attributes={TextAttributes.BOLD}>

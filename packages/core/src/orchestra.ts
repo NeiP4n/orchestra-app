@@ -4,6 +4,7 @@ import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Str
 import { and, eq, inArray, notExists } from "drizzle-orm"
 import { SessionTable } from "./session/sql.js"
 import { ProjectTable } from "./project/sql.js"
+import { ProjectWork } from "./session/project-work.js"
 import { SessionContinuation } from "./session/continuation.js"
 import { SessionHold } from "./session/hold.js"
 import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
@@ -164,9 +165,9 @@ export interface Interface {
   >
   readonly update: (
     id: ProjectID,
-    input: { name?: string; directory?: string },
+    input: { name?: string; directory?: string; workEnabled?: boolean },
   ) => Effect.Effect<Project, ProjectNotFoundError | DirectoryError | ProjectMoveError | Dod.DodError>
-  // Forgets the project; its sessions and its main session stay.
+  // Removes project records and owned chat history, never project files.
   readonly remove: (id: ProjectID) => Effect.Effect<void, ProjectNotFoundError>
   // The project's stable main session. Repairs legacy projects which predate eager creation.
   readonly main: (id: ProjectID) => Effect.Effect<SessionSchema.Info, ProjectNotFoundError | Dod.DodError | ProjectMoveError>
@@ -443,6 +444,7 @@ const layer: Layer.Layer<
     // Physical moves wait for sessions to settle; never hold mainLocks during that wait.
     const moveLocks = KeyedMutex.makeUnsafe<ProjectID>()
     const movingProjects = new Set<ProjectID>()
+    const workLocks = KeyedMutex.makeUnsafe<ProjectID>()
 
     const scanAll = (prefix: string): Effect.Effect<KV.Entry[]> => {
       const read = (after?: string): Effect.Effect<KV.Entry[]> =>
@@ -482,7 +484,11 @@ const layer: Layer.Layer<
       for (const project of all) {
         if ((yield* kv.get(PROJECT_REMOVAL + project.id)) !== undefined || !(yield* importReady(project.id))) continue
         yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
-        ready.push(project)
+        if (project.workEnabled === undefined) {
+          const migrated = { ...project, workEnabled: true }
+          yield* kv.set(PROJECT + project.id, Schema.encodeSync(Project)(migrated))
+        }
+        ready.push({ ...project, workEnabled: project.workEnabled ?? true })
       }
       return ready
     })
@@ -490,7 +496,7 @@ const layer: Layer.Layer<
     const get = Effect.fnUntraced(function* (id: ProjectID) {
       const project = decodeProject(yield* kv.get(PROJECT + id))
       if (Option.isNone(project) || (yield* kv.get(PROJECT_REMOVAL + id)) !== undefined || !(yield* importReady(id))) return yield* new ProjectNotFoundError({ projectID: id })
-      return project.value
+      return { ...project.value, workEnabled: project.value.workEnabled ?? true }
     })
 
     const owners = Effect.fn("Orchestra.owners")(function* () {
@@ -1559,7 +1565,7 @@ const layer: Layer.Layer<
               }
               if (
                 event.type === SessionEvent.Execution.Interrupted.type &&
-                event.data.reason !== "shutdown"
+                event.data.reason !== "shutdown" && event.data.reason !== "pause"
               ) {
                 terminal = { state: "stopped", detail: `Run was interrupted (${event.data.reason}).` }
               }
@@ -1596,6 +1602,7 @@ const layer: Layer.Layer<
             // Context hooks ask mainOf for ordinary sessions too. Never recover a different
             // project's worker just because an unrelated session was opened.
             if (mainID && task.value.main !== mainID) return
+            if (yield* ProjectWork.held(kv, sessionStore, entry.key.slice(TASK.length))) return
             // The watchdog sweep leaves recent dispatches to their live run.
             if (olderThanMs > 0 && Date.now() - task.value.sent < olderThanMs) return
             const sessionID = SessionID.make(entry.key.slice(TASK.length))
@@ -1839,6 +1846,7 @@ const layer: Layer.Layer<
       for (const entry of yield* scanAll(TASK)) {
         const task = decodeTask(entry.value)
         if (Option.isNone(task)) continue
+        if (yield* ProjectWork.held(kv, sessionStore, entry.key.slice(TASK.length))) continue
         const age = Date.now() - task.value.sent
         if (age < NO_REPORT_AFTER_MS) continue
         const key = entry.key
@@ -1876,7 +1884,7 @@ const layer: Layer.Layer<
         const trigger = Trigger.parse(entry.value)
         if (!trigger) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
-        if (!project?.main) continue
+        if (!project?.main || project.workEnabled === false) continue
         const command = ScheduleRequests.read(trigger.id, String(project.main))
         if (command) {
           if (command.reviewedDigest && !TriggerReview.matches(trigger, command.reviewedDigest)) {
@@ -2014,7 +2022,7 @@ const layer: Layer.Layer<
         let trigger = Trigger.parse(entry.value)
         if (!trigger || trigger.kind !== "internal" || !trigger.actions?.length) continue
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
-        if (!project?.main) continue
+        if (!project?.main || project.workEnabled === false) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         for (const event of events) {
           const verdict = Trigger.internalDue(trigger, event, now)
@@ -2043,6 +2051,7 @@ const layer: Layer.Layer<
         if (!(yield* TriggerDelivery.acquire(kv, "time", sweepOwner, Date.now()))) return
         let trigger = Trigger.parse(entry.value)
         if (!trigger || trigger.kind === "browser") continue
+        if ((yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined)))?.workEnabled === false) continue
         const planned = TriggerMissed.plan(trigger, now)
         if (planned !== trigger) trigger = Trigger.parse(yield* kv.atomicUpdate(entry.key, (current) => {
           const latest = Trigger.parse(current)
@@ -2066,7 +2075,7 @@ const layer: Layer.Layer<
           continue
         }
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
-        if (!project?.main) continue
+        if (!project?.main || project.workEnabled === false) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         if(trigger.browserSessionID){
           const refusal=BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.browserSessionID,project.directory,String(project.id))
@@ -2121,7 +2130,7 @@ const layer: Layer.Layer<
           if (project?.main) ScheduleView.sync(item.trigger, String(project.main))
           BrowserSchedule.sync({ ...item.trigger, browserSessionID: item.trigger.spec })
           BrowserSchedule.queueStatus(item.trigger.id, (item.trigger.browserQueue?.rows.length ?? 0) + (item.trigger.pendingFire?.rows?.length ?? 0), now, true, item.trigger.browserQueue?.droppedRows ?? 0)
-          const wanted = item.trigger.enabled && project?.main && !ScheduleView.removalRequested(item.trigger.id, String(project.main))
+          const wanted = project?.workEnabled !== false && item.trigger.enabled && project?.main && !ScheduleView.removalRequested(item.trigger.id, String(project.main))
           const bound = project ? BrowserBridge.resolve(BrowserRuntime.sessions(), item.trigger.spec, project.directory, String(project.id)) : undefined
           const ownBrowser = bound && !("error" in bound) && project && path.resolve(bound.session.project).toLowerCase() === path.resolve(project.directory).toLowerCase()
           if (wanted && bound && !("error" in bound) && ownBrowser) yield* Effect.promise(() => BrowserRuntime.watchRestore(item.trigger.spec))
@@ -2155,7 +2164,7 @@ const layer: Layer.Layer<
           continue
         }
         const project = yield* get(trigger.projectID as ProjectID).pipe(Effect.orElseSucceed(() => undefined))
-        if (!project?.main) continue
+        if (!project?.main || project.workEnabled === false) continue
         if (ScheduleView.removalRequested(trigger.id, String(project.main))) continue
         if(BrowserBridge.ownerRefusal(BrowserRuntime.sessions(),trigger.spec,project.directory,String(project.id)))continue
         if (trigger.pendingFire) {
@@ -2497,7 +2506,7 @@ const layer: Layer.Layer<
         const projectID = detail.startsWith("project:") ? detail.slice("project:".length) : undefined
         if (sessionID === undefined || text === undefined || text === "" || projectID === undefined) return undefined
         const project = byID.get(projectID as ProjectID)
-        if (project === undefined || project.main === undefined) return undefined
+        if (project === undefined || project.main === undefined || project.workEnabled === false) return undefined
         const worker = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
         if (worker === undefined || !(yield* owns(project, worker))) return undefined
         if (Option.isSome(decodeTask(yield* kv.get(TASK + sessionID)))) return undefined
@@ -2633,6 +2642,7 @@ const layer: Layer.Layer<
           name: input.name.trim() || path.basename(resolved),
           directory: isolated?.directory ?? resolved,
           created: Date.now(),
+          workEnabled: true,
           ...(isolated ? { sandbox: isolated.info } : {}),
         }
         if (template) {
@@ -2682,6 +2692,36 @@ const layer: Layer.Layer<
         )
       }),
       update: Effect.fn("Orchestra.update")(function* (id, input) {
+        // Keep pause separate from moves: close admission durably before any interruption.
+        if (input.workEnabled !== undefined) {
+          const workResult = yield* workLocks.withLock(id)(Effect.gen(function* () {
+          const updated = yield* mainLocks.withLock(id)(Effect.gen(function* () {
+            const project = yield* get(id)
+            return yield* save({ ...project, workEnabled: input.workEnabled })
+          }))
+          const all = yield* sessionStore.list()
+          const owned: SessionID[] = []
+          for (const session of all) if ((yield* ProjectWork.owner(kv, sessionStore, session.id))?.id === id) owned.push(session.id)
+          if (!input.workEnabled) {
+            // Signal every project run before waiting for cleanup; other projects keep running.
+            yield* Effect.forEach(owned, sessionID => sessions.interrupt(sessionID, { reason: "pause" }), { concurrency: 8, discard: true })
+            yield* Effect.forEach(owned, sessionID => sessions.interrupt(sessionID, { reason: "pause", awaitSettlement: true }), { concurrency: 8, discard: true })
+          } else {
+            for (const entry of yield* scanAll(TASK)) {
+              const task = decodeTask(entry.value)
+              if (Option.isSome(task) && task.value.projectID === id && task.value.autoloopRun !== undefined)
+                yield* AutoloopOrchestrator.heartbeatRun(autoloop, task.value.autoloopRun).pipe(Effect.ignore)
+            }
+            const suspended = new Set(yield* sessionStore.listSuspended())
+            for (const sessionID of owned) if (suspended.has(sessionID) || (yield* kv.get(SessionContinuation.pausedKey(sessionID))) === true) {
+              yield* sessions.resume(sessionID).pipe(Effect.ignore, Effect.forkIn(layerScope, { startImmediately: true }))
+            }
+          }
+          yield* (autoloop.refreshClock?.() ?? Effect.void)
+          return updated
+          }))
+          if (input.name === undefined && input.directory === undefined) return workResult
+        }
         if (input.directory !== undefined) yield* ensureMain(id)
         const prepared = yield* mainLocks.withLock(id)(
           Effect.gen(function* () {
@@ -2998,6 +3038,7 @@ const layer: Layer.Layer<
                   }),
               ),
             )
+            if (project.workEnabled === false) return yield* new DispatchError({ message: "This project is paused by the operator. The task was not sent." })
             const move = decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + project.id))
             if (Option.isSome(move))
               return yield* new DispatchError({
@@ -3136,6 +3177,7 @@ const layer: Layer.Layer<
                   new DispatchError({ message: `Project ${error.projectID} no longer exists. Reopen the project before dispatching work.` }),
               ),
             )
+            if (project.workEnabled === false) return yield* new DispatchError({ message: "This project is paused by the operator. The task was not sent." })
             const move = decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + project.id))
             if (Option.isSome(move))
               return yield* new DispatchError({
@@ -3279,7 +3321,7 @@ const layer: Layer.Layer<
       }),
       recoverPendingTasks: Effect.fn("Orchestra.recoverPendingTasks")(function* () {
         if (!continuationControl.isEnabled()) return
-        const allProjects = yield* projects()
+        const allProjects = (yield* projects()).filter(p => p.workEnabled !== false)
         const byID = new Map(allProjects.map((project) => [project.id, project]))
         const affected = new Set<ProjectID>()
         for (const entry of yield* scanAll(TASK)) {

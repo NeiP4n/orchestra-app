@@ -321,7 +321,7 @@ export const make = Effect.fn("Session.make")(function* () {
       ),
   )
   const interrupt = Effect.fn("Session.interrupt")(
-    (sessionID: SessionSchema.ID, options?: { readonly resume?: boolean }) =>
+    (sessionID: SessionSchema.ID, options?: { readonly resume?: boolean; readonly reason?: "user" | "inactivity" | "pause"; readonly awaitSettlement?: boolean }) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
           return yield* execution.interrupt(sessionID, options)

@@ -5,6 +5,8 @@ import { randomBytes } from "node:crypto"
 import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Cause, Context, Deferred, Duration, Effect, Layer, Option, PubSub, Ref, Schema, Scope, Semaphore, Stream } from "effect"
 import { Bus } from "../bus.js"
+import { KV } from "../kv.js"
+import { pausedProjectRuns, withoutPausedRuns } from "./project-pause.js"
 import { SessionContinuation } from "../session/continuation.js"
 import { Config } from "../config.js"
 import { Database } from "../database/database.js"
@@ -67,6 +69,7 @@ export interface Stats {
 }
 
 export interface Interface {
+  readonly refreshClock?: () => Effect.Effect<void>
   /**
    * Run one decide input against the journal: open the view, decide, commit
    * the facts, notify the listeners, deliver the cards. The value is what
@@ -147,6 +150,7 @@ export interface Options {
 }
 
 interface State {
+  readonly kv?: KV.Interface
   readonly isEnabled: () => boolean
   readonly isClockReady: () => boolean
   /** Set at build, replaced by `configure` at server boot. */
@@ -290,10 +294,12 @@ const executeInner = (state: State, input: DecideInput, now = Date.now()) =>
         const configuredLimits = yield* Ref.get(state.limits)
         const limits = runtimeLimits(configuredLimits)
         const autonomy = yield* Ref.get(state.autonomy)
+        const pausedRunIDs = state.kv ? yield* pausedProjectRuns(opened.view, state.kv) : new Set<number>()
         const decided = yield* Effect.try({
           try: () =>
             decide(opened.view, input, now, {
               rules,
+              pausedRunIDs,
               limits,
               autonomy,
               tokenSecret: state.tokenSecret,
@@ -350,7 +356,8 @@ const loopStep = (state: State): Effect.Effect<"tick" | "wakeup", unknown, never
     const rules = (yield* Ref.get(state.rules)) ?? stored?.rules ?? emptyRules()
     const limits = resolveLimits(yield* Ref.get(state.limits))
     const now = Date.now()
-    const due = deadlines(opened.view, now, rules, dueLimitsOf(limits))
+    const paused = state.kv ? yield* pausedProjectRuns(opened.view, state.kv) : new Set<number>()
+    const due = deadlines(withoutPausedRuns(opened.view, paused), now, rules, dueLimitsOf(limits))
     const ats = Object.values(due)
       .map((row) => Date.parse(row.at))
       .filter((at) => Number.isFinite(at))
@@ -421,7 +428,9 @@ const make = (options: Options = {}) =>
     // A heartbeat during recovery signals this loop too, but cannot race the
     // recovery pass and expire a deliberately paused, still-owned run.
     let clockReady = Option.isNone(continuation) || continuation.value.isEnabled()
+    const kv = yield* Effect.serviceOption(KV.Service)
     const state: State = {
+      kv: Option.getOrUndefined(kv),
       isEnabled: () => Option.isNone(continuation) || continuation.value.isEnabled(),
       isClockReady: () => clockReady && (Option.isNone(continuation) || continuation.value.isEnabled()),
       rules: yield* Ref.make(options.rules),
@@ -535,6 +544,7 @@ const make = (options: Options = {}) =>
       })
 
     const service: Interface = {
+      refreshClock: () => signal(state),
       execute: (input, now) =>
         Effect.gen(function* () {
           yield* ensureConfigured(state)
@@ -593,5 +603,5 @@ const make = (options: Options = {}) =>
 export const node = makeGlobalNode({
   service: Service,
   layer: layer(),
-  deps: [Database.node, Bus.node, SessionContinuation.node],
+  deps: [Database.node, Bus.node, SessionContinuation.node, KV.node],
 })

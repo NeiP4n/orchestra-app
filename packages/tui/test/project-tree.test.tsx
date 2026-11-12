@@ -138,6 +138,7 @@ function render(
       if (options.missingBrowserChat && url.pathname === "/api/session/ses_deleted")
         return json({_tag:"SessionNotFoundError",sessionID:"ses_deleted",message:"Session not found"},{status:404})
       if (url.pathname === "/api/location") return json(location)
+      if (url.pathname === `/api/orchestra/project/${project.id}` && request.method === "PATCH") return json({...project,workEnabled:false})
       if (url.pathname === "/api/orchestra/project" && request.method === "POST") {
         projectCreated = true
         return json(createdProject)
@@ -891,4 +892,16 @@ for (const width of [140]) test(`project removal explicitly keeps files but dele
   expect(setup.captureCharFrame()).not.toContain("Sessions stay")
   await Bun.write(`/tmp/project-removal-${width}.json`, JSON.stringify(setup.captureSpans()))
   expect(calls.some(c => c.method === "DELETE")).toBe(false)
+})
+
+test("project tree shows each project work switch and its click uses only that project",async()=>{
+ await using state=await tmpdir()
+ const calls:Call[]=[]
+ await using setup=await render(state.path,calls,[{...project,workEnabled:true}],worker,"full",{width:140})
+ await setup.waitForFrame(f=>f.includes("AI ON"))
+ const node=setup.renderer.root.findDescendantById("project-work:"+project.id)!
+ await setup.mockMouse.click(node.x+1,node.y)
+ await setup.waitFor(()=>calls.some(c=>c.method==="PATCH"&&c.path===`/api/orchestra/project/${project.id}`))
+ expect(calls.find(c=>c.method==="PATCH")?.body).toEqual({workEnabled:false})
+ await Bun.write("/tmp/project-work-tree-140.json",JSON.stringify(setup.captureSpans()))
 })

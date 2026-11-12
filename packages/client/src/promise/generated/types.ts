@@ -8,7 +8,12 @@ export type ServerInfo = {
   urls: Array<string>
   paths: { tmp: string }
   capabilities?:
-    | { persistentPty?: boolean | undefined; projectDebug?: boolean | undefined; orphanCleanup?: boolean | undefined }
+    | {
+        persistentPty?: boolean | undefined
+        projectDebug?: boolean | undefined
+        projectWork?: boolean | undefined
+        orphanCleanup?: boolean | undefined
+      }
     | undefined
 }
 
@@ -2457,6 +2462,7 @@ export type OrchestraProject = {
   main?: string | undefined
   created: number
   sandbox?: OrchestraSandbox | undefined
+  workEnabled?: boolean | undefined
 }
 
 export type ModelInfo = {
@@ -15437,8 +15443,21 @@ export type OrchestraProjectCreateOutput = OrchestraProject
 
 export type OrchestraProjectUpdateInput = {
   readonly projectID: { readonly projectID: string }["projectID"]
-  readonly name?: { readonly name?: string | undefined; readonly directory?: string | undefined }["name"]
-  readonly directory?: { readonly name?: string | undefined; readonly directory?: string | undefined }["directory"]
+  readonly name?: {
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+    readonly workEnabled?: boolean | undefined
+  }["name"]
+  readonly directory?: {
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+    readonly workEnabled?: boolean | undefined
+  }["directory"]
+  readonly workEnabled?: {
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+    readonly workEnabled?: boolean | undefined
+  }["workEnabled"]
 }
 
 export type OrchestraProjectUpdateOutput = OrchestraProject

@@ -315,6 +315,8 @@ export interface ScheduleRow extends RowData {
 
 /** What the service passes in: rules from Orchestra config, limits, secrets. */
 export interface DecideEnv {
+  /** Operator project pause, not a change to rules or task outcomes. */
+  pausedRunIDs?: ReadonlySet<number>
   /** Rules, built from Orchestra config — never from a rules.json file. */
   rules: Rules
   /** Cycle limits; anything missing falls back to `DEFAULT_LIMITS`. */
@@ -1053,7 +1055,7 @@ function sweep(draft: Draft) {
     // A run never seen (`seen_at` null) counts as long ago, not as "just
     // seen": `Date.parse("")` is NaN, and NaN never compares true (m-12).
     const inDoubt = (run: RunRow) =>
-      workerOfRun(draft.rules, run.agent) === worker &&
+      !draft.env.pausedRunIDs?.has(run.id) && workerOfRun(draft.rules, run.agent) === worker &&
       (Date.parse(run.seen_at ?? "") || 0) < now - limits.runLeaseMinutes * MINUTE
     for (const run of rowsOf(draft.view, "runs")
       .map(({ data }) => data as RunRow)
@@ -1080,7 +1082,7 @@ function sweep(draft: Draft) {
         closeOpen(draft, (key) => key === `run:${run.id}:unknown`, "возвращена в очередь: исполнитель не на связи")
       }
     }
-    const waiting = waitingOn(draft.view, worker, draft.rules)
+    const waiting = waitingOn(draft.view, worker, draft.rules).filter(row => !draft.env.pausedRunIDs?.has(row.id as number))
     if (waiting.length === 0) continue
     const since = now - (lastSeen ?? Date.parse(str(waiting[0], "created_at") ?? ""))
     const { key, told } = offlineCard(draft.view, worker, waiting)
@@ -1098,7 +1100,7 @@ function sweep(draft: Draft) {
   // sitting `claimed` forever (m-12).
   for (const run of rowsOf(draft.view, "runs")
     .map(({ data }) => data as RunRow)
-    .filter((run) => (run.state === "claimed" || run.state === "unknown") && workerOfRun(draft.rules, run.agent) === undefined)) {
+    .filter((run) => !draft.env.pausedRunIDs?.has(run.id) && (run.state === "claimed" || run.state === "unknown") && workerOfRun(draft.rules, run.agent) === undefined)) {
     stopRun(
       draft,
       run,
@@ -1184,7 +1186,7 @@ function claimNext(draft: Draft, worker: string, claim: string) {
   const agents = agentsOf(draft, worker)
   const runs = rowsOf(draft.view, "runs")
     .map(({ data }) => data as RunRow)
-    .filter((run) => run.state === "queued" || run.state === "claimed")
+    .filter((run) => !draft.env.pausedRunIDs?.has(run.id) && (run.state === "queued" || run.state === "claimed"))
   const claimed = runs.filter((run) => run.state === "claimed")
   const groupLimit = (group: string) =>
     draft.rules.rules.find((rule) => rule.group === group)?.parallel ?? 1

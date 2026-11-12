@@ -131,6 +131,7 @@ export const Project = Schema.Struct({
   main: SessionID.pipe(Schema.optional),
   created: Schema.Number,
   sandbox: Sandbox.pipe(Schema.optional),
+  workEnabled: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Orchestra.Project" })
 export interface Project extends Schema.Schema.Type<typeof Project> {}
 

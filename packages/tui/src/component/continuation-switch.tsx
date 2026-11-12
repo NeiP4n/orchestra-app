@@ -20,14 +20,14 @@ export function ContinuationSwitch(props: { access: ContinuationAccess; compact?
           {control.busy()
             ? "◌ Приостанавливаем / продолжаем…"
             : control.enabled() === undefined
-              ? "Работа ИИ: нет данных"
+              ? "Все проекты: нет данных"
               : control.enabled()
                 ? props.compact
-                  ? "▶"
-                  : "▶ Работа ИИ: ВКЛ"
+                  ? "∀▶"
+                  : "▶ Все проекты: ВКЛ"
                 : props.compact
-                  ? "Ⅱ"
-                  : "Ⅱ Работа ИИ: ПАУЗА"}
+                  ? "∀Ⅱ"
+                  : "Ⅱ Все проекты: ПАУЗА"}
         </text>
       </HoverAction>
       <Show when={control.failed()}>

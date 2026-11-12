@@ -3153,3 +3153,18 @@ for (const recovery of [false, true]) {
     }).pipe(Effect.scoped),
   )
 }
+
+it.live("project work switch persists independently and migrates legacy projects ON",()=>Effect.gen(function*(){
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("project-work-")))
+ const orchestra=yield* Orchestra.Service,kv=yield* KV.Service
+ const a=yield* orchestra.create({name:"A",directory:tmp.path}),b=yield* orchestra.create({name:"B",directory:tmp.path})
+ expect(a.workEnabled).toBe(true);expect(b.workEnabled).toBe(true)
+ yield* orchestra.update(a.id,{workEnabled:false})
+ expect((yield* orchestra.projects()).find(p=>p.id===a.id)?.workEnabled).toBe(false)
+ expect((yield* orchestra.projects()).find(p=>p.id===b.id)?.workEnabled).toBe(true)
+ yield* orchestra.update(a.id,{workEnabled:true})
+ expect((yield* orchestra.projects()).find(p=>p.id===a.id)?.workEnabled).toBe(true)
+ yield* kv.set("orchestra/project/prj_legacy_work",{id:"prj_legacy_work",name:"Legacy",directory:tmp.path,created:0})
+ expect((yield* orchestra.projects()).find(p=>p.id==="prj_legacy_work")?.workEnabled).toBe(true)
+ expect(yield* kv.get("orchestra/project/prj_legacy_work")).toMatchObject({workEnabled:true})
+}))

@@ -2,6 +2,9 @@
 export const registryEn = {
   "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately.": "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately.",
   "Role comparison is unavailable on this server. Update and restart the background server and TUI.": "Role comparison is unavailable on this server. Update and restart the background server and TUI.",
+  "Project work control needs a server update and restart.": "Project work control needs a server update and restart.",
+  "AI paused": "AI paused",
+  "AI ON": "AI ON",
 
   "Review current built-in roles": "Review current built-in roles",
   "Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.": "Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.",
@@ -246,6 +249,9 @@ export const registryEn = {
 export const registryRu: Record<keyof typeof registryEn, string> = {
   "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately.": "Другая встроенная/runtime-роль всё ещё отличается. Обновите и перезапустите фоновый сервер; свои runtime-роли нужно восстановить отдельно.",
   "Role comparison is unavailable on this server. Update and restart the background server and TUI.": "Сравнение ролей недоступно на этом сервере. Обновите и перезапустите фоновый сервер и TUI.",
+  "Project work control needs a server update and restart.": "Управление проектом требует обновления и перезапуска сервера.",
+  "AI paused": "ИИ ПАУЗА",
+  "AI ON": "ИИ ВКЛ",
 
   "Review current built-in roles": "Сравнить с текущими встроенными ролями",
   "Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.": "Для нового проекта используем встроенные роли этого сервера. Проектные правила, свои роли, инструкции и расписания на паузе не меняются. Исходный шаблон и правила сервера не редактируются.",

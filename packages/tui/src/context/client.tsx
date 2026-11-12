@@ -51,7 +51,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
 
     return {
       backendInfo,
-      supports(feature: "projectDebug" | "orphanCleanup") {
+      supports(feature: "projectDebug" | "orphanCleanup" | "projectWork") {
         const info = backendInfo.latest
         return info ? info.capabilities?.[feature] === true : undefined
       },

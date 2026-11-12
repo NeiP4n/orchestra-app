@@ -1856,3 +1856,38 @@ function buildExecution(
     )
   })
 }
+
+
+it.live("project pause keeps another explicit project in the same directory running and survives restart", () => Effect.gen(function* () {
+ const database=yield* Database.Service,kv=yield* KV.Service,store=yield* SessionStore.Service
+ const a=Session.ID.make("ses_proj_a"),b=Session.ID.make("ses_proj_b"),child=Session.ID.make("ses_proj_child")
+ yield* seedSessions(database,[a,b]);yield* seedSessions(database,[child],{parent_id:a})
+ const pa={id:"prj_a",name:"A",directory:"/project",created:1,main:a,workEnabled:true},pb={id:"prj_b",name:"B",directory:"/project",created:2,main:b,workEnabled:true}
+ yield* kv.set("orchestra/project/prj_a",pa);yield* kv.set("orchestra/project/prj_b",pb)
+ yield* kv.set("orchestra/owner/"+a,"prj_a");yield* kv.set("orchestra/owner/"+b,"prj_b")
+ const scope=yield* Scope.make();yield* Effect.addFinalizer(()=>Scope.close(scope,Exit.void))
+ const startedA=yield* Deferred.make<void>(),startedB=yield* Deferred.make<void>()
+ const starts:string[]=[]
+ const ctx=yield* buildExecution(scope,({sessionID})=>Effect.gen(function*(){starts.push(sessionID);if(sessionID===a)yield* Deferred.succeed(startedA,undefined);if(sessionID===b)yield* Deferred.succeed(startedB,undefined);yield* Effect.never}))
+ const execution=Context.get(ctx,SessionExecution.Service)
+ yield* execution.wake(a);yield* execution.wake(b);yield* Deferred.await(startedA);yield* Deferred.await(startedB)
+ yield* kv.set("orchestra/project/prj_a",{...pa,workEnabled:false})
+ yield* execution.interrupt(a,{reason:"pause",awaitSettlement:true})
+ expect((yield* execution.active).has(a)).toBe(false);expect((yield* execution.active).has(b)).toBe(true)
+ yield* seedInbox(database,a,["queue"]);yield* seedInbox(database,child,["queue"])
+ yield* execution.wake(a);yield* execution.resume(child)
+ expect(starts).toEqual([a,b]);expect(yield* SessionInbox.list(database.db,a)).toHaveLength(1)
+ expect(yield* SessionInbox.list(database.db,child)).toHaveLength(1)
+ // The restart admission guard can be evaluated without waiting on the other live project.
+ expect(yield* SessionHold.held(a)).toBe(true)
+ expect(yield* SessionHold.held(child)).toBe(true)
+ expect(starts).toEqual([a,b]);expect(yield* kv.get(SessionContinuation.pausedKey(a))).toBe(true)
+ expect((yield* store.listSuspended()).includes(a)).toBe(true)
+ yield* kv.set("orchestra/project/prj_a",{...pa,workEnabled:true})
+ yield* execution.wake(child).pipe(Effect.forkIn(scope,{startImmediately:true}))
+ yield* Effect.sleep("20 millis")
+ expect(starts).toContain(child)
+ expect((yield* execution.active).has(b)).toBe(true)
+ yield* execution.interrupt(b,{reason:"pause",awaitSettlement:true})
+ yield* execution.interrupt(child,{reason:"pause",awaitSettlement:true})
+}))

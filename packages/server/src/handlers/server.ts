@@ -38,7 +38,7 @@ export const ServerHandler = HttpApiBuilder.group(Api, "server.server", (handler
             pid: process.pid ?? 0,
             urls: info.urls(),
             paths: info.paths,
-            capabilities: { persistentPty: PersistentPty.available, projectDebug: true, orphanCleanup: true },
+            capabilities: { persistentPty: PersistentPty.available, projectDebug: true, orphanCleanup: true, projectWork: true },
           }
         }),
       )

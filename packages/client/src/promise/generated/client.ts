@@ -3599,7 +3599,7 @@ export function make(options: ClientOptions) {
             {
               method: "PATCH",
               path: `/api/orchestra/project/${encodeURIComponent(input.projectID)}`,
-              body: { name: input["name"], directory: input["directory"] },
+              body: { name: input["name"], directory: input["directory"], workEnabled: input["workEnabled"] },
               successStatus: 200,
               declaredStatuses: [400, 401, 404],
               empty: false,

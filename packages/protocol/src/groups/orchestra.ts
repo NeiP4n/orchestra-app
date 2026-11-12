@@ -230,6 +230,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
       payload: Schema.Struct({
         name: Schema.String.pipe(Schema.optional),
         directory: Schema.String.pipe(Schema.optional),
+        workEnabled: Schema.Boolean.pipe(Schema.optional),
       }),
       success: Orchestra.Project,
       error: [ProjectNotFoundError, InvalidRequestError],

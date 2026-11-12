@@ -15,6 +15,7 @@ export const ServerInfo = Schema.Struct({
     Schema.Struct({
       persistentPty: Schema.optional(Schema.Boolean),
       projectDebug: Schema.optional(Schema.Boolean),
+      projectWork: Schema.optional(Schema.Boolean),
       orphanCleanup: Schema.optional(Schema.Boolean),
     }),
   ),

@@ -477,3 +477,11 @@ describe("Job", () => {
     }),
   )
 })
+
+it.live("project pause cancels only that session's background shells",()=>Effect.gen(function*(){
+ const jobs=yield* Job.Service
+ for(const id of ["a","b"]){yield* jobs.start({id:"project-shell-"+id,type:"shell",recovery:{kind:"shell",sessionID:SessionSchema.ID.make("ses_"+id),shellID:"shell_"+id,command:"sleep"},run:Effect.never});yield* jobs.background("project-shell-"+id)}
+ yield* jobs.cancelShellsForSession!(SessionSchema.ID.make("ses_a"))
+ expect(yield* jobs.get("project-shell-a")).toMatchObject({status:"cancelled"})
+ expect(yield* jobs.get("project-shell-b")).toMatchObject({status:"running"})
+}))

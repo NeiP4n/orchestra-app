@@ -11,6 +11,7 @@ import { SessionHandoff } from "./handoff.js"
 import { SessionMemory } from "../memory/session.js"
 import { SessionContinuation } from "./continuation.js"
 import { KV } from "../kv.js"
+import { ProjectWork } from "./project-work.js"
 import { SessionHold } from "./hold.js"
 import { SessionRunCoordinator } from "./run-coordinator.js"
 import { SessionRunner } from "./runner/index.js"
@@ -42,7 +43,7 @@ export interface Interface {
     sessionID: SessionSchema.ID,
     options?: {
       readonly resume?: boolean
-      readonly reason?: "user" | "inactivity"
+      readonly reason?: "user" | "inactivity" | "pause"
       readonly awaitSettlement?: boolean
     },
   ) => Effect.Effect<boolean>
@@ -106,6 +107,8 @@ export const layer = Layer.effect(
     // sweep picks it up again instead of spinning here. Reloads also wait briefly between
     // hops so a closed location cannot hot-loop the drain.
     const MAX_DRAIN_HOPS = 8
+    const removeProjectGuard = SessionHold.addGuard(id => ProjectWork.held(kv, store, id))
+    yield* Effect.addFinalizer(() => Effect.sync(removeProjectGuard))
     const drain = Effect.fnUntraced(function* (
       sessionID: SessionSchema.ID,
       force: boolean,
@@ -113,7 +116,10 @@ export const layer = Layer.effect(
       promotable: SessionInbox.Promotable = "input",
       hops = 0,
     ): Effect.fn.Return<void, SessionRunner.RunError> {
-      if (!continuationControl.isEnabled()) return yield* Effect.interrupt
+      if (!continuationControl.isEnabled() || (yield* SessionHold.held(sessionID))) {
+        yield* kv.set(SessionContinuation.pausedKey(sessionID), true)
+        return yield* Effect.interrupt
+      }
       const session = yield* store.get(sessionID)
       if (!session) return yield* new NotFoundError({ sessionID })
       const result = yield* SessionRunner.Service.use((runner) =>
@@ -269,8 +275,12 @@ export const layer = Layer.effect(
       interrupt: (sessionID, options) =>
         Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
+            if (options?.reason === "pause") {
+              if (yield* coordinator.isActive(sessionID)) yield* kv.set(SessionContinuation.pausedKey(sessionID), true)
+              yield* (jobs.cancelShellsForSession?.(sessionID) ?? Effect.void)
+            }
             const interrupted = yield* coordinator.interrupt(sessionID, options?.reason ?? "user", options)
-            if (!options?.resume || !continuationControl.isEnabled()) return interrupted
+            if (!options?.resume || !continuationControl.isEnabled() || (yield* SessionHold.held(sessionID))) return interrupted
             // Resume steering input and between-turn control work from the interrupted
             // intent. Queued next-turn prompts stay parked: a steer-scoped drain never
             // promotes them, and a control item behind a queued prompt waits its turn.
@@ -293,7 +303,7 @@ export const layer = Layer.effect(
           SessionHold.held(sessionID).pipe(
             Effect.flatMap((held) =>
               held
-                ? Effect.void
+                ? kv.set(SessionContinuation.pausedKey(sessionID), true)
                 : !continuationControl.isEnabled()
                   ? kv.set(SessionContinuation.pausedKey(sessionID), true)
                   : restore(coordinator.run(sessionID)),
@@ -305,7 +315,7 @@ export const layer = Layer.effect(
           SessionHold.held(sessionID).pipe(
             Effect.flatMap((held) =>
               held
-                ? Effect.void
+                ? kv.set(SessionContinuation.pausedKey(sessionID), true)
                 : !continuationControl.isEnabled()
                   ? kv.set(SessionContinuation.pausedKey(sessionID), true)
                   : coordinator.wake(sessionID),

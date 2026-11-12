@@ -2703,7 +2703,7 @@ const EndpointOrchestraProjectUpdate = (raw: RawClient["server.orchestra"]) => (
   preserveEffect<OrchestraProjectUpdateOutput>()(
     raw["orchestra.project.update"]({
       params: { projectID: input["projectID"] },
-      payload: { name: input["name"], directory: input["directory"] },
+      payload: { name: input["name"], directory: input["directory"], workEnabled: input["workEnabled"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
 

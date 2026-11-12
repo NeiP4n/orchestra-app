@@ -104,6 +104,12 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect(seen.map(r => r.route)).toContain("/api/orchestra/project-template/finish-create")
         const projects = (await call("/api/orchestra/project").pipe(Effect.runPromise)).body
         expect(projects).toHaveLength(2)
+        const paused=await call("/api/orchestra/project/"+project.id,"PATCH",{workEnabled:false}).pipe(Effect.runPromise)
+        expect(paused.status).toBe(200);expect(paused.body.workEnabled).toBe(false)
+        const independent=(await call("/api/orchestra/project").pipe(Effect.runPromise)).body
+        expect(independent.find((p:{id:string})=>p.id===project.id).workEnabled).toBe(false)
+        expect(independent.find((p:{id:string})=>p.id!==project.id).workEnabled).toBe(true)
+        expect((await call("/api/orchestra/project/"+project.id,"PATCH",{workEnabled:true}).pipe(Effect.runPromise)).body.workEnabled).toBe(true)
         const created = projects.find((row: { id: string }) => row.id !== project.id)
         const sessions = (await call("/api/session?limit=100").pipe(Effect.runPromise)).body.data
         const auto = sessions.find((row: { id: string; title: string }) => row.id !== ordinary.id && row.title === ordinary.title)

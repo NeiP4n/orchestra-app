@@ -74,6 +74,7 @@ export type ServerInfoOutput = {
     | {
         readonly persistentPty?: boolean | undefined
         readonly projectDebug?: boolean | undefined
+        readonly projectWork?: boolean | undefined
         readonly orphanCleanup?: boolean | undefined
       }
     | undefined
@@ -5066,6 +5067,7 @@ export type OrchestraProjectUpdateInput = {
   readonly projectID: Orchestra.ProjectID
   readonly name?: string | undefined
   readonly directory?: string | undefined
+  readonly workEnabled?: boolean | undefined
 }
 export type OrchestraProjectUpdateOutput = Orchestra.Project
 export type OrchestraProjectUpdateOperation<E = never> = (

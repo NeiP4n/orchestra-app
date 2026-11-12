@@ -23490,6 +23490,16 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "workEnabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "additionalProperties": false
@@ -30933,6 +30943,16 @@
                 "type": "null"
               }
             ]
+          },
+          "workEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": ["id", "name", "directory", "created"],
@@ -34561,6 +34581,16 @@
                     ]
                   },
                   "projectDebug": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "projectWork": {
                     "anyOf": [
                       {
                         "type": "boolean"
