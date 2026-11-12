@@ -36,7 +36,10 @@ export const KlinchPlugin = define({
       editor.method.update({ integrationID: KLINCH_PROVIDER_ID, method: { type: "key", label: "Manually enter API Key" } })
     })
 
-    const sync = Effect.fn("KlinchPlugin.sync")(function* () {
+    const sync = Effect.fn("KlinchPlugin.sync")(function* (trigger: "startup" | "credential-updated" | "credential-switched") {
+      const log = (state: string, details: Record<string, string | number> = {}) =>
+        Effect.logInfo("Klinch model discovery", { providerID, trigger, state, ...details })
+      yield* log("checking-connection")
       // Seed the provider so the integration works without extra configuration.
       yield* providers.transform((editor) => {
         if (!editor.get(providerID))
@@ -60,12 +63,25 @@ export const KlinchPlugin = define({
       const connection = yield* ctx.integration.connection
         .active(KLINCH_PROVIDER_ID)
         .pipe(Effect.orElseSucceed(() => undefined))
-      if (!connection) return
+      if (!connection) {
+        yield* log("not-attempted", { reason: "no-active-connection" })
+        return
+      }
+      yield* log("started")
       const discovered = yield* ctx.provider
         .discover({ baseURL: KLINCH_BASE_URL, providerID })
-        .pipe(Effect.orElseSucceed(() => undefined))
+        .pipe(
+          Effect.catchCause(() => log("failed", { reason: "internal-error" }).pipe(Effect.as(undefined))),
+          Effect.onInterrupt(() => log("interrupted")),
+        )
       if (!discovered) return
       if (!discovered.ok) {
+        // Only taxonomy and HTTP status are safe: never log the key, headers,
+        // raw response body, error message or cause supplied by an endpoint.
+        yield* log("failed", {
+          reason: discovered.error?.kind ?? "unknown",
+          ...(discovered.error?.status === undefined ? {} : { httpStatus: discovered.error.status }),
+        })
         // A dead or removed key must not leave its models advertised; a
         // transient failure keeps the last good inventory.
         if (discovered.error?.kind !== "auth") return
@@ -74,6 +90,7 @@ export const KlinchPlugin = define({
         })
         return
       }
+      yield* log("succeeded", { modelCount: discovered.models.length })
       yield* providers.transform((editor) => {
         editor.models.set(
           providerID,
@@ -85,18 +102,19 @@ export const KlinchPlugin = define({
       })
     })
 
-    const refresh = () => sync().pipe(Effect.andThen(ctx.provider.reload()))
+    const refresh = (trigger: "startup" | "credential-updated" | "credential-switched") =>
+      sync(trigger).pipe(Effect.andThen(ctx.provider.reload()))
     yield* bus.subscribe(Credential.Event.Switched).pipe(
       Stream.filter((event) => event.data.integrationID === integrationID),
-      Stream.runForEach(refresh),
+      Stream.runForEach(() => refresh("credential-switched")),
       Effect.forkScoped({ startImmediately: true }),
     )
     yield* bus.subscribe(Credential.Event.Updated).pipe(
-      Stream.runForEach(refresh),
+      Stream.runForEach(() => refresh("credential-updated")),
       Effect.forkScoped({ startImmediately: true }),
     )
     // Eager on startup: with a stored key the models are in the catalog
     // before the first session needs them; without one sync does no network.
-    yield* refresh()
+    yield* refresh("startup")
   }),
 } satisfies PluginInternal.InternalPlugin)
