@@ -1,5 +1,6 @@
 export * as ProjectTemplateImport from "./project-template-import.js"
 
+import { TemplateStageError } from "./project-template-errors.js"
 import { ProjectTemplate } from "./project-template.js"
 import { ProjectTemplateFiles } from "./project-template-files.js"
 import { Trigger } from "./trigger.js"
@@ -60,12 +61,12 @@ export function prepare(serialized: string, destination: Destination) {
   ]
   if (new Set(identities).size !== identities.length) throw Error("Destination identities must be unique.")
   const sessions = bundle.sessions.map((row) => {
-    if (row.role !== null && !destination.availableRoles.has(row.role)) throw Error("A required role is unavailable in the destination.")
+    if (row.role !== null && !destination.availableRoles.has(row.role)) throw new TemplateStageError("roles", new Error("A required role is unavailable in the destination."), "session-role-missing")
     const model = row.model
       ? `${row.model.provider}/${row.model.id}${row.model.variant ? "#" + row.model.variant : ""}`
       : null
     if (model && !destination.availableModels.has(model))
-      throw Error("A required model is unavailable in the destination.")
+      throw new TemplateStageError("session-models", new Error("A required model is unavailable in the destination."), "model-unavailable")
     return {
       id: destination.sessions[row.slot],
       slot: row.slot,
@@ -102,7 +103,7 @@ export function prepare(serialized: string, destination: Destination) {
   const rules = bundle.rules.map((row) => {
     const scope = row.scope ?? (row.session ? "session" : "project")
     if (scope === "role" && (!row.role || !destination.availableRoles.has(row.role)))
-      throw Error("A rule references an unavailable destination role.")
+      throw new TemplateStageError("roles", new Error("A rule references an unavailable destination role."), "rule-role-missing")
     const key =
       scope === "session"
         ? `session:${destination.sessions[row.session!]}`
