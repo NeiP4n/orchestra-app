@@ -1,0 +1,30 @@
+name: mcp-native-scope-regression
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/tool/plugin/orchestra.ts'
+      - 'packages/core/src/plugin/agent.ts'
+      - 'packages/core/test/orchestrator-limits.test.ts'
+      - '.github/workflows/mcp-native-scope-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: MCP and native scope (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Brief scope, limits, prompt budget and real native ownership entrypoint
+        run: bun test packages/core/test/orchestrator-limits.test.ts packages/core/test/mcp-assignment.test.ts packages/core/test/orchestrator-prompt-size.test.ts packages/core/test/browser-project-entry.test.ts
+      - name: Actual explicit MCP assignment dispatch gate
+        working-directory: packages/core
+        run: bun test test/orchestra-team.test.ts --test-name-pattern 'explicit MCP assignment'

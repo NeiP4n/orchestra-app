@@ -99,3 +99,11 @@ describe("orchestrator prompt size", () => {
 test("the Orchestrator reports only what a tool result verified", () => {
   expect(PROMPT_ORCHESTRATOR).toContain("Report only what a tool result VERIFIED")
 })
+
+test("both orchestrator prompt variants repair MCP/native confusion without widening rights", () => {
+  for (const prompt of [PROMPT_ORCHESTRATOR, PROMPT_ORCHESTRATOR_FULL]) {
+    expect(prompt).toContain("MCP budgets do not limit built-in browser tools")
+    expect(prompt).toContain("check the exact tool, role, mode and error")
+    expect(prompt).toContain("redispatch without widening rights")
+  }
+})
