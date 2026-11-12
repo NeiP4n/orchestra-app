@@ -1,4 +1,4 @@
-import { oauthClientEnvironment } from "@orchestra/util/oauth-client-file"
+import { oauthClientEnvironment, oauthClientSetupHint } from "@orchestra/util/oauth-client-file"
 import { customAntigravityClient } from "./plugin/provider/google-antigravity-env.js"
 export * as Integration from "./integration.js"
 
@@ -134,7 +134,7 @@ export class AuthorizationError extends Schema.TaggedError<AuthorizationError>()
     if (cause instanceof Error && cause.name === "AntigravityOAuthConfigurationError") {
       const code = "code" in cause ? cause.code : undefined
       return code === "missing_client_secret"
-        ? "Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set. Configure it locally and restart Orchestra."
+        ? "Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set. " + oauthClientSetupHint
         : "Antigravity OAuth application credentials were rejected. Check the client secret configured for Orchestra."
     }
     if (cause instanceof Error && cause.message.trim()) return cause.message

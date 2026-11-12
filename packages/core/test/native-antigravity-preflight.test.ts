@@ -18,6 +18,7 @@ test("native OAuth preflight preserves the typed configuration error before netw
     expect(error).toBeInstanceOf(AntigravityOAuthConfigurationError)
     const publicError = new Integration.AuthorizationError({ cause: error })
     expect(publicError.message).toContain("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+    expect(publicError.message).toContain("bun script/init-oauth-client.mjs && notepad .orchestra\\credentials.env")
     expect(publicError.message).not.toContain("An error occurred in Effect.try")
   } finally {
     if (previous === undefined) delete process.env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET
@@ -35,4 +36,19 @@ test("custom public client omits secret while default still requires it",async()
  expect(antigravityClientParams({ORCHESTRA_ANTIGRAVITY_CLIENT_ID:"own-public.apps.googleusercontent.com"})).toEqual({client_id:"own-public.apps.googleusercontent.com"})
  expect(antigravityClientParams({ORCHESTRA_ANTIGRAVITY_CLIENT_ID:"own-private.apps.googleusercontent.com",ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET:"test-only-placeholder"})).toEqual({client_id:"own-private.apps.googleusercontent.com",client_secret:"test-only-placeholder"})
  expect(()=>antigravityClientParams({})).toThrow("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+})
+
+test("native and plugin preflight read the gitignored local client file in the launch folder", async()=>{
+ const {mkdtemp,mkdir,writeFile,rm}=await import("node:fs/promises")
+ const os=await import("node:os"),path=await import("node:path")
+ const root=await mkdtemp(path.join(os.tmpdir(),"oauth-local-preflight-"))
+ try{
+  await mkdir(path.join(root,".orchestra"))
+  await writeFile(path.join(root,".orchestra/credentials.env"),"ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET=fixture-private-local-only\n")
+  const native=path.resolve(import.meta.dir,"../src/plugin/provider/google-antigravity-env.ts")
+  const plugin=path.resolve(import.meta.dir,"../../plugin-antigravity-auth/src/constants.ts")
+  const child=Bun.spawn([process.execPath,"-e",`const n=await import(${JSON.stringify(native)});const p=await import(${JSON.stringify(plugin)});if(n.requireAntigravityClientSecret()!=="fixture-private-local-only"||p.requireAntigravityClientSecret()!=="fixture-private-local-only")process.exit(2);console.log("local file read by native and plugin: PASS")`],{cwd:root,env:{...process.env,ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET:undefined,ORCHESTRA_ANTIGRAVITY_CLIENT_ID:undefined},stdout:"pipe",stderr:"pipe"})
+  const output=await new Response(child.stdout).text();const error=await new Response(child.stderr).text()
+  expect(await child.exited).toBe(0);expect(error).toBe("");expect(output).toContain("PASS");expect(output).not.toContain("fixture-private-local-only")
+ }finally{await rm(root,{recursive:true,force:true})}
 })

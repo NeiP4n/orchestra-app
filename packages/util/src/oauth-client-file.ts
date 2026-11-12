@@ -29,3 +29,6 @@ export function oauthClientEnvironment(env: NodeJS.ProcessEnv = process.env, fil
     throw Error("Could not read local .orchestra/credentials.env. Check its format and permissions.")
   } finally { if (fd !== undefined) closeSync(fd) }
 }
+
+/** Fixed instructions only. Never interpolate a value from the environment/file. */
+export const oauthClientSetupHint = "From the Orchestra launch folder in cmd.exe run: bun script/init-oauth-client.mjs && notepad .orchestra\\credentials.env . Enter the OAuth application's matching CLIENT_ID and CLIENT_SECRET locally, save, then fully restart Orchestra from that folder. Do not send or commit secrets. Alternatively set ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET in the launch terminal before starting Orchestra."

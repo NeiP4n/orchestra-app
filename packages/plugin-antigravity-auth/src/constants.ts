@@ -1,4 +1,4 @@
-import { oauthClientEnvironment } from "@orchestra/util/oauth-client-file"
+import { oauthClientEnvironment, oauthClientSetupHint } from "@orchestra/util/oauth-client-file"
 /**
  * Constants used for Antigravity OAuth flows and Cloud Code Assist API integration.
  */
@@ -16,7 +16,7 @@ export class AntigravityOAuthConfigurationError extends Error {
   readonly retryable = false;
   constructor(readonly code: "missing_client_secret" | "invalid_oauth_client") {
     super(code === "missing_client_secret"
-      ? "Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set in the Orchestra process. Configure it locally and restart Orchestra. No account quota was checked."
+      ? "Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set in the Orchestra process. " + oauthClientSetupHint
       : "Antigravity OAuth application credentials were rejected. Check the client secret configured for the Orchestra process. This is not an account quota error; retrying or adding accounts will not fix it.");
     this.name = "AntigravityOAuthConfigurationError";
   }

@@ -1,9 +1,9 @@
-import { oauthClientEnvironment } from "@orchestra/util/oauth-client-file"
+import { oauthClientEnvironment, oauthClientSetupHint } from "@orchestra/util/oauth-client-file"
 /** Fixed public configuration error. Never embeds environment values. */
 export class AntigravityOAuthConfigurationError extends Error {
   readonly code = "missing_client_secret"
   constructor() {
-    super("Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set. Configure it locally and restart Orchestra.")
+    super("Antigravity OAuth configuration error: ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set. " + oauthClientSetupHint)
     this.name = "AntigravityOAuthConfigurationError"
   }
 }
