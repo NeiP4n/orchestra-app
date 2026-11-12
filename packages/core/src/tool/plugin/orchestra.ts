@@ -443,7 +443,7 @@ export function resolveMcpLimit(role: RoleMcpShape, requested?: McpLimitRequest)
       }
   }
   if (Array.isArray(servers) && servers.length === 0 && requested?.maxCalls !== undefined && requested.maxCalls > 0)
-    return { ok: false, message: "An empty MCP server list forbids MCP for this task, so maxCalls must be 0 or omitted." }
+    return { ok: false, message: "An empty MCP server list forbids MCP for this task, so maxCalls must be 0 or omitted. Nothing was sent. This limit applies only to MCP server calls, not built-in tools such as browser; their role, mode, permissions and safety checks still apply." }
   const maxCalls = Array.isArray(servers) && servers.length === 0 ? 0 : (requested?.maxCalls ?? ceiling.maxCalls)
   if (!Number.isInteger(maxCalls) || maxCalls < 0)
     return { ok: false, message: `MCP maxCalls must be a whole number of 0 or more, got ${maxCalls}.` }
@@ -514,7 +514,7 @@ export function mcpBriefLine(limit: McpLimit): string {
     .map(([server, cap]) => `${server} at most ${cap}`)
     .join(", ")
   const tokens = limit.maxTokens === undefined ? "" : `; at most ${limit.maxTokens} estimated MCP output tokens`
-  return `[MCP limit for this task, set by the Orchestrator: at most ${limit.maxCalls} MCP tool call(s) in total; servers allowed: ${servers}${per ? `; per server: ${per}` : ""}${tokens}. Stay inside it; if the task cannot be done within it, say so in your report instead of exceeding it.]`
+  return `[MCP limit for this task, set by the Orchestrator: at most ${limit.maxCalls} MCP tool call(s) in total; servers allowed: ${servers}${per ? `; per server: ${per}` : ""}${tokens}. This limit applies only to MCP server calls. Built-in tools including browser are unaffected by this MCP budget; their role, mode, permissions and safety checks still apply. Use the assigned built-in tools for native-tool work. If an actual required MCP call is blocked, report that specific call instead of treating this as a limit on all tools.]`
 }
 
 const StageInput = Schema.Struct({
@@ -583,7 +583,7 @@ export const Input = Schema.Struct({
   mcp: Schema.optionalKey(
     Schema.Struct({
       servers: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
-        description: "MCP server names the worker may call for this task; a subset of the role's own servers. An empty list forbids MCP for this task.",
+        description: "MCP server names the worker may call for this task; a subset of the role's own servers. An empty list forbids only MCP server calls, not built-in tools such as browser.",
       }),
       maxCalls: Schema.optionalKey(Schema.Int).annotate({
         description: "Total MCP tool calls the worker may make for this task; at most the role's own ceiling.",

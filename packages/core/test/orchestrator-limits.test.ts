@@ -143,3 +143,21 @@ describe("reading the Browser tab at the limit", () => {
     expect(gate(full, { tool: "browser", messageID: "next", action: "click" }).blocked).toBe(true)
   })
 })
+
+
+test("zero MCP brief and rejected positive budget distinguish native browser without granting permission", () => {
+  const role = {name:"BrowserAgent",tools:["read","browser"],readOnly:true}
+  const allowed = OrchestraTool.resolveMcpLimit(role, {servers:[],maxCalls:0})
+  expect(allowed.ok).toBe(true)
+  if (!allowed.ok) throw Error("zero assignment refused")
+  const brief = OrchestraTool.mcpBriefLine(allowed.limit)
+  expect(brief).toContain("at most 0 MCP tool call(s)")
+  expect(brief).toContain("Built-in tools including browser are unaffected by this MCP budget")
+  expect(brief).toContain("role, mode, permissions and safety checks still apply")
+  expect(OrchestraTool.mcpDenyRules(allowed.limit,["playwright"])).toEqual([{action:"playwright_*",resource:"*",effect:"deny"}])
+  const rejected = OrchestraTool.resolveMcpLimit(role,{servers:[],maxCalls:10})
+  expect(rejected.ok).toBe(false)
+  if(rejected.ok) throw Error("invalid assignment allowed")
+  expect(rejected.message).toContain("Nothing was sent")
+  expect(rejected.message).toContain("not built-in tools such as browser")
+})
