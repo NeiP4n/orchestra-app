@@ -285,9 +285,11 @@ const layer = Layer.effect(
     // Live-only diagnostic capture, never replayed or sent to a service. Canonical owner
     // lookup keeps nested workers in one exact project's file, not a nearby directory.
     yield* bus.subscribe().pipe(
-      Stream.filter((event) => ProjectDebug.eventTypes.has(event.type) && "sessionID" in event.data),
+      Stream.filter((event) => ProjectDebug.eventTypes.has(event.type)),
       Stream.runForEach((event) => Effect.gen(function* () {
-        const sessionID = SessionSchema.ID.make(String(event.data.sessionID))
+        const data = event.data
+        if (!data || typeof data !== "object" || !("sessionID" in data) || typeof data.sessionID !== "string") return
+        const sessionID = SessionSchema.ID.make(data.sessionID)
         const session = yield* store.get(sessionID)
         if (!session) return
         const owner = yield* SessionProjectOwner.resolve(kv, session)
