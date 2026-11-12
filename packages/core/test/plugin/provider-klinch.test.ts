@@ -1,3 +1,4 @@
+import { PluginTestLayer } from "./fixture"
 import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Credential } from "@orchestra/core/credential"
@@ -10,7 +11,6 @@ import { ProviderPlugins } from "@orchestra/core/plugin/provider"
 import { KlinchPlugin } from "@orchestra/core/plugin/provider/klinch"
 import { KLINCH_BASE_URL } from "@orchestra/core/session/runner/error-taxonomy"
 import { testEffect } from "../lib/effect"
-import { PluginTestLayer } from "./fixture"
 
 const it = testEffect(PluginTestLayer)
 const providerID = Provider.ID.make("klinch")
@@ -38,7 +38,10 @@ const createKey = Effect.fn(function* () {
 const withStubbedFetch = <A, E, R>(status: number, body: unknown, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const originalFetch = globalThis.fetch
-    globalThis.fetch = (async () => Response.json(body, { status })) as unknown as typeof fetch
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      expect(String(url)).toBe("https://api.klinch.cloud/v1/models")
+      return Response.json(body, { status })
+    }) as unknown as typeof fetch
     try {
       return yield* effect
     } finally {
@@ -67,6 +70,10 @@ describe("KlinchPlugin (arch3 №4)", () => {
       expect(snapshot.providers.some((provider) => provider.id === providerID)).toBe(false)
     }),
   )
+
+  test("seeded API origin matches the service's documented OpenAI endpoint", () => {
+    expect(KLINCH_BASE_URL).toBe("https://api.klinch.cloud/v1")
+  })
 
   it.effect("discovers models from /models once a key is stored", () =>
     Effect.gen(function* () {
