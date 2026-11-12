@@ -15,6 +15,7 @@ import { Environment } from "../../environment/index.js"
 import { Room } from "../../room.js"
 import { Session } from "../../session.js"
 import { RoomRules } from "@orchestra/schema/room-rules"
+import { ReconDedup } from "../../recon-dedup.js"
 import { Orchestra } from "../../orchestra.js"
 
 export const name = "read"
@@ -250,17 +251,19 @@ export const Plugin = {
                 path: requests.map((request) => request.path).join(", "),
               }
             }).pipe(
-              Effect.map((result) => ({
-                output: result.output,
-                content: toModelContent(result.path, input.offset, result.output),
-                metadata: {
-                  truncated:
-                    result.output.type === "batch"
-                      ? result.output.truncated
-                      : result.output.type === "file"
-                        ? false
-                        : result.output.truncated,
-                },
+              Effect.flatMap((result) => Effect.gen(function* () {
+                const content = toModelContent(result.path, input.offset, result.output)
+                // Read/authorization still happened, so changed files or ranges never
+                // match yesterday's brief. Only repeated model payload is suppressed.
+                const session = yield* sessions.get(context.sessionID).pipe(Effect.orElseSucceed(() => undefined))
+                const duplicate = ReconDedup.duplicate(content, session?.metadata?.[ReconDedup.KEY])
+                return {
+                  output: result.output,
+                  content: duplicate ? [{ type: "text" as const, text: ReconDedup.pointer }] : content,
+                  metadata: {
+                    truncated: result.output.type === "batch" ? result.output.truncated : result.output.type === "file" ? false : result.output.truncated,
+                  },
+                }
               })),
               Effect.mapError((error) => {
                 if (error instanceof ToolFailure) return error

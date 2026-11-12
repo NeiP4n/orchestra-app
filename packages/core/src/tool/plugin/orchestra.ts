@@ -1,3 +1,4 @@
+import { ReconDedup } from "../../recon-dedup.js"
 export * as OrchestraTool from "./orchestra.js"
 
 import { SCOPE_KEY, scopePaths, disjointScopes } from "../../staffing.js"
@@ -1187,6 +1188,7 @@ export const Plugin = {
                   .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
                 const seen = new Set<string>()
                 const chunks: string[] = []
+                const hashes: string[] = []
                 for (const message of messages) {
                   if (message.type === "user" || message.type === "synthetic") break
                   if (message.type !== "assistant") continue
@@ -1211,13 +1213,14 @@ export const Plugin = {
                     if (!text) continue
                     paths.forEach((path) => seen.add(path))
                     chunks.push(text)
+                    hashes.push(ReconDedup.digest(part.state.content))
                   }
                 }
                 if (chunks.length === 0) return undefined
-                return [
+                return { hashes, text: [
                   "[Reconnaissance already gathered by the Orchestrator — the files below were read before this dispatch, so their current content is attached. Do not re-read them unless you need a different range or they changed after your edits.]",
                   ...chunks.toReversed(),
-                ].join("\n\n")
+                ].join("\n\n") }
               })
               const dispatch = (sessionID: SessionSchema.ID, text: string) =>
                 Effect.gen(function* () {
@@ -1249,10 +1252,12 @@ export const Plugin = {
                     yield* sessions.setMetadata({sessionID,metadata})
                   }
                   const recon = yield* reconBrief()
+                  const target = yield* sessions.get(sessionID)
+                  yield* sessions.setMetadata({ sessionID, metadata: { ...target.metadata, [ReconDedup.KEY]: recon?.hashes ?? [] } })
                   return yield* orchestra.dispatch({
                     project,
                     sessionID,
-                    text: recon ? `${recon}\n\n${text}` : text,
+                    text: recon ? `${recon.text}\n\n${text}` : text,
                   })
                 }).pipe(
                   Effect.mapError((error) => new ToolFailure({ message: `Could not send task: ${error.message}`, error })),
