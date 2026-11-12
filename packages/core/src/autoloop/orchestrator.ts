@@ -3,7 +3,7 @@ export * as AutoloopOrchestrator from "./orchestrator.js"
 import type { ConfigOrchestra } from "@orchestra/schema/config/orchestra"
 import { randomUUID } from "node:crypto"
 import { Effect } from "effect"
-import type { Autoloop } from "./service.js"
+import { Autoloop, ServiceFailure as AutoloopServiceFailure } from "./service.js"
 import { AutoloopCards } from "./cards.js"
 import type { AutoloopLimits, Job, Receipt, Rejected, RunRow } from "./kernel/decide.js"
 import { DEFAULT_AUTONOMY, type AutonomyMode, type BatchLimits } from "./kernel/autonomy.js"
@@ -252,6 +252,7 @@ export interface DispatchTask {
 export function createRun(
   cycle: Cycle,
   task: DispatchTask,
+  explain = false,
 ): Effect.Effect<{ run: number; token: string } | null, Autoloop.ServiceFailure> {
   return Effect.gen(function* () {
     // The dispatch rule has to exist before the event is ingested: ingest
@@ -283,11 +284,13 @@ export function createRun(
         },
       ],
     })) as { event: number; duplicate: boolean; routed: string[]; dropped: boolean }
-    const job = (yield* cycle.execute({
+    const claimed = (yield* cycle.execute({
       type: "claimNext",
-      args: [WORKER, `dispatch:${task.messageID}`],
-    })) as Job | null
+      args: [WORKER, `dispatch:${task.messageID}`, true],
+    })) as { job: Job | null; blocker?: string }
+    const job = claimed.job
     if (job === null) {
+      if (explain) return yield* new AutoloopServiceFailure({ code: "conflict", message: `${ingested.dropped ? "Autonomy off: event was recorded but not routed" : claimed.blocker ?? "Claim returned no diagnostic"}. The task was NOT sent; do not bypass policy or do the worker's work in the Orchestrator.` })
       if (ingested.dropped === true) {
         // `off` mode: the event is recorded and nothing is routed — the
         // task is not sent, and that is the mode working, not a failure.

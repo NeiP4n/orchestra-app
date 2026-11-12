@@ -411,3 +411,18 @@ describe("AutoloopOrchestrator verification passthrough (idea #14)", () => {
     })
   })
 })
+
+it.live("diagnostic dispatch reports actual capacity instead of listing hypothetical blockers",()=>Effect.gen(function*(){
+ const svc=yield* Autoloop.Service
+ for(let i=0;i<30;i++)yield* createRun(svc,{...task,sessionID:`diag-${i}`,messageID:`diag-${i}`})
+ const error=yield* createRun(svc,{...task,sessionID:"diag-full",messageID:"diag-full"},true).pipe(Effect.flip)
+ expect(error.message).toContain("capacity 30/30")
+ expect(error.message).not.toContain("Possible blockers")
+}))
+for(const autonomy of ["observe","off"] as const)it.live(`diagnostic dispatch names ${autonomy} policy exactly`,()=>Effect.gen(function*(){
+ const svc=yield* Autoloop.Service
+ yield* svc.configure({autonomy})
+ const error=yield* createRun(svc,task,true).pipe(Effect.flip)
+ expect(error.message).toContain(autonomy === "off" ? "Autonomy off" : "autonomy=observe")
+ expect(error.message).toContain("NOT sent")
+}))

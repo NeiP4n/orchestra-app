@@ -3261,7 +3261,7 @@ const layer: Layer.Layer<
                   projectID: project.id,
                   text: input.text,
                   messageID,
-                }).pipe(
+                }, true).pipe(
                   Effect.tapError(() => kv.remove(key)),
                   Effect.mapError(
                     (error) => new DispatchError({ message: `Autoloop could not take the task: ${error.message}` }),
@@ -3270,7 +3270,7 @@ const layer: Layer.Layer<
                 if (cycle === null) {
                   yield* kv.remove(key)
                   return yield* new DispatchError({
-                    message: `Autoloop could not claim a run for this dispatch. The task was NOT sent to the worker. Possible blockers are dispatch capacity (${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs in flight), a missing dispatch rule, or observe/off autonomy; this error alone does not establish which one. Inspect the cycle state and pending reports. If capacity is full, wait for the existing workers to report, then re-delegate. If policy prevents delegation or the cycle cannot recover, report the exact blocker to the operator. Do not silently do the worker's work in this session, change autonomy, or bypass the dispatch gate.`,
+                    message: "Autoloop returned no dispatch claim or diagnostic. The task was NOT sent. Inspect the cycle journal; do not bypass the dispatch gate.",
                   })
                 }
                 yield* kv.set(

@@ -1176,6 +1176,25 @@ function heldRun(draft: Draft, id: number, token: string, states: string[]): Run
   return run!
 }
 
+function claimBlocker(draft: Draft, worker: string): string {
+  if (!canClaim(draft.autonomy)) return `autonomy=${draft.autonomy}: worker execution is disabled by policy`
+  const agents = agentsOf(draft, worker)
+  const queued = rowsOf(draft.view, "runs").map(row => row.data as RunRow).filter(run => run.state === "queued")
+  const mine = queued.filter(run => agents.includes(ruleNamed(draft, run.rule)?.to ?? ""))
+  if (!mine.length) return `no queued run routes to worker ${worker}; queued=${queued.length}, assigned agents=${agents.join(",") || "none"}`
+  const claimed = rowsOf(draft.view,"runs").map(row=>row.data as RunRow).filter(run=>run.state === "claimed")
+  return mine.map(run => {
+    if (draft.env.pausedRunIDs?.has(run.id)) return `run ${run.id}: owning project is paused`
+    if (Date.parse(run.not_before) > draft.now) return `run ${run.id}: not due until ${run.not_before}`
+    const held = claimed.find(other => other.grp === run.grp && other.lane === run.lane)
+    if (held) return `run ${run.id}: lane ${run.lane} is held by run ${held.id}`
+    const group = claimed.filter(other => other.grp === run.grp).length
+    const cap = draft.rules.rules.find(rule => rule.group === run.grp)?.parallel ?? 1
+    if (group >= cap) return `run ${run.id}: group ${run.grp} capacity ${group}/${cap} claimed`
+    return `run ${run.id}: not claimable in the current journal snapshot`
+  }).join("; ")
+}
+
 function claimNext(draft: Draft, worker: string, claim: string) {
   // In `observe` (and `off`) nothing executes: runs queue as proposals
   // and wait for the mode to allow claiming. A repeat claim returns
@@ -2151,7 +2170,11 @@ const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknow
     put(draft, "seen", `channel:${String(name)}`, { kind: "channel", name: String(name), seen_at: draft.at })
   },
 
-  claimNext: (draft, worker, claim) => claimNext(draft, needStr(worker, "claimNext.worker"), needStr(claim, "claimNext.claim")),
+  claimNext: (draft, worker, claim, diagnostic) => {
+    const who = needStr(worker, "claimNext.worker")
+    const job = claimNext(draft, who, needStr(claim, "claimNext.claim"))
+    return diagnostic === true ? { job, blocker: job ? undefined : claimBlocker(draft, who) } : job
+  },
 
   started(draft, id, token, given) {
     const fields = isRecord(given) ? given : {}
