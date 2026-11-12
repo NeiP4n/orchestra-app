@@ -406,6 +406,8 @@ import type {
   OrchestraProjectDebugGetOutput,
   OrchestraProjectDebugSetInput,
   OrchestraProjectDebugSetOutput,
+  OrchestraProjectTemplateRemoveInput,
+  OrchestraProjectTemplateRemoveOutput,
   OrchestraProjectTemplateExportFileInput,
   OrchestraProjectTemplateExportFileOutput,
   OrchestraProjectTemplatePrepareImportInput,
@@ -2507,6 +2509,14 @@ const EndpointOrchestraProjectDebugSet =
       }).pipe(Effect.mapError(mapClientError)),
     )
 
+const EndpointOrchestraProjectTemplateRemove =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateRemoveInput) =>
+    preserveEffect<OrchestraProjectTemplateRemoveOutput>()(
+      raw["orchestra.projectTemplate.remove"]({
+        payload: { templateID: input["templateID"], digest: input["digest"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
 const EndpointOrchestraProjectTemplateExportFile =
   (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateExportFileInput) =>
     preserveEffect<OrchestraProjectTemplateExportFileOutput>()(
@@ -2842,6 +2852,7 @@ const EndpointOrchestraLinkList = (raw: RawClient["server.orchestra"]) => (input
 const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
   projectDebug: { get: EndpointOrchestraProjectDebugGet(raw), set: EndpointOrchestraProjectDebugSet(raw) },
   projectTemplate: {
+    remove: EndpointOrchestraProjectTemplateRemove(raw),
     exportFile: EndpointOrchestraProjectTemplateExportFile(raw),
     prepareImport: EndpointOrchestraProjectTemplatePrepareImport(raw),
     confirmImport: EndpointOrchestraProjectTemplateConfirmImport(raw),

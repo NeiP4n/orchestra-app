@@ -102,6 +102,8 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         if (process.env.CAPTURE_REAL_TEMPLATE_FRAME) await Bun.write(process.env.CAPTURE_REAL_TEMPLATE_FRAME, JSON.stringify(app.captureSpans()))
         expect(seen.every(r => r.status < 400)).toBe(true)
         expect(seen.map(r => r.route)).toContain("/api/orchestra/project-template/finish-create")
+        const repeated=(await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source}).pipe(Effect.runPromise)).body
+        expect((await call("/api/orchestra/project-template/confirm-create","POST",{token:repeated.token}).pipe(Effect.runPromise)).status).toBe(200)
         const projects = (await call("/api/orchestra/project").pipe(Effect.runPromise)).body
         expect(projects).toHaveLength(2)
         const paused=await call("/api/orchestra/project/"+project.id,"PATCH",{workEnabled:false}).pipe(Effect.runPromise)
@@ -166,6 +168,11 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect(new Set(listed.map((r:{digest:string})=>r.digest)).size).toBe(listed.length)
         const winPath=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:"C:\\Users\\Isako\\Desktop\\Test2"}).pipe(Effect.runPromise)
         if(process.platform!=="win32") { expect(winPath.status).toBe(400); expect(winPath.body.kind).toBe("TEMPLATE_PATH") }
+        const toRemove=listed.find((r:{id:string})=>r.id===oldEntry.id)
+        expect((await call("/api/orchestra/project-template/remove","POST",{templateID:toRemove.id,digest:toRemove.digest}).pipe(Effect.runPromise)).status).toBe(204)
+        expect((await call("/api/orchestra/project-template").pipe(Effect.runPromise)).body.some((r:{id:string})=>r.id===oldEntry.id)).toBe(false)
+        expect(JSON.parse(await readFile(oldFile.path,"utf8"))).toEqual(old)
+        expect((await call("/api/orchestra/project").pipe(Effect.runPromise)).body.length).toBe(3)
 
       })
 }), 30_000)

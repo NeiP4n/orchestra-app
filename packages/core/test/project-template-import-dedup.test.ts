@@ -11,7 +11,7 @@ test("reimporting the same real template file reuses content, old duplicates are
  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "dedup-template-")))
  try {
   const values = new Map<string, any>()
-  const kv = {get:(k:string)=>Effect.sync(()=>values.get(k)),set:(k:string,v:any)=>Effect.sync(()=>{values.set(k,v)}),atomicUpdate:(k:string,fn:any)=>Effect.sync(()=>{const v=fn(values.get(k));values.set(k,v);return v})}
+  const kv = {remove:(k:string)=>Effect.sync(()=>{values.delete(k)}),get:(k:string)=>Effect.sync(()=>values.get(k)),set:(k:string,v:any)=>Effect.sync(()=>{values.set(k,v)}),atomicUpdate:(k:string,fn:any)=>Effect.sync(()=>{const v=fn(values.get(k));values.set(k,v);return v})}
   const operator = ProjectTemplateOperator.make({kv,store:{},dataDirectory:root,installedVersion:"1.0.0",processStores:()=>{throw Error("unused")},live:()=>{throw Error("unused")}} as never)
   const file=await ProjectTemplateTransfer.write(root,JSON.stringify(processFixture()))
   const a=await operator.prepareImport(' "'+file.path+'" '), b=await operator.prepareImport(file.path)
@@ -24,6 +24,14 @@ test("reimporting the same real template file reuses content, old duplicates are
   const changed=processFixture();changed.description="Different configuration with same name"
   const next=await ProjectTemplateTransfer.write(root,JSON.stringify(changed)), c=await operator.prepareImport(next.path)
   await operator.confirmImport(c.token)
+  expect(await operator.list()).toHaveLength(2)
+  const before=await library.list()
+  await expect(operator.remove(first.id,"bad digest")).rejects.toThrow("changed")
+  await operator.remove(first.id,preview.digest)
+  expect(await operator.list()).toHaveLength(1)
+  expect(await library.list()).toEqual(before)
+  expect((await ProjectTemplateTransfer.read(file.path)).digest).toBe(preview.digest)
+  const again=await operator.prepareImport(file.path);await operator.confirmImport(again.token)
   expect(await operator.list()).toHaveLength(2)
   expect(ProjectTemplateTransfer.normalizePath(' "C:\\Users\\Isako\\Desktop\\Test2.orchestra-template" ')).toBe('C:\\Users\\Isako\\Desktop\\Test2.orchestra-template')
  } finally { await rm(root,{recursive:true,force:true}) }

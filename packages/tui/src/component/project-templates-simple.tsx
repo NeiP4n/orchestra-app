@@ -31,6 +31,7 @@ export interface ProjectTemplatesKeys {
  * Only confirmSave/confirmCreate may mutate, and only for the prepared operation they receive.
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
+  remove?: (id:string,digest:string)=>Promise<void>
   copyPath?: (path: string) => Promise<void>
   openFolder?: (path: string) => Promise<void>
   exportFile?: (templateID: string) => Promise<{ path: string; warning: string }>
@@ -64,6 +65,7 @@ export function ProjectTemplatesSimple(props: {
   const tr = useT()
   const [templates, setTemplates] = createSignal<readonly { id: string; name: string; digest?: string }[]>([])
   const [cursor, setCursor] = createSignal("save")
+  const [removing,setRemoving]=createSignal<{id:string;name:string;digest:string}>()
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
   let pathInput: InputRenderable | undefined
@@ -156,9 +158,9 @@ export function ProjectTemplatesSimple(props: {
       ? templates().filter((row) => row.name === current.name)
       : []
   }
-  const actions = () => prepared()
+  const actions = () => removing() ? ["confirm-remove","cancel-remove"] : prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(reason() === templateErrorMessages.TEMPLATE_CORE_ROLE && props.access.prepareMigration && failedTemplate() ? ["migrate-core"] : []), ...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
+    : [...(reason() === templateErrorMessages.TEMPLATE_CORE_ROLE && props.access.prepareMigration && failedTemplate() ? ["migrate-core"] : []), ...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : []), ...(props.access.remove && row.digest ? [`remove-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -168,7 +170,17 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (id === "migrate-core" && props.access.prepareMigration && failedTemplate()) void run(async () => {
+    if (id === "confirm-remove" && removing() && props.access.remove) void run(async()=>{
+      const selected=removing()!
+      await props.access.remove!(selected.id,selected.digest)
+      setRemoving();setReason();await refresh();setMessage("Template removed from the list. Projects and exported files were kept.")
+    })
+    else if(id === "cancel-remove")setRemoving()
+    else if(id.startsWith("remove-") && props.access.remove){
+      const row=templates().find(r=>r.id===id.slice(7))
+      if(row?.digest){setRemoving({id:row.id,name:row.name,digest:row.digest});setCursor("cancel-remove");setMessage("");setReason()}
+    }
+    else if (id === "migrate-core" && props.access.prepareMigration && failedTemplate()) void run(async () => {
       let result
       try { result = await props.access.prepareMigration!(failedTemplate()!) }
       catch(error) {
@@ -254,7 +266,7 @@ export function ProjectTemplatesSimple(props: {
           <Action id="import" label={tr("Import")} disabled={!importPath().trim()} />
         </box>
       </Show>
-      <Show when={!prepared()}>
+      <Show when={!prepared() && !removing()}>
         <box flexDirection="column">
           <Show when={templates().length === 0}>
             <text fg={theme.text.muted} wrapMode="word">{tr("No templates yet. Save a project above.")}</text>
@@ -263,6 +275,7 @@ export function ProjectTemplatesSimple(props: {
             <box flexDirection="row" flexWrap="wrap" gap={1}>
               <Action id={`create-${template.id}`} label={template.name + " · " + tr("Create")} />
               <Show when={template.digest || templates().filter(r=>r.name===template.name).length > 1}><text fg={theme.text.muted}>#{(template.digest ?? template.id).slice(-8)}</text></Show>
+              <Show when={props.access.remove && template.digest}><Action id={`remove-${template.id}`} label={tr("Remove from list")} /></Show>
               <Show when={props.canSave && props.access.exportFile}>
                 <Action id={`export-${template.id}`} label={tr("Export")} />
               </Show>
@@ -273,6 +286,10 @@ export function ProjectTemplatesSimple(props: {
           )}</For>
         </box>
       </Show>
+      <Show when={removing()}>{row=><box flexDirection="column" gap={1}>
+        <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Remove this template from the list? Projects and exported files will stay.")} {row().name} #{row().digest.slice(-8)}</text>
+        <box flexDirection="row" gap={1}><Action id="confirm-remove" label={tr("Remove from list")} /><Action id="cancel-remove" label={tr("Cancel")} /></box>
+      </box>}</Show>
       <Show when={prepared()}>
         {(current) => (
           <box flexDirection="column" gap={1} paddingTop={1}>

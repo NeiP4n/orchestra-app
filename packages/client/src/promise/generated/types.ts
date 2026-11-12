@@ -14690,6 +14690,13 @@ export type OrchestraProjectDebugSetOutput = {
   error?: string | undefined
 }
 
+export type OrchestraProjectTemplateRemoveInput = {
+  readonly templateID: { readonly templateID: string; readonly digest: string }["templateID"]
+  readonly digest: { readonly templateID: string; readonly digest: string }["digest"]
+}
+
+export type OrchestraProjectTemplateRemoveOutput = void
+
 export type OrchestraProjectTemplateExportFileInput = {
   readonly templateID: { readonly templateID: string; readonly projectID: string }["templateID"]
   readonly projectID: { readonly templateID: string; readonly projectID: string }["projectID"]

@@ -17,3 +17,9 @@ The original library entry and exported file are never edited. Project rulebooks
 Rows include a short content digest, so same-name templates with different settings are distinguishable. The current UI does not guess export times that were never stored.
 
 The reviewed migration also covers existing runtime snapshots for the standard built-in build, plan, general, explore, compaction, title and summary identities. A template can contain those in addition to the two Orchestra core roles. These snapshots are replaced only in the prospective template with the destination's current local definitions, never by importing the foreign permissions. Runtime field differences (system, permissions, request, model, etc.) are named in the review. Custom runtime identities remain blocked and are not rewritten. An old server that omits comparison metadata now gets an explicit update/restart message instead of silently rendering no diff.
+
+## Remove from list and repeated creation
+
+Each template row has a Remove from list action. Confirmation names the template and digest and explicitly preserves projects and exported files. The backend rechecks the reviewed digest and persists a hidden-content marker. No filesystem delete runs. Historical exact-content duplicate library entries stay hidden together; different content with the same name remains visible. Explicitly importing the same file again restores it to the list.
+
+Repeated Create for the same template/settings/migration digest reuses the completed project's receipt while that project exists. Confirmation returns the existing result without reinstalling definitions or creating another project. After the project record is removed, a fresh reservation is possible. Saving the same display name retains the existing Update or Save separate copy review; no silent replacement was added.

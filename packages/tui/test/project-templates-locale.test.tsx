@@ -143,3 +143,18 @@ for (const width of [48,80,120]) test(`core migration requires a visible review 
   await click("confirm");await app.waitForFrame(f=>f.includes("Проект создан"));expect(creates).toBe(1)
  }finally{app.renderer.destroy()}
 })
+
+for(const width of [48,80])test(`template removal asks and keeps source files at ${width}`,async()=>{
+ let removed=0
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave={false} access={{list:async()=>removed?[]:[{id:"a",name:"Test2",digest:"a".repeat(64)}],prepareSave:async()=>{throw Error("unused")},confirmSave:async()=>{},prepareCreate:async()=>{throw Error("unused")},confirmCreate:async()=>{},remove:async(id,digest)=>{expect(id).toBe("a");expect(digest).toBe("a".repeat(64));removed++}}}/></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:18})
+ app.renderer.start()
+ const click=async(id:string)=>{const n=app.renderer.root.findDescendantById("project-templates."+id)!;await app.mockMouse.click(n.x+1,n.y);await app.renderOnce()}
+ try{
+  await app.waitForFrame(f=>f.includes("Test2"));await click("remove-a")
+  await app.waitForFrame(f=>f.includes("экспортированные"));expect(removed).toBe(0)
+  await Bun.write(`/tmp/template-remove-confirm-${width}.json`,JSON.stringify(app.captureSpans()))
+  await click("cancel-remove");expect(removed).toBe(0)
+  await click("remove-a");await click("confirm-remove")
+  await app.waitForFrame(f=>f.includes("Шаблон убран"));expect(removed).toBe(1)
+ }finally{app.renderer.destroy()}
+})

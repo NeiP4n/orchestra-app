@@ -21380,6 +21380,66 @@
         }
       }
     },
+    "/api/orchestra/project-template/remove": {
+      "post": {
+        "tags": ["orchestra"],
+        "operationId": "server.orchestra.orchestra.projectTemplate.remove",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "templateID": {
+                    "type": "string"
+                  },
+                  "digest": {
+                    "type": "string"
+                  }
+                },
+                "required": ["templateID", "digest"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/orchestra/project-template/export-file": {
       "post": {
         "tags": ["orchestra"],

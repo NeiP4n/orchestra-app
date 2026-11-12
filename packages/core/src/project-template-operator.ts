@@ -61,6 +61,7 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 export function make(deps: Deps) {
   const legacy = ProjectTemplateLibrary.local(deps.dataDirectory)
   const processes = ProjectTemplateV2Library.local(deps.dataDirectory)
+  const removed = "orchestra/template-hidden/"
   const processID = (id: string) => (id.startsWith("process:") ? id.slice(8) : undefined)
   const library = {
     list: async () => [
@@ -206,23 +207,31 @@ export function make(deps: Deps) {
       if (current.digest !== (pending.sourceDigest ?? pending.digest)) throw Error("Template changed after preview.")
       return Flock.withLock("template-content-" + current.digest, async () => {
       const duplicate = (await library.list()).find(row => row.state === "ready" && row.digest === current.digest)
-      if (duplicate) return { id: duplicate.name, name: current.bundle.name }
+      if (duplicate) { await run(deps.kv.remove(removed + current.digest)); return { id: duplicate.name, name: current.bundle.name } }
       const id = (current.bundle.version === 2 ? "process:" : "") + "template_" + token.slice(4)
       let exists = false
       try { const saved = await library.preview(id); if(saved.digest !== current.digest) throw Error("Existing template differs."); exists = true } catch(error) { if((error as NodeJS.ErrnoException).code !== "ENOENT")throw error }
       if (!exists) await library.saveSerialized(pending.text, id, pending.digest)
+      await run(deps.kv.remove(removed + current.digest))
       return { id, name: current.bundle.name }
       })
     }),
     list: async () => {
       const seen = new Set<string>()
+      const hidden = new Set<string>()
+      for (const row of await library.list()) if (row.digest && (await run(deps.kv.get(removed + row.digest))) === true) hidden.add(row.digest)
       return (await library.list()).filter(row => {
-        if (row.state !== "ready") return false
+        if (row.state !== "ready" || (row.digest && hidden.has(row.digest))) return false
         const key = row.digest ?? row.name
         if (seen.has(key)) return false
         seen.add(key)
         return true
       }).map(row => ({ id: row.name, name: row.title ?? row.name, digest: row.digest }))
+    },
+    remove: async (libraryID: string, reviewedDigest: string) => {
+      const preview = await library.preview(libraryID)
+      if (preview.digest !== reviewedDigest) throw Error("Template changed after preview.")
+      await run(deps.kv.set(removed + preview.digest, true))
     },
     prepareSave: async (projectID: string, browsers: readonly BrowserInput[], templateID?: string) => {
       const prior = templateID === undefined ? undefined : await library.preview(templateID)
@@ -329,10 +338,10 @@ export function make(deps: Deps) {
             pending.digest !== preview.digest
           )
             throw Error("Pending import index differs.")
-          if (!pending.done) {
+          {
             const receipt = await deps.live(settingsDirectory).readReceipt(previous)
             if (!receipt) throw Error("Pending import receipt is missing.")
-            return {
+            if (!pending.done || await run(deps.kv.get("orchestra/project/"+receipt.projectID)) !== undefined) return {
               roleChanges: pending.roleChanges,
               token: receipt.id,
               name: receipt.name,
@@ -377,7 +386,7 @@ export function make(deps: Deps) {
         const current = await library.preview(pending.libraryID)
         if (current.digest !== (pending.sourceDigest ?? pending.digest)) throw Error("Template changed after preview.")
       }
-      const result = await live.resume(token)
+      const result = pending.done && receipt.phase === "published" ? receipt : await live.resume(token)
       return {
         projectID: result.projectID,
         mainSessionID: result.plan.mainSessionID!,

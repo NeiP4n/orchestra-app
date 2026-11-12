@@ -32,6 +32,7 @@ const root = "/api/orchestra/project"
 export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   .add(HttpApiEndpoint.get("orchestra.projectDebug.get", "/api/orchestra/project/:projectID/debug", { params: { projectID: Orchestra.ProjectID }, success: ProjectDebugStatus, error: InvalidRequestError }))
   .add(HttpApiEndpoint.put("orchestra.projectDebug.set", "/api/orchestra/project/:projectID/debug", { params: { projectID: Orchestra.ProjectID }, payload: Schema.Struct({ enabled: Schema.Boolean }), success: ProjectDebugStatus, error: InvalidRequestError }))
+  .add(HttpApiEndpoint.post("orchestra.projectTemplate.remove", "/api/orchestra/project-template/remove", {payload:Schema.Struct({templateID:Schema.String,digest:Schema.String}),success:HttpApiSchema.NoContent,error:InvalidRequestError}))
   .add(HttpApiEndpoint.post("orchestra.projectTemplate.exportFile", "/api/orchestra/project-template/export-file", {
     payload: Schema.Struct({ templateID: Schema.String, projectID: Orchestra.ProjectID }),
     success: Schema.Struct({ path: Schema.String, warning: Schema.String }), error: InvalidRequestError,

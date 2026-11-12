@@ -4760,6 +4760,12 @@ export type OrchestraProjectDebugSetOperation<E = never> = (
   input: OrchestraProjectDebugSetInput,
 ) => Effect.Effect<OrchestraProjectDebugSetOutput, E>
 
+export type OrchestraProjectTemplateRemoveInput = { readonly templateID: string; readonly digest: string }
+export type OrchestraProjectTemplateRemoveOutput = void
+export type OrchestraProjectTemplateRemoveOperation<E = never> = (
+  input: OrchestraProjectTemplateRemoveInput,
+) => Effect.Effect<OrchestraProjectTemplateRemoveOutput, E>
+
 export type OrchestraProjectTemplateExportFileInput = {
   readonly templateID: string
   readonly projectID: Orchestra.ProjectID
@@ -5250,6 +5256,7 @@ export interface OrchestraApi<E = never> {
     readonly set: OrchestraProjectDebugSetOperation<E>
   }
   readonly projectTemplate: {
+    readonly remove: OrchestraProjectTemplateRemoveOperation<E>
     readonly exportFile: OrchestraProjectTemplateExportFileOperation<E>
     readonly prepareImport: OrchestraProjectTemplatePrepareImportOperation<E>
     readonly confirmImport: OrchestraProjectTemplateConfirmImportOperation<E>

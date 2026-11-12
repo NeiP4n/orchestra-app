@@ -1,5 +1,9 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Remove from list": "Remove from list",
+  "Remove this template from the list? Projects and exported files will stay.": "Remove this template from the list? Projects and exported files will stay.",
+  "Template removed from the list. Projects and exported files were kept.": "Template removed from the list. Projects and exported files were kept.",
+
   "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately.": "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately.",
   "Role comparison is unavailable on this server. Update and restart the background server and TUI.": "Role comparison is unavailable on this server. Update and restart the background server and TUI.",
   "Project work control needs a server update and restart.": "Project work control needs a server update and restart.",
@@ -247,6 +251,10 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Remove from list": "Убрать из списка",
+  "Remove this template from the list? Projects and exported files will stay.": "Убрать этот шаблон из списка? Проекты и экспортированные файлы останутся.",
+  "Template removed from the list. Projects and exported files were kept.": "Шаблон убран из списка. Проекты и экспортированные файлы сохранены.",
+
   "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately.": "Другая встроенная/runtime-роль всё ещё отличается. Обновите и перезапустите фоновый сервер; свои runtime-роли нужно восстановить отдельно.",
   "Role comparison is unavailable on this server. Update and restart the background server and TUI.": "Сравнение ролей недоступно на этом сервере. Обновите и перезапустите фоновый сервер и TUI.",
   "Project work control needs a server update and restart.": "Управление проектом требует обновления и перезапуска сервера.",

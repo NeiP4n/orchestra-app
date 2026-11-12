@@ -404,6 +404,8 @@ import type {
   OrchestraProjectDebugGetOutput,
   OrchestraProjectDebugSetInput,
   OrchestraProjectDebugSetOutput,
+  OrchestraProjectTemplateRemoveInput,
+  OrchestraProjectTemplateRemoveOutput,
   OrchestraProjectTemplateExportFileInput,
   OrchestraProjectTemplateExportFileOutput,
   OrchestraProjectTemplatePrepareImportInput,
@@ -3436,6 +3438,18 @@ export function make(options: ClientOptions) {
           ),
       },
       projectTemplate: {
+        remove: (input: OrchestraProjectTemplateRemoveInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateRemoveOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/remove`,
+              body: { templateID: input["templateID"], digest: input["digest"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
         exportFile: (input: OrchestraProjectTemplateExportFileInput, requestOptions?: RequestOptions) =>
           request<OrchestraProjectTemplateExportFileOutput>(
             {
