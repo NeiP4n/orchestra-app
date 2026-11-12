@@ -1,7 +1,7 @@
 import { generatePKCE } from "@openauthjs/openauth/pkce";
 
 import {
-  ANTIGRAVITY_CLIENT_ID,
+  antigravityClientID, antigravityClientParams,
   AntigravityOAuthConfigurationError,
   requireAntigravityClientSecret,
   ANTIGRAVITY_REDIRECT_URI,
@@ -95,7 +95,7 @@ export async function authorizeAntigravity(projectId = ""): Promise<AntigravityA
   const pkce = (await generatePKCE()) as PkcePair;
 
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  url.searchParams.set("client_id", ANTIGRAVITY_CLIENT_ID);
+  url.searchParams.set("client_id", antigravityClientID());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", ANTIGRAVITY_REDIRECT_URI);
   url.searchParams.set("scope", ANTIGRAVITY_SCOPES.join(" "));
@@ -208,8 +208,7 @@ export async function exchangeAntigravity(
         "User-Agent": GEMINI_CLI_HEADERS["User-Agent"],
       },
       body: new URLSearchParams({
-        client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: requireAntigravityClientSecret(),
+        ...antigravityClientParams(),
         code,
         grant_type: "authorization_code",
         redirect_uri: ANTIGRAVITY_REDIRECT_URI,

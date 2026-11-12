@@ -1,4 +1,4 @@
-import { requireAntigravityClientSecret } from "./google-antigravity-env.js"
+import { requireAntigravityClientSecret, antigravityClientID, antigravityClientParams } from "./google-antigravity-env.js"
 import type { ServerResponse } from "node:http"
 import { define } from "@orchestra/plugin/effect/plugin"
 import { GeminiCloudCode } from "@orchestra/ai/protocols/gemini-cloudcode"
@@ -14,7 +14,6 @@ export const providerID = Provider.ID.make("google-antigravity")
 export const integrationID = Integration.ID.make("google-antigravity")
 export const methodID = Integration.MethodID.make("oauth")
 
-const clientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 const callbackPort = 51121
 const redirectURI = `http://localhost:${callbackPort}/oauth-callback`
 
@@ -155,14 +154,13 @@ function callbackError(params: URLSearchParams, state: string) {
 
 function exchangeCode(http: HttpClient.HttpClient, input: { readonly code: string; readonly verifier: string }) {
   return Effect.gen(function* () {
-    const clientSecret = yield* Effect.try({ try: () => requireAntigravityClientSecret(), catch: (error) => error })
+    const clientParams = yield* Effect.try({ try: () => antigravityClientParams(), catch: (error) => error })
     const response = yield* http
       .execute(
         HttpClientRequest.post(tokenURL).pipe(
           HttpClientRequest.bodyUrlParams({
             grant_type: "authorization_code",
-            client_id: clientID,
-            client_secret: clientSecret,
+            ...clientParams,
             code: input.code,
             redirect_uri: redirectURI,
             code_verifier: input.verifier,
@@ -253,7 +251,7 @@ function resolveProjectAndMakeCredential(
 
 function refresh(http: HttpClient.HttpClient, credential: Credential.OAuth) {
   return Effect.gen(function* () {
-    const clientSecret = yield* Effect.try({ try: () => requireAntigravityClientSecret(), catch: (error) => error })
+    const clientParams = yield* Effect.try({ try: () => antigravityClientParams(), catch: (error) => error })
     if (!credential.refresh) {
       return yield* Effect.fail(new Error("No refresh token available for Google Antigravity"))
     }
@@ -262,8 +260,7 @@ function refresh(http: HttpClient.HttpClient, credential: Credential.OAuth) {
         HttpClientRequest.post(tokenURL).pipe(
           HttpClientRequest.bodyUrlParams({
             grant_type: "refresh_token",
-            client_id: clientID,
-            client_secret: clientSecret,
+            ...clientParams,
             refresh_token: credential.refresh,
           }),
         ),
@@ -357,7 +354,7 @@ export function authorize(http: HttpClient.HttpClient) {
     )
 
     const params = new URLSearchParams({
-      client_id: clientID,
+      client_id: antigravityClientID(),
       redirect_uri: redirectURI,
       response_type: "code",
       scope: scopes,

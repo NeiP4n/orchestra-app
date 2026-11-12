@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_CLIENT_ID, requireAntigravityClientSecret, AntigravityOAuthConfigurationError } from "../constants";
+import { antigravityClientParams, requireAntigravityClientSecret, AntigravityOAuthConfigurationError } from "../constants";
 import { formatRefreshParts, parseRefreshParts, calculateTokenExpiry } from "./auth";
 import { clearCachedAuth, storeCachedAuth } from "./cache";
 import { createLogger } from "./logger";
@@ -134,7 +134,7 @@ async function requestAccessToken(auth: OAuthAuthDetails): Promise<OAuthAuthDeta
   }
 
   // Validate before the catch that treats transient transport failures as unavailable tokens.
-  const clientSecret = requireAntigravityClientSecret();
+  requireAntigravityClientSecret();
   try {
     const startTime = Date.now();
     const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -145,8 +145,7 @@ async function requestAccessToken(auth: OAuthAuthDetails): Promise<OAuthAuthDeta
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: parts.refreshToken,
-        client_id: ANTIGRAVITY_CLIENT_ID,
-        client_secret: clientSecret,
+        ...antigravityClientParams(),
       }),
     });
 

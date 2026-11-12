@@ -29,3 +29,10 @@ test("native preflight does not embed secret values in configuration errors", ()
   expect(requireAntigravityClientSecret({ ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET: "private-config-canary" })).toBe("private-config-canary")
   expect(new AntigravityOAuthConfigurationError().message).not.toContain("private-config-canary")
 })
+
+test("custom public client omits secret while default still requires it",async()=>{
+ const {antigravityClientParams}=await import("@orchestra/core/plugin/provider/google-antigravity-env")
+ expect(antigravityClientParams({ORCHESTRA_ANTIGRAVITY_CLIENT_ID:"own-public.apps.googleusercontent.com"})).toEqual({client_id:"own-public.apps.googleusercontent.com"})
+ expect(antigravityClientParams({ORCHESTRA_ANTIGRAVITY_CLIENT_ID:"own-private.apps.googleusercontent.com",ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET:"test-only-placeholder"})).toEqual({client_id:"own-private.apps.googleusercontent.com",client_secret:"test-only-placeholder"})
+ expect(()=>antigravityClientParams({})).toThrow("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET")
+})

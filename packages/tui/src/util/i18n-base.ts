@@ -6,7 +6,7 @@ export type Language = "en" | "ru"
 // `{name}` placeholders are filled from the values passed to `t`.
 const ru: Record<string, string> = {
   "Not configured": "Не настроено",
-  "Not configured: set ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET and restart Orchestra. Set it locally on the server, never in chat.": "Не настроено: задай ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET и перезапусти Orchestra. Задай локально на сервере, не в чате.",
+  "Not configured: set your own ORCHESTRA_ANTIGRAVITY_CLIENT_ID locally and restart Orchestra. For a confidential client also set ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET. Never send secrets in chat.": "Не настроено: задай свой ORCHESTRA_ANTIGRAVITY_CLIENT_ID локально и перезапусти Orchestra. Для confidential-клиента также задай ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET. Не отправляй секреты в чат.",
   // Neural interface
   "{count} agents thinking": "думают агенты: {count}",
   "network ready": "нейросеть готова",

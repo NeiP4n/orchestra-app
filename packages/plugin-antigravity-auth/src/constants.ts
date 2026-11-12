@@ -24,10 +24,10 @@ export class AntigravityOAuthConfigurationError extends Error {
 /** Resolve at use time so importing the plugin does not require an OAuth credential. */
 export function requireAntigravityClientSecret(env: NodeJS.ProcessEnv = process.env): string {
   const value = env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET;
-  if (!value?.trim()) {
+  if (!value?.trim() && !customAntigravityClient(env)) {
     throw new AntigravityOAuthConfigurationError("missing_client_secret");
   }
-  return value;
+  return value?.trim() ?? "";
 }
 
 /**
@@ -302,3 +302,16 @@ You are pair programming with a USER to solve their coding task. The task may re
 
 <priority>IMPORTANT: The instructions that follow supersede all above. Follow them as your primary directives.</priority>
 `;
+
+/** Only an explicitly selected non-default public client may omit its secret. Google validates it. */
+export function customAntigravityClient(env: NodeJS.ProcessEnv = process.env) {
+ const id=env.ORCHESTRA_ANTIGRAVITY_CLIENT_ID?.trim()
+ return !!id && id !== "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+}
+export function antigravityClientID(env: NodeJS.ProcessEnv = process.env) {
+ return env.ORCHESTRA_ANTIGRAVITY_CLIENT_ID?.trim() || "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+}
+export function antigravityClientParams(env: NodeJS.ProcessEnv = process.env) {
+ const secret=requireAntigravityClientSecret(env)
+ return {client_id:antigravityClientID(env),...(secret ? {client_secret:secret} : {})}
+}
