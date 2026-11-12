@@ -685,9 +685,10 @@ export const resolveVariant = Effect.fnUntraced(function* (
 /** A task that drives a web page (open, click, fill, sign in) belongs to the BrowserAgent, not to another role. */
 export const BROWSER_TASK =
   /(?:\b(?:open|visit|go to|navigate|click|fill(?: in| out)?|sign ?up|register|log ?in|sign in|scroll)\b|открой|зайди|перейди|кликни|нажми|заполни|зарегистр|войди|залогин)[^\n]{0,80}(?:https?:\/\/|www\.|\.(?:com|org|net|io|ru|ai)\b|\b(?:site|website|web ?page|page|form|button|browser)\b|сайт|страниц|форм|кнопк|браузер)/i
+export const BROWSER_ROUTE_REFUSAL = "Page work (open, click, fill, sign in on a site) goes to the BrowserAgent of the browser session: use browser action=sessions to see its chat id, then sessions send there. Send this to another role only for work that is not driving a page."
 export const browserRouteRefusal = (roleID: string | undefined, text: string | undefined) =>
-  roleID !== "browser-agent" && text !== undefined && BROWSER_TASK.test(text)
-    ? "Page work (open, click, fill, sign in on a site) goes to the BrowserAgent of the browser session: use browser action=sessions to see its chat id, then sessions send there. Send this to another role only for work that is not driving a page."
+  roleID !== "browser-agent" && text !== undefined && BROWSER_TASK.test(text.replaceAll(BROWSER_ROUTE_REFUSAL, ""))
+    ? BROWSER_ROUTE_REFUSAL
     : undefined
 
 /**

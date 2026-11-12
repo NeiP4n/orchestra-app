@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { browserRouteRefusal, browserSessionTitle } from "../src/tool/plugin/orchestra"
+import { BROWSER_ROUTE_REFUSAL, browserRouteRefusal, browserSessionTitle } from "../src/tool/plugin/orchestra"
 
 describe("browser tasks go to the BrowserAgent", () => {
   test("page work sent to another role is refused with the way to the BrowserAgent", () => {
@@ -46,4 +46,9 @@ describe("browser session titles", () => {
     expect(browserSessionTitle(undefined, "Поиск цен на билеты")).toBe("Поиск цен на билеты")
     expect(browserSessionTitle("", undefined)).toBe("Browser task")
   })
+})
+
+test("quoted route refusal cannot make a debugging task page work",()=>{
+ expect(browserRouteRefusal("developer",`Fix this routing error: "${BROWSER_ROUTE_REFUSAL}"`)).toBeUndefined()
+ expect(browserRouteRefusal("developer",`> ${BROWSER_ROUTE_REFUSAL}\nOpen https://example.com`)).toContain("BrowserAgent")
 })
