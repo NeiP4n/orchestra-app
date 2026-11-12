@@ -26,3 +26,5 @@ jobs:
       - name: Actual provider inventory, explicit default and resolver error propagation
         working-directory: packages/core
         run: bun test test/model-plugins.test.ts test/model-resolver.test.ts test/session-runner-model.test.ts test/generate.test.ts
+      - name: Actual HTTP default endpoint refusal
+        run: bun test packages/server/test/model.test.ts

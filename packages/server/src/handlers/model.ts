@@ -1,3 +1,4 @@
+import { InvalidRequestError } from "@orchestra/protocol/errors"
 import { Model } from "@orchestra/core/model"
 import { Plugin } from "@orchestra/core/plugin"
 import { Effect } from "effect"
@@ -25,7 +26,9 @@ export const ModelHandler = HttpApiBuilder.group(Api, "server.model", (handlers)
           yield* requireLocationDirectory()
           yield* Plugin.awaitActivation
           const models = yield* Model.Service
-          return yield* response(models.default())
+          return yield* response(models.default().pipe(Effect.catchTag("Model.ConfiguredDefaultUnavailableError", error =>
+            Effect.fail(new InvalidRequestError({message:error.message,kind:"MODEL_DEFAULT_UNAVAILABLE",field:"model"})),
+          )))
         }),
       )
   }),
