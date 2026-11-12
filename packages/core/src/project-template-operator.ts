@@ -322,7 +322,7 @@ export function make(deps: Deps) {
             }
           }
         } else if (previous !== undefined) throw Error("Pending import index is damaged.")
-        const receipt = await deps.live(settingsDirectory).reserve(preview.text, preview.digest)
+        const receipt = await templateStage("reservation", () => deps.live(settingsDirectory).reserve(preview.text, preview.digest))
         await run(
           deps.kv.atomicUpdate(PREPARED + receipt.id, (current) => {
             if (current !== undefined) throw Error("Create reservation collision.")

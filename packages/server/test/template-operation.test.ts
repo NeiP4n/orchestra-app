@@ -72,3 +72,24 @@ test("corrupt stage and reason objects cannot smuggle new log fields", async () 
   expect(JSON.stringify({ result, messages })).not.toContain("PRIVATE_")
   expect(messages).toEqual([["project template operation refused", { operation: "prepareSave", kind: result.kind, reason: result.message }]])
 })
+
+test("prepare-create role and model refusals identify a bounded cause, never role rules or identities", async () => {
+  for (const [stage, reasonCode, expectedKind] of [
+    ["roles", "session-role-missing", "TEMPLATE_SESSION_ROLE"],
+    ["roles", "rule-role-missing", "TEMPLATE_RULE_ROLE"],
+    ["roles", "core-role-different", "TEMPLATE_FAILED"],
+    ["session-models", "model-unavailable", "TEMPLATE_FAILED"],
+  ] as const) {
+    const messages: unknown[] = []
+    const error = new TemplateStageError(stage, new Error("PRIVATE_RULES PRIVATE_MODEL PRIVATE_SESSION"), reasonCode)
+    const result = await Effect.runPromise(templateOperation("prepareCreate", async () => { throw error }).pipe(
+      Effect.flip,
+      Effect.provide(Logger.layer([Logger.make(entry => { messages.push(entry.message) })], { mergeWithExisting: false })),
+    ))
+    expect(result.kind).toBe(expectedKind)
+    expect(messages).toEqual([["project template operation refused", {
+      operation: "prepareCreate", kind: expectedKind, reason: result.message, stage, reasonCode,
+    }]])
+    expect(JSON.stringify({ messages, result })).not.toContain("PRIVATE_")
+  }
+})

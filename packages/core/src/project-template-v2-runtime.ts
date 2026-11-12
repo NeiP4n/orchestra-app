@@ -1,5 +1,6 @@
 export * as ProjectTemplateV2Runtime from "./project-template-v2-runtime.js"
 
+import { TemplateStageError } from "./project-template-errors.js"
 import { isDeepStrictEqual } from "node:util"
 import { Effect, Schema } from "effect"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -78,8 +79,10 @@ export function make(deps: Dependencies): Materialize.ProcessAdapter {
       installedVersion: deps.installedVersion,
       reviewedDigest: digest,
     })
-    if (plan.requirements.coreRoleDifferences.length || plan.requirements.missingModels.length)
-      throw Error("Process core roles or models differ from the reviewed destination")
+    if (plan.requirements.coreRoleDifferences.length)
+      throw new TemplateStageError("roles", new Error("Process core roles differ from the reviewed destination"), "core-role-different")
+    if (plan.requirements.missingModels.length)
+      throw new TemplateStageError("session-models", new Error("Process models are unavailable in the reviewed destination"), "model-unavailable")
     for (const row of plan.roles) {
       const role = row.definition
       Schema.decodeUnknownSync(Orchestra.RoleSpec)(role)

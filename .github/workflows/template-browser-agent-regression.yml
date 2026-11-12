@@ -33,4 +33,4 @@ jobs:
       - name: Actual HTTP save, prepare, confirm and finish with an explicit BrowserAgent
         run: bun test packages/server/test/template-browser-agent.test.ts
       - name: Preserve unavailable role and browser ownership refusals
-        run: bun test packages/core/test/project-template-import.test.ts packages/core/test/project-template-v2-plan.test.ts packages/core/test/project-template-browser-binding-review.test.ts
+        run: bun test packages/core/test/project-template-import.test.ts packages/core/test/project-template-v2-plan.test.ts packages/core/test/project-template-browser-binding-review.test.ts packages/core/test/project-template-destination-diagnostics.test.ts packages/server/test/template-operation.test.ts
