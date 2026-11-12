@@ -11,7 +11,7 @@ import type { PluginInternal } from "../internal.js"
 const providerID = Provider.ID.make(KLINCH_PROVIDER_ID)
 const integrationID = Integration.ID.make(KLINCH_PROVIDER_ID)
 
-// Arch3 №4: klinch (https://klinch.cloud/v1) is a seeded provider next to
+// Arch3 №4: klinch (https://api.klinch.cloud/v1) is a seeded provider next to
 // lix and Anymodel.
 // The provider is seeded here so the integration works without extra
 // configuration, but the key lives only in the credential store (integration

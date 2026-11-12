@@ -179,7 +179,7 @@ export const LIX_BASE_URL = "https://lix.autos/v1"
 export const ANYMODEL_PROVIDER_ID = "anymodel"
 export const ANYMODEL_BASE_URL = "https://anymodel.ghostly.su/v1"
 export const KLINCH_PROVIDER_ID = "klinch"
-export const KLINCH_BASE_URL = "https://klinch.cloud/v1"
+export const KLINCH_BASE_URL = "https://api.klinch.cloud/v1"
 
 /**
  * Fallback models for the project's main session, which carries no
