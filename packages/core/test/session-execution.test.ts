@@ -279,11 +279,13 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.gen(function* () {
-          drained.push(current)
-          yield* SessionInbox.promote(database.db, bus, current, "input")
-        }).pipe(Effect.asVoid),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) =>
+          Effect.gen(function* () {
+            drained.push(current)
+            yield* SessionInbox.promote(database.db, bus, current, "input")
+          }).pipe(Effect.asVoid),
       )
       const restart = Context.get(context, SessionRestart.Service)
       const execution = Context.get(context, SessionExecution.Service)
@@ -319,8 +321,9 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
       const execution = Context.get(context, SessionExecution.Service)
@@ -357,8 +360,9 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
 
@@ -398,8 +402,9 @@ describe("SessionExecution lifecycle", () => {
       const drained: Session.ID[] = []
       const scope = yield* Scope.make()
       yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
-      const context = yield* buildExecution(scope, ({ sessionID: current }) =>
-        Effect.sync(() => void drained.push(current)),
+      const context = yield* buildExecution(
+        scope,
+        ({ sessionID: current }) => Effect.sync(() => void drained.push(current)),
       )
       const restart = Context.get(context, SessionRestart.Service)
       yield* restart.resumeSuspendedSessions
