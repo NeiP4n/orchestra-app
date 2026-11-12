@@ -966,7 +966,9 @@ function mockHandlers(
         continuationGet: () => Effect.sync(() => ({enabled:continuationEnabled})),
         continuationSet: (ctx) => Effect.sync(() => {
           continuationEnabled = ctx.payload.enabled
+
           state.emit([{type:"config.continuation.updated",data:{enabled:continuationEnabled}}])
+
           return {enabled:continuationEnabled}
         }),
         configShells: () => Effect.succeed(config.shells ?? []),
