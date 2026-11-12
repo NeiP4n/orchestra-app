@@ -1,0 +1,39 @@
+name: klinch-catalog-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/plugin/provider/klinch.ts'
+      - 'packages/core/src/plugin/provider/klinch-discovery.ts'
+      - 'packages/core/src/plugin/host.ts'
+      - 'packages/core/src/plugin.ts'
+      - 'packages/protocol/src/groups/provider.ts'
+      - 'packages/server/src/handlers/provider.ts'
+      - 'packages/core/src/session/runner/error-taxonomy.ts'
+      - 'packages/core/test/plugin/provider-klinch.test.ts'
+      - '.github/workflows/klinch-catalog-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Klinch catalog discovery (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Seed, active fake credential, exact API discovery origin and auth refusal
+        working-directory: packages/core
+        run: bun test test/plugin/provider-klinch.test.ts
+      - name: Discovery parsing, errors and redirect SSRF protection
+        working-directory: packages/core
+        run: bun test test/provider-discovery.test.ts test/tool-ssrf.test.ts test/session-runner-taxonomy.test.ts

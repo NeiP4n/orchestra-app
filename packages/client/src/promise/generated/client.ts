@@ -283,6 +283,9 @@ import type {
   WebsearchProvidersOutput,
   WebsearchQueryInput,
   WebsearchQueryOutput,
+  ConfigContinuationGetOutput,
+  ConfigContinuationSetInput,
+  ConfigContinuationSetOutput,
   ConfigGetInput,
   ConfigGetOutput,
   ConfigShellsOutput,
@@ -393,6 +396,16 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectDebugGetInput,
+  OrchestraProjectDebugGetOutput,
+  OrchestraProjectDebugSetInput,
+  OrchestraProjectDebugSetOutput,
+  OrchestraProjectTemplateExportFileInput,
+  OrchestraProjectTemplateExportFileOutput,
+  OrchestraProjectTemplatePrepareImportInput,
+  OrchestraProjectTemplatePrepareImportOutput,
+  OrchestraProjectTemplateConfirmImportInput,
+  OrchestraProjectTemplateConfirmImportOutput,
   OrchestraProjectTemplateListOutput,
   OrchestraProjectTemplatePrepareSaveInput,
   OrchestraProjectTemplatePrepareSaveOutput,
@@ -1405,6 +1418,7 @@ export function make(options: ClientOptions) {
             path: `/api/provider/discover`,
             body: {
               baseURL: input["baseURL"],
+              timeoutMs: input["timeoutMs"],
               apiKey: input["apiKey"],
               headers: input["headers"],
               providerID: input["providerID"],
@@ -2577,6 +2591,31 @@ export function make(options: ClientOptions) {
         ),
     },
     config: {
+      continuation: {
+        get: (requestOptions?: RequestOptions) =>
+          request<ConfigContinuationGetOutput>(
+            {
+              method: "GET",
+              path: `/api/config/continuation`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        set: (input: ConfigContinuationSetInput, requestOptions?: RequestOptions) =>
+          request<ConfigContinuationSetOutput>(
+            {
+              method: "PUT",
+              path: `/api/config/continuation`,
+              body: { enabled: input["enabled"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
       get: (input?: ConfigGetInput, requestOptions?: RequestOptions) =>
         request<ConfigGetOutput>(
           {
@@ -3341,7 +3380,68 @@ export function make(options: ClientOptions) {
       },
     },
     orchestra: {
+      projectDebug: {
+        get: (input: OrchestraProjectDebugGetInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectDebugGetOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/project/${encodeURIComponent(input.projectID)}/debug`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        set: (input: OrchestraProjectDebugSetInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectDebugSetOutput>(
+            {
+              method: "PUT",
+              path: `/api/orchestra/project/${encodeURIComponent(input.projectID)}/debug`,
+              body: { enabled: input["enabled"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
       projectTemplate: {
+        exportFile: (input: OrchestraProjectTemplateExportFileInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateExportFileOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/export-file`,
+              body: { templateID: input["templateID"], projectID: input["projectID"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        prepareImport: (input: OrchestraProjectTemplatePrepareImportInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplatePrepareImportOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/prepare-import`,
+              body: { path: input["path"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        confirmImport: (input: OrchestraProjectTemplateConfirmImportInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectTemplateConfirmImportOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/project-template/confirm-import`,
+              body: { token: input["token"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
         list: (requestOptions?: RequestOptions) =>
           request<OrchestraProjectTemplateListOutput>(
             {

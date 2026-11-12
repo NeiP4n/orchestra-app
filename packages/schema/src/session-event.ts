@@ -253,7 +253,7 @@ export namespace Execution {
   export const Interrupted = Event.durable({
     type: "session.execution.interrupted",
     ...options,
-    schema: { ...Base, reason: Schema.Literals(["user", "shutdown", "superseded", "inactivity"]) },
+    schema: { ...Base, reason: Schema.Literals(["user", "shutdown", "superseded", "inactivity", "pause"]) },
   })
   export type Interrupted = typeof Interrupted.Type
 }

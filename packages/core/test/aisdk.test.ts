@@ -571,7 +571,10 @@ it.effect("normalizes file data across AI SDK prompt parts", () =>
             name: "screenshot",
             result: {
               type: "content",
-              value: [{ type: "file", uri: "data:image/png;base64,BAUG", mime: "image/png", name: "tool.png" }],
+              value: [
+                { type: "file", uri: "data:image/png;base64,BAUG", mime: "image/png", name: "tool.png" },
+                { type: "file", uri: "data:image/png;" + ";".repeat(1000) + ",broken", mime: "image/png" },
+              ],
             },
           }),
         ],
@@ -622,6 +625,7 @@ it.effect("normalizes file data across AI SDK prompt parts", () =>
         content: [
           { type: "text", text: "Attached media from tool result:" },
           { type: "file", mediaType: "image/png", data: "BAUG", filename: "tool.png" },
+          { type: "file", mediaType: "image/png", data: "data:image/png;" + ";".repeat(1000) + ",broken", filename: undefined },
         ],
       },
     ])

@@ -1,0 +1,38 @@
+name: data-url-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - "packages/ai/src/media.ts"
+      - "packages/core/src/aisdk.ts"
+      - "packages/cli/src/acp/tool.ts"
+      - "packages/ai/test/data-url-complexity.test.ts"
+      - ".github/workflows/data-url-regression.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Bounded data URL parsing (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Parse media and bound malformed header work in a subprocess
+        run: bun test packages/ai/test/data-url-complexity.test.ts packages/ai/test/media.test.ts
+      - name: Actual AI SDK request translation
+        run: bun test packages/core/test/aisdk.test.ts
+      - name: Actual ACP tool image output and replay over the wire
+        run: bun test packages/cli/test/acp/data-url.test.ts packages/cli/test/acp/replay.test.ts

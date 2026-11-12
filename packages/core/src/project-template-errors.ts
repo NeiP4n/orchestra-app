@@ -1,6 +1,6 @@
-export const templateStages = ["project", "vault", "browser-links", "process-source", "roles", "playbook", "skills", "programs", "library-read", "library-write", "reservation", "source-read", "session-models", "skill-graph", "skill-files", "source-stability", "base-project", "base-sessions", "base-browsers", "base-rules", "base-schedules", "base-vault", "base-integrations", "base-schema", "process-bindings", "process-roles", "process-playbook", "process-skills", "process-assignments", "process-models", "process-programs", "process-schema"] as const
+export const templateStages = ["template-name", "project", "vault", "browser-links", "process-source", "roles", "playbook", "skills", "programs", "library-read", "library-write", "reservation", "source-read", "session-models", "skill-graph", "skill-files", "source-stability", "base-project", "base-sessions", "base-browsers", "base-rules", "base-schedules", "base-vault", "base-integrations", "base-schema", "process-bindings", "process-roles", "process-playbook", "process-skills", "process-assignments", "process-models", "process-programs", "process-schema"] as const
 export type TemplateStage = typeof templateStages[number]
-export const templateReasons = ["read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "session-role-missing", "rule-role-missing", "playbook-role-missing", "skill-role-missing", "ownership-invalid", "browser-chat-missing", "browser-chat-child", "browser-chat-foreign", "browser-chat-unlisted", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
+export const templateReasons = ["name-invalid", "read-failed", "metadata-invalid", "path-not-portable", "secret-like", "schema-invalid", "dependency-missing", "dependency-cycle", "source-changed", "role-missing", "core-role-different", "model-unavailable", "session-role-missing", "rule-role-missing", "playbook-role-missing", "skill-role-missing", "ownership-invalid", "browser-chat-missing", "browser-chat-child", "browser-chat-foreign", "browser-chat-unlisted", "unsupported-schedule", "file-missing", "permission-denied", "unsafe-file", "size-limit"] as const
 export type TemplateReason = typeof templateReasons[number]
 export interface TemplateDiagnostic { stage: TemplateStage; reasonCode: TemplateReason }
 const diagnosticReason = (error: unknown): TemplateReason => {
@@ -48,6 +48,7 @@ export async function templateStage<A>(stage: TemplateStage, action: () => Promi
 
 /** Stable public reasons. Never serialize filesystem paths, URLs, submitted values or raw exceptions. */
 export const templateErrorMessages = {
+  TEMPLATE_NAME: "Invalid template name. Select the template from the library again. For a new name, use 1-60 lowercase letters, digits, underscores or hyphens, starting with a letter.",
   TEMPLATE_PERMISSION: "Template storage is not writable. Check application data folder permissions.",
   TEMPLATE_MISSING: "A required template or project file is missing. Refresh and review again.",
   TEMPLATE_CHANGED: "Project or template changed after preview. Review it again.",
@@ -102,7 +103,7 @@ const exact = new Map<string, TemplateErrorCode>([
 ])
 export function templateError(error: unknown): { kind: TemplateErrorCode; message: string } {
   if (error instanceof TemplateStageError) {
-    const roleCodes = { "session-role-missing":"TEMPLATE_SESSION_ROLE", "rule-role-missing":"TEMPLATE_RULE_ROLE", "playbook-role-missing":"TEMPLATE_PLAYBOOK_ROLE", "skill-role-missing":"TEMPLATE_SKILL_ROLE" } as const
+    const roleCodes = { "name-invalid":"TEMPLATE_NAME", "session-role-missing":"TEMPLATE_SESSION_ROLE", "rule-role-missing":"TEMPLATE_RULE_ROLE", "playbook-role-missing":"TEMPLATE_PLAYBOOK_ROLE", "skill-role-missing":"TEMPLATE_SKILL_ROLE" } as const
     if (error.reasonCode in roleCodes) {
       const kind = roleCodes[error.reasonCode as keyof typeof roleCodes]
       return {kind,message:templateErrorMessages[kind]}

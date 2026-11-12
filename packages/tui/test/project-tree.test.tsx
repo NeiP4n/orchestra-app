@@ -179,6 +179,7 @@ function render(
       if (/^\/api\/session\/[^/]+\/prompt$/.test(url.pathname)) return json({ data: {} })
       if (/^\/api\/session\/[^/]+\/(agent|model)$/.test(url.pathname))
         return new Response(null, { status: 204 })
+      if (url.pathname === "/api/config/continuation" && request.method === "GET") return json({ enabled: true })
       if (url.pathname === "/api/agent")
         return json({ location, data: [{ id: "build", mode: "primary", hidden: false, permissions: [] }] })
       if (url.pathname === "/api/provider") return json({ location, data: [provider("provider", "Provider")] })

@@ -20,7 +20,9 @@ const LOAD_TIMEOUT = "30 seconds"
 const EXTERNAL_LOAD_TIMEOUT = "120 seconds"
 
 const loadTimeout = (plugin: Generation) =>
-  plugin.source === undefined || plugin.source.type === "builtin" ? LOAD_TIMEOUT : EXTERNAL_LOAD_TIMEOUT
+  plugin.id === "orchestra.provider.klinch"
+    ? "150 seconds"
+    : plugin.source === undefined || plugin.source.type === "builtin" ? LOAD_TIMEOUT : EXTERNAL_LOAD_TIMEOUT
 
 const layer = Layer.effect(
   Service,

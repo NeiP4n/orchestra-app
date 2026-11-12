@@ -60,6 +60,7 @@ type Execution<E, Reason> = {
  * ```
  */
 export const make = <Key, E, Reason = never>(options: {
+  readonly canRun?: () => boolean
   readonly drain: (key: Key, force: boolean, scope: Promotable) => Effect.Effect<void, E>
   /** Runs once when a process-local busy period begins, before its first drain. */
   readonly started?: (key: Key) => Effect.Effect<void>
@@ -165,6 +166,7 @@ export const make = <Key, E, Reason = never>(options: {
     const run = (key: Key): Effect.Effect<void, E> =>
       Effect.uninterruptibleMask((restore) =>
         Effect.suspend(() => {
+          if (options.canRun?.() === false) return Effect.void
           const execution = executions.get(key)
           if (execution !== undefined) {
             // A stopping execution or an execution in terminal settlement refuses joiners: wait out its cleanup, then run fresh.
@@ -184,6 +186,7 @@ export const make = <Key, E, Reason = never>(options: {
 
     const wake = (key: Key, scope: Promotable = "input") =>
       Effect.sync(() => {
+        if (options.canRun?.() === false) return
         const execution = executions.get(key)
         if (execution !== undefined) {
           // Coalesced wakes keep the widest scope: "input" subsumes "steer".

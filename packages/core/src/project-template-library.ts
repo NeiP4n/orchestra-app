@@ -1,5 +1,6 @@
 export * as ProjectTemplateLibrary from "./project-template-library.js"
 
+import { TemplateStageError } from "./project-template-errors.js"
 import { unlinkedPath } from "./project-template-path.js"
 
 import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
@@ -15,7 +16,7 @@ export interface Entry {
   digest?: string
 }
 function simple(value: string) {
-  if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw Error("Select a simple lowercase template name.")
+  if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw new TemplateStageError("template-name", new Error("Invalid template library name"), "name-invalid")
   return value
 }
 

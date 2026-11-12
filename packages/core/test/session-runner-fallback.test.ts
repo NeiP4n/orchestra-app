@@ -6,7 +6,9 @@ import {
   HttpContext,
   InvalidRequestError,
   LanguageModel,
+  LLMEvent,
   ProviderInternalError,
+  ProviderCooldown,
   QuotaExceededError,
   RateLimitError,
 } from "@orchestra/ai"
@@ -777,3 +779,124 @@ describe("team agents do not switch models by themselves", () => {
     expect(SessionRunnerLLM.mayFallBack("build", undefined)).toBe(true)
   })
 })
+
+it.live(
+  "reasoning-only stop retries finitely, falls back, and keeps failed reasoning separate",
+  () =>
+    Effect.gen(function* () {
+      yield* seed({ sessionID: mainSession, model: "worker" })
+      const llm = yield* TestLLM.Service
+      const empty = () =>
+        TestLLM.stop(
+          LLMEvent.reasoningStart({ id: "thought" }),
+          LLMEvent.reasoningDelta({ id: "thought", text: "Need to do the task" }),
+          LLMEvent.reasoningEnd({ id: "thought" }),
+        )
+      yield* llm.push(empty(), empty(), TestLLM.text("Recovered", "answer"))
+      const result = yield* drainPrompt(mainSession, "Do the work")
+      expect(Exit.isSuccess(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "worker", "sonnet-5"])
+      const assistants = result.messages.filter((message) => message.type === "assistant")
+      expect(assistants).toHaveLength(3)
+      expect(assistants.slice(0, 2).every((message) => message.error !== undefined)).toBe(true)
+      expect(assistants.at(-1)).toMatchObject({ finish: "stop", content: [{ type: "text", text: "Recovered" }] })
+    }),
+  15000,
+)
+
+it.live(
+  "repeated empty stops exhaust bounded recovery instead of looping or succeeding",
+  () => Effect.gen(function* () {
+    yield* seed({ sessionID: mainSession, model: "worker" })
+    const llm = yield* TestLLM.Service
+    yield* llm.push(TestLLM.stop(), TestLLM.stop(), TestLLM.stop())
+    const result = yield* drainPrompt(mainSession, "Do the work")
+    expect(Exit.isFailure(result.exit)).toBe(true)
+    expect(result.requested).toEqual(["worker", "worker", "sonnet-5"])
+    const assistants = result.messages.filter((message) => message.type === "assistant")
+    expect(assistants).toHaveLength(3)
+    expect(assistants.every((message) => message.error !== undefined)).toBe(true)
+    expect(assistants.some((message) => message.finish === "stop")).toBe(false)
+  }),
+  15000,
+)
+
+it.live(
+  "503 screening outage retries then changes provider instead of ending silently",
+  () =>
+    Effect.gen(function* () {
+      yield* seed({ sessionID: mainSession, model: "worker" })
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("session", "retry", (event) =>
+        Effect.sync(() => {
+          if (event.decision.retry) event.decision = { retry: true, delay: 0 }
+        }),
+      )
+      const llm = yield* TestLLM.Service
+      const unavailable = new AIError({
+        reason: new ProviderInternalError({
+          message: "content safety screening temporarily unavailable",
+          http: new HttpContext({ url: "https://provider.example/v1", status: 503, headers: {} }),
+        }),
+      })
+      yield* llm.push(
+        Stream.fail(unavailable),
+        Stream.fail(unavailable),
+        Stream.fail(unavailable),
+        TestLLM.text("Recovered", "answer"),
+      )
+      const result = yield* drainPrompt(mainSession, "Do the work")
+      expect(Exit.isSuccess(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "worker", "worker", "sonnet-5"])
+      expect(result.messages.at(-1)).toMatchObject({
+        type: "assistant",
+        finish: "stop",
+        content: [{ type: "text", text: "Recovered" }],
+      })
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          ProviderCooldown.clearCooldown("fake")
+          ProviderCooldown.clearCooldown("anymodel")
+        }),
+      ),
+    ),
+  20000,
+)
+
+it.live(
+  "503 screening outage ends with durable failure when the next provider also fails",
+  () =>
+    Effect.gen(function* () {
+      yield* seed({ sessionID: mainSession, model: "worker" })
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("session", "retry", (event) =>
+        Effect.sync(() => {
+          if (event.decision.retry) event.decision = { retry: true, delay: 0 }
+        }),
+      )
+      const llm = yield* TestLLM.Service
+      const unavailable = new AIError({
+        reason: new ProviderInternalError({
+          message: "content safety screening temporarily unavailable",
+          http: new HttpContext({ url: "https://provider.example/v1", status: 503, headers: {} }),
+        }),
+      })
+      yield* llm.push(...Array.from({ length: 4 }, () => Stream.fail(unavailable)))
+      const result = yield* drainPrompt(mainSession, "Do the work")
+      expect(Exit.isFailure(result.exit)).toBe(true)
+      expect(result.requested).toEqual(["worker", "worker", "worker", "sonnet-5"])
+      const assistants = result.messages.filter((message) => message.type === "assistant")
+      expect(assistants.length).toBeGreaterThan(0)
+      expect(assistants.every((message) => message.error !== undefined)).toBe(true)
+      expect(assistants.some((message) => message.finish === "stop")).toBe(false)
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          ProviderCooldown.clearCooldown("fake")
+          ProviderCooldown.clearCooldown("anymodel")
+        }),
+      ),
+    ),
+  20000,
+)

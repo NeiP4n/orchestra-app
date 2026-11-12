@@ -1,5 +1,6 @@
 export * as Rules from "./rules.js"
 
+import { RuleLessons } from "./rule-lessons.js"
 import { RuleEnforce } from "./rule-enforce.js"
 
 import { Cause, Effect, Option, Schema } from "effect"
@@ -490,7 +491,15 @@ export const load = (kv: KV.Interface, scopes: Scopes) =>
           `[${conflict.lower.title}] "${conflict.lower.rule.text}". Society rules override project rules, which override defaults copies; ` +
           `remove or rewrite one of them — the model does not pick a winner.`,
       })
-    const lines = parts.flatMap((part) => part.rules.map((rule) => `- [${part.title}] ${rule.text}`))
+    // Prompt-only byte-exact deduplication. Keep all source titles visible and leave
+    // the full entries, stored scopes, conflict checks and enforcement untouched.
+    const texts = new Map<string, Set<string>>()
+    for (const part of parts) for (const rule of part.rules) {
+      const titles = texts.get(rule.text) ?? new Set<string>()
+      titles.add(part.title)
+      texts.set(rule.text, titles)
+    }
+    const lines = Array.from(texts, ([text, titles]) => `- [${Array.from(titles).join(", ")}] ${text}`)
     const entries = parts
       .flatMap((part) => part.rules.map((rule) => ({ title: part.title, text: rule.text, by: rule.by })))
       .toSorted((a, b) => Number(b.by === "operator") - Number(a.by === "operator"))
@@ -507,8 +516,13 @@ export const block = (kv: KV.Interface, scopes: Scopes) => load(kv, scopes).pipe
 
 
 /** Shared request-time load used by the context hook, including scheduled turns. */
-export const loadCurrent = (kv: KV.Interface, scopes: Scopes, sessionID: string) =>
+export const loadCurrent = (kv: KV.Interface, scopes: Scopes, sessionID: string, lessonsEnabled = true) =>
   Effect.suspend(() => {
     RuleEnforce.loading(sessionID)
-    return load(kv, scopes).pipe(Effect.tap((loaded) => Effect.sync(() => RuleEnforce.remember(sessionID, loaded.entries))))
+    return load(kv, scopes).pipe(Effect.flatMap(loaded => Effect.gen(function* () {
+      RuleEnforce.remember(sessionID, loaded.entries)
+      const lessons = yield* RuleLessons.refresh(kv, scopes.project, sessionID, loaded.entries, lessonsEnabled)
+        .pipe(Effect.catchCause(cause => Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.succeed("")))
+      return { ...loaded, block: [loaded.block, lessons].filter(Boolean).join("\n\n") }
+    })))
   })

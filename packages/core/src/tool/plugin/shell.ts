@@ -6,9 +6,7 @@ import type { Context } from "@orchestra/plugin/effect/plugin"
 import type { SessionHooks } from "@orchestra/plugin/effect/session"
 import type { ShellCreateBefore } from "@orchestra/plugin/effect/shell"
 import type { Tool } from "@orchestra/schema/tool"
-import { rm, writeFile } from "node:fs/promises"
-import os from "node:os"
-import path from "node:path"
+import { ShellSourceFile } from "../../shell/source-file.js"
 import { Deferred, Effect, Option, Schema, Scope } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@orchestra/util/process"
@@ -24,6 +22,7 @@ import { NonNegativeInt } from "../../schema.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
 import { Shell } from "../../shell.js"
+import { ShellInPlacePaths } from "../../shell/in-place-paths.js"
 import { ShellParse } from "../../shell/parse.js"
 import { ShellSelect } from "../../shell/select.js"
 import { ShellResult } from "../../shell/result.js"
@@ -177,6 +176,7 @@ export const Plugin = {
       )
       const caller = yield* sessions.get(context.sessionID)
       yield* Plot.guardShell(plots, { sessionID: context.sessionID, directories: [caller.location.directory, target.absolute, ...directories.map(item => item.absolute)] })
+      yield* plots.guard({ sessionID: context.sessionID, files: ShellInPlacePaths.targets(invocation.command, invocation.shell, target.absolute) })
       yield* access.authorizeExternal([target, ...directories], context)
       if (parsed.commands.length > 0)
         yield* permission.assert({
@@ -399,16 +399,12 @@ const nushellError = (processes: AppProcess.Interface, shell: string, command: s
   Effect.gen(function* () {
     if (ShellSelect.name(shell) !== "nu") return undefined
     // nu reads the source to check from a file; spawned stdin is not one it can open.
-    const file = yield* Effect.acquireRelease(
-      Effect.promise(async () => {
-        const target = path.join(os.tmpdir(), `opencode-nu-check-${crypto.randomUUID()}.nu`)
-        await writeFile(target, command)
-        return target
-      }),
-      (target) => Effect.promise(() => rm(target, { force: true })),
+    const source = yield* Effect.acquireRelease(
+      Effect.promise(() => ShellSourceFile.create(command)),
+      (source) => Effect.promise(() => source.dispose()),
     )
     const result = yield* processes.run(
-      ChildProcess.make(shell, ["--no-config-file", "--ide-check", "5", file], { extendEnv: true, stdin: "ignore" }),
+      ChildProcess.make(shell, ["--no-config-file", "--ide-check", "5", source.file], { extendEnv: true, stdin: "ignore" }),
       { timeout: "5 seconds" },
     )
     return result.stdout

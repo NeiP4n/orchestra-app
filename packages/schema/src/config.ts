@@ -236,4 +236,8 @@ const Updated = ephemeral({
   schema: {},
 })
 
-export const Event = { Updated, Definitions: inventory(Updated) }
+export const ContinuationUpdated = ephemeral({
+  type: "config.continuation.updated",
+  schema: { enabled: Schema.Boolean },
+})
+export const Event = { Updated, ContinuationUpdated, Definitions: inventory(Updated, ContinuationUpdated) }

@@ -1,5 +1,6 @@
 import { browserChat, removeBrowserChat } from "../util/browser-chat-lifecycle"
 import { ensureImportedBrowsers, type ImportedBrowsers } from "../util/project-template-browsers"
+import { BrowserRuntime } from "@orchestra/core/browser/runtime"
 import { BrowserLifecycle } from "@orchestra/core/browser/lifecycle"
 import {
   isNoteConflictError,
@@ -73,6 +74,26 @@ export const { use: useNotes, provider: NotesProvider } = createSimpleContext({
     createEffect(() => {
       try { BrowserLifecycle.publish(Object.values(browser.retiredChats ?? {}).flat(), Object.values(browser.projects ?? {}).flatMap((items) => items.flatMap((item) => item.chat ? [item.chat] : []))) }
       catch (error) { console.error("Browser lifecycle projection failed", error) }
+    })
+    // This projection belongs to the owning store, not a SessionFrame that can unmount
+    // during chat deletion. A loaded empty roster is authoritative, even just after boot.
+    createEffect(() => {
+      if (!projects.loaded()) return
+      try {
+        const list = projects.list()
+        for (const project of list) {
+          const selected = browser.selected?.[project.id]
+          BrowserRuntime.publishSelection(project.directory, selected)
+        }
+        BrowserRuntime.publishSessions(list.flatMap(project =>
+          (browser.projects?.[project.id] ?? []).map(item => ({
+            id: item.id, name: item.name, project: project.directory, projectID: project.id,
+            ...(item.group ? { group: item.group } : {}),
+            ...(item.chat ? { chat: item.chat } : {}),
+          }))), { authoritative: true })
+      } catch (error) {
+        console.error("Browser session projection could not be published", error)
+      }
     })
     const importedProjects = new Set<string>()
     const hydrateImportedProjects = () => {

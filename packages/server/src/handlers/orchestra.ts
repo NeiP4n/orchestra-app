@@ -1,3 +1,4 @@
+import { ProjectDebug } from "@orchestra/core/session/project-debug"
 import { Agent } from "@orchestra/core/agent"
 import { ProjectTemplateRuntimeRoles } from "@orchestra/core/project-template-runtime-roles"
 import { Skill } from "@orchestra/core/skill"
@@ -120,7 +121,23 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         bootstrap: (directory, name) => Effect.runPromise(ProjectFilesBootstrap.initialize(directory, name, kv).pipe(Effect.provideService(Database.Service, database))),
       }),
     })
+    const debugProject = (projectID: string, value?: boolean) => Effect.gen(function* () {
+      const project = (yield* orchestra.projects()).find(project => project.id === projectID)
+      if (!project) return yield* new InvalidRequestError({ message: "Project not found", field: "projectID" })
+      return yield* Effect.tryPromise({ try: async () => {
+        if (value !== undefined) {
+          await ProjectDebug.setEnabled(project.directory, value)
+          if (value) await ProjectDebug.record(project.directory, { timestamp: Date.now(), sessionID: project.main ?? "project", role: "system", eventType: "project.debug.started", data: { message: "Recording enabled by operator" } })
+        }
+        return ProjectDebug.status(project.directory)
+      }, catch: () => new InvalidRequestError({ message: "Project debug recording failed. Check backend path permissions.", field: "debug" }) })
+    })
     return handlers
+      .handle("orchestra.projectDebug.get", ctx => debugProject(ctx.params.projectID))
+      .handle("orchestra.projectDebug.set", ctx => debugProject(ctx.params.projectID, ctx.payload.enabled))
+      .handle("orchestra.projectTemplate.exportFile",ctx=>templateOperation("exportFile",()=>operator.exportFile(ctx.payload.templateID,ctx.payload.projectID)))
+      .handle("orchestra.projectTemplate.prepareImport",ctx=>templateOperation("prepareImport",()=>operator.prepareImport(ctx.payload.path)))
+      .handle("orchestra.projectTemplate.confirmImport",ctx=>templateOperation("confirmImport",()=>operator.confirmImport(ctx.payload.token)))
       .handle("orchestra.projectTemplate.list",()=>templateOperation("list",()=>operator.list()))
       .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation("prepareSave",()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
       .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation("confirmSave",()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks,ctx.payload.omitInvalidBrowserBindings,ctx.payload.acceptUnresolvedRoles)).pipe(Effect.as(HttpApiSchema.NoContent.make())))

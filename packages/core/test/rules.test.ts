@@ -374,3 +374,70 @@ describe("scheduled request rule lifecycle", () => {
     expect(gate).toBeLessThan(directives)
   }))
 })
+
+
+it.live("request-time lessons stay bounded feedback, toggle immediately, and never replace current enforcement", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service
+    const project = "prj_lessons_flow"
+    const scope = Rules.projectScope(project)
+    const scopes = { project, societies: [] }
+    const id = "ses_lessons_flow"
+    const added = yield* Rules.add(kv, scope, { text: "deny tool unsafe-example", by: "operator" })
+    expect(added.rule).toBeDefined()
+    const first = yield* Rules.loadCurrent(kv, scopes, id)
+    expect(first.block).not.toContain("# Rule lessons")
+    for (let i = 0; i < 2; i++) {
+      expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toContain("Rule check")
+      const loaded = yield* Rules.loadCurrent(kv, scopes, id)
+      expect(loaded.block.includes("# Rule lessons")).toBe(i === 1)
+      expect(loaded.entries).toEqual(first.entries)
+    }
+    expect((yield* Rules.loadCurrent(kv, scopes, id, false)).block).not.toContain("# Rule lessons")
+    expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toContain("Rule check")
+    expect((yield* Rules.loadCurrent(kv, scopes, id)).block).toContain("# Rule lessons")
+    yield* Rules.remove(kv, scope, added.rule!.id, { operator: true })
+    const removed = yield* Rules.loadCurrent(kv, scopes, id)
+    expect(removed.block).not.toContain("unsafe-example")
+    expect(removed.block).not.toContain("# Rule lessons")
+    expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toBeUndefined()
+  }),
+)
+
+
+it.live("lesson storage failure does not remove loaded rules or open the permission gate", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service
+    const scopes = { project: "prj_lessons_unavailable", societies: [] }
+    const id = "ses_lessons_unavailable"
+    yield* Rules.add(kv, Rules.projectScope(scopes.project), { text: "deny tool unsafe-example", by: "operator" })
+    const broken = { ...kv, get: (key: string) => key.startsWith("rule-lessons/") ? Effect.die("lesson storage offline") : kv.get(key) }
+    const loaded = yield* Rules.loadCurrent(broken, scopes, id)
+    expect(loaded.block).toContain("deny tool unsafe-example")
+    expect(loaded.block).not.toContain("# Rule lessons")
+    expect(RuleEnforce.resourceRefusal(id, { action: "unsafe-example", agent: "team-developer", resources: [] })).toContain("Rule check")
+  }),
+)
+
+
+it.live("deduplicates only byte-identical prompt texts while retaining every enforcement entry and stored scope", () =>
+  Effect.gen(function* () {
+    const kv = yield* KV.Service
+    const text = "Never edit generated fixtures without an operator instruction."
+    const scopes = [Rules.societyScope("Dedup"), Rules.projectScope("prj_dedup"), Rules.roleScope("prj_dedup", "team-developer"), Rules.sessionScope("ses_dedup"), Rules.projectDefaultsScope("prj_dedup")]
+    for (const scope of scopes) yield* Rules.add(kv, scope, { text, by: scope === scopes[0] ? "operator" : "team-developer" })
+    const similar = "Never edit generated fixtures without an Operator instruction."
+    yield* Rules.add(kv, Rules.orchestratorScope("prj_dedup"), { text: similar, by: "operator" })
+    const loaded = yield* Rules.loadCurrent(kv, { societies: ["Dedup"], project: "prj_dedup", orchestrator: true, role: "team-developer", session: "ses_dedup" }, "ses_dedup")
+    expect(loaded.block.split(text).length - 1).toBe(1)
+    expect(loaded.block).toContain("[Society, Project, Role, Session, Defaults copy]")
+    expect(loaded.block).toContain(similar)
+    expect(loaded.entries.filter(entry => entry.text === text)).toHaveLength(5)
+    expect(RuleEnforce.recall("ses_dedup")).toEqual(loaded.entries)
+    expect(loaded.entries[0]?.by).toBe("operator")
+    for (const scope of scopes) expect((yield* Rules.listStrict(kv, scope)).some(rule => rule.text === text)).toBe(true)
+    const former = ["Society", "Project", "Role", "Session", "Defaults copy"].map(title => `- [${title}] ${text}`).join("\n")
+    const now = loaded.block.split("\n").find(line => line.includes(text))!
+    expect(now.length).toBeLessThan(former.length)
+  }),
+)

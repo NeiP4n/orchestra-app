@@ -1,0 +1,151 @@
+name: continuation-regression
+
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/session/**'
+      - 'packages/core/src/autoloop/**'
+      - 'packages/core/src/orchestra.ts'
+      - 'packages/core/src/job.ts'
+      - 'packages/core/test/session*'
+      - 'packages/core/test/autoloop/**'
+      - 'packages/core/test/job.test.ts'
+      - 'packages/server/src/handlers/config.ts'
+      - 'packages/server/test/continuation.test.ts'
+      - 'packages/tui/src/component/continuation-switch.tsx'
+      - 'packages/tui/test/continuation-switch.test.tsx'
+      - 'packages/app/src/shell/continuation-switch.tsx'
+      - 'packages/app/test-browser/continuation-switch.test.tsx'
+      - 'packages/app/e2e/regression/continuation-switch.spec.ts'
+      - 'packages/client/src/solid/continuation.ts'
+      - '.github/workflows/continuation-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  continuation:
+    name: operator pause (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Core pause, resume, crash, shell and timer regression
+        working-directory: packages/core
+        run: bun test test/session-execution.test.ts test/session-run-coordinator.test.ts test/session-worker-activation.test.ts test/job.test.ts test/autoloop/service.test.ts
+      - name: Real HTTP state and restart persistence
+        run: bun test packages/server/test/continuation.test.ts
+      - name: Mounted TUI and stale response handling
+        working-directory: packages/tui
+        run: bun test test/continuation-switch.test.tsx
+      - name: Shared web controller failure and stale response handling
+        working-directory: packages/app
+        run: bun test --conditions=browser --preload ./happydom.ts ./test-browser/continuation-switch.test.tsx
+      - name: Setup browser runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.15"
+      - name: Install focused browser
+        working-directory: packages/app
+        run: bun x playwright install --with-deps chromium
+      - name: Connected desktop and mobile shell pause flow
+        working-directory: packages/app
+        run: bun run test:e2e:built e2e/regression/continuation-switch.spec.ts
+        env:
+          CI: true
+          PLAYWRIGHT_WORKERS: "1"
+      - name: Preserve focused shell evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: continuation-${{ matrix.os }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report
+
+  continuation_linux:
+    name: operator pause (ubuntu-latest)
+    runs-on: ubuntu-latest
+    # Official Playwright 1.59.1 noble amd64 image, matching bun.lock.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:eac9b0a5312cdab40ee8c2429df5bf19bffdccf8f3bf3c42268e173f97541645
+      options: --ipc=host
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Setup locked Bun without a ZIP extractor
+        run: |
+          version=$(node -p "require('./package.json').packageManager.split('@')[1]")
+          npm install --global "@oven/bun-linux-x64-baseline@$version"
+          ln -s "$(npm root -g)/@oven/bun-linux-x64-baseline/bin/bun" /usr/local/bin/bun
+          ln -s /usr/local/bin/bun /usr/local/bin/bunx
+          bun --version
+          bun install --frozen-lockfile
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Core pause, resume, crash, shell and timer regression
+        working-directory: packages/core
+        run: bun test test/session-execution.test.ts test/session-run-coordinator.test.ts test/session-worker-activation.test.ts test/job.test.ts test/autoloop/service.test.ts
+      - name: Real HTTP state and restart persistence
+        run: bun test packages/server/test/continuation.test.ts
+      - name: Mounted TUI and stale response handling
+        working-directory: packages/tui
+        run: bun test test/continuation-switch.test.tsx
+      - name: Shared web controller failure and stale response handling
+        working-directory: packages/app
+        run: bun test --conditions=browser --preload ./happydom.ts ./test-browser/continuation-switch.test.tsx
+      - name: Setup browser runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.15"
+      - name: Install focused browser
+        working-directory: packages/app
+        run: |
+          test "$(node -p "require('./node_modules/@playwright/test/package.json').version")" = "1.59.1"
+          # The pinned official image includes the matching browsers and all
+          # OS dependencies. Assert the binary exists before the same E2E.
+          node -e "const fs = require('node:fs'); const p = require('@playwright/test'); if (!fs.existsSync(p.chromium.executablePath())) throw Error('Pinned browser missing')"
+          bun x playwright install chromium
+      - name: Connected desktop and mobile shell pause flow
+        working-directory: packages/app
+        run: bun run test:e2e:built e2e/regression/continuation-switch.spec.ts
+        env:
+          CI: true
+          PLAYWRIGHT_WORKERS: "1"
+      - name: Preserve focused shell evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: continuation-ubuntu-latest
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            packages/app/e2e/test-results
+            packages/app/e2e/playwright-report

@@ -12,6 +12,7 @@ import { LayerNode } from "@orchestra/util/effect/layer-node"
 import { FSUtil } from "@orchestra/util/fs-util"
 import { Global } from "@orchestra/util/global"
 import { Bus } from "../src/bus.js"
+import { KV } from "../src/kv.js"
 import { Database } from "../src/database/database.js"
 import { EventTable } from "../src/event/sql.js"
 import { Image } from "../src/image.js"
@@ -49,6 +50,7 @@ const it = testEffect(
       SessionProjector.node,
       SessionStore.node,
       SessionInbox.node,
+      KV.node,
       FSUtil.node,
     ]),
     {

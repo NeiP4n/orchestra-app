@@ -48,6 +48,7 @@ import { useT } from "../util/i18n"
 import { stringWidth } from "../util/string-width"
 import { NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { SculkResonanceMonitor } from "./sculk-effects"
+import { openPath } from "@orchestra/util/open"
 import { SculkSprite } from "./sculk-sprite-view"
 
 const graphWidth = 23
@@ -82,6 +83,46 @@ export function DevToolsBar() {
   const [dumping, setDumping] = createSignal(false)
   const [dumpPath, setDumpPath] = createSignal<string>()
   const [dumpError, setDumpError] = createSignal<string>()
+  const debugProject = createMemo(() => {
+    if (!client.isLocal || route.data.type !== "session") return undefined
+    const owner = projects.owner(route.data.sessionID)
+    return projects.list().find((project) => project.id === owner)
+  })
+  const debugDirectory = () => debugProject()?.directory
+  // The backend owns both the switch and the file. A fresh TUI must not claim REC
+  // against a still-running older service that has no recorder.
+  const [recordingStatus, { refetch: refreshRecording, mutate: setRecordingStatus }] = createResource(debugProject, async project => {
+    try { return { ...await client.api.orchestra.projectDebug.get({ projectID: project.id }), available: true } }
+    catch { return { enabled: false, path: "", bytes: 0, lastWrite: undefined, error: "Backend recording is unavailable", available: false } }
+  })
+  const recording = () => recordingStatus.latest?.enabled === true
+  const recordingError = () => Boolean(recordingStatus.latest?.error)
+  const recordingLabel = () => t(recordingError() ? "REC error" : recording() ? "REC debug" : "Debug OFF")
+  const [recordingBusy, setRecordingBusy] = createSignal(false)
+  const toggleRecording = async () => {
+    const project = debugProject()
+    if (!project || recordingBusy()) return
+    setRecordingBusy(true)
+    try { setRecordingStatus({ ...await client.api.orchestra.projectDebug.set({ projectID: project.id, enabled: !recording() }), available: true }); await refreshRecording() }
+    catch (error) { toast.error(error); void Promise.resolve(refreshRecording()).catch(() => {}) }
+    finally { setRecordingBusy(false) }
+  }
+  const recordingTimer = setInterval(() => { if (recording()) void Promise.resolve(refreshRecording()).catch(() => {}) }, 3000)
+  onCleanup(() => clearInterval(recordingTimer))
+  const recordingControls = () => (<Show when={debugDirectory()}>
+              <Show when={recordingError()}><text fg={theme.text.feedback.error.base} wrapMode="word">{t("Recording unavailable. Restart or update the backend; check project permissions.")}</text></Show>
+              <Action onClick={() => void toggleRecording()} disabled={recordingBusy() || recordingStatus.latest?.available === false} hoverBackground>
+                {t(recording() ? "Project recording: ON" : "Project recording: OFF")}
+              </Action>
+              <text fg={theme.text.muted} wrapMode="word">{t("Local messages and commands, secrets redacted. Review before sharing.")}</text>
+              <Show when={recordingStatus.latest?.path}>{file => <>
+                <text fg={theme.text.base} wrapMode="word">{file()}</text>
+                <text fg={theme.text.muted}>{recordingStatus.latest?.lastWrite ? `${t("Last write")}: ${new Date(recordingStatus.latest!.lastWrite!).toLocaleTimeString()} · ${recordingStatus.latest?.bytes} B` : t("No events recorded yet")}</text>
+                <Action onClick={() => void copy("Debug log path", file())} hoverBackground>{t("Copy debug log path")}</Action>
+                <Action onClick={() => void openPath(path.dirname(file())).catch(toast.error)} hoverBackground>{t("Open debug log folder")}</Action>
+              </>}</Show>
+            </Show>)
+  const openRecording = () => dialog.replace(() => <box paddingLeft={1} paddingRight={1} paddingBottom={1}><PanelTitle>{t("Tools")}</PanelTitle>{recordingControls()}</box>)
   const [frontendSamples, setFrontendSamples] = createSignal<readonly ProcessSample[]>([])
   const [debugOverlay, setDebugOverlay] = createSignal(renderer.debugOverlay.enabled)
   let focus: Renderable | null
@@ -330,6 +371,7 @@ export function DevToolsBar() {
     // Dividers, language switch and the first-project button keep their full width.
     const fixed =
       4 +
+      (debugDirectory() ? stringWidth(recordingLabel()) + 2 : 0) +
       stringWidth(`${t("Language")} EN`) +
       2 +
       (projects.loaded() && projects.list().length === 0 ? stringWidth(t("+ Project")) + 2 : 0)
@@ -491,6 +533,8 @@ export function DevToolsBar() {
       <Divider />
 
       {/* Zone 3: Environment, Controls & System Telemetry */}
+      <Show when={debugDirectory()}><BarItem active={recording() === true} onClick={openRecording}><text fg={recording() ? theme.text.action.primary.focused : theme.text.muted}>{recordingLabel()}</text></BarItem></Show>
+
       <BarItem
         active={false}
         onClick={() =>
@@ -529,6 +573,8 @@ export function DevToolsBar() {
         <Show when={panel() === "tools"}>
           <PanelBox align="right">
             <PanelTitle>{t("Tools")}</PanelTitle>
+            {recordingControls()}
+
             <Action onClick={() => void dump()} disabled={dumping()} hoverBackground>
               {dumping() ? t("Writing debug snapshot…") : t("Write debug snapshot")}
             </Action>

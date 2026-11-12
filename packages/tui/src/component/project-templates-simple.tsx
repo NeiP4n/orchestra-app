@@ -6,7 +6,7 @@ import { templateErrorKey } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
-import { TextAttributes } from "@opentui/core"
+import { type InputRenderable, TextAttributes } from "@opentui/core"
 import { selectionBackground } from "../ui/hover"
 
 const linkReason: Record<ProjectTemplateLinkReview.Reason, string> = {
@@ -22,12 +22,18 @@ const triggerReason: Record<ProjectTemplateTriggerReview.Item["reason"], string>
 export interface ProjectTemplatesKeys {
   move: (delta: number) => void
   activate: () => void
+  input: () => InputRenderable | undefined
 }
 
 /** Adapter must prepare/revalidate in the background. No authority comes from display or a digest.
  * Only confirmSave/confirmCreate may mutate, and only for the prepared operation they receive.
  * Labels, automatic new folder/name choice and partial-failure recovery belong to the adapter. */
 export interface ProjectTemplatesAccess {
+  copyPath?: (path: string) => Promise<void>
+  openFolder?: (path: string) => Promise<void>
+  exportFile?: (templateID: string) => Promise<{ path: string; warning: string }>
+  prepareImport?: (path: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[] }>
+  confirmImport?: (token: string) => Promise<unknown>
   list: () => Promise<readonly { id: string; name: string }[]>
   prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean, acceptUnresolvedRoles?: boolean) => Promise<void>
@@ -57,11 +63,14 @@ export function ProjectTemplatesSimple(props: {
   const [cursor, setCursor] = createSignal("save")
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
+  let pathInput: InputRenderable | undefined
+  const [importPath, setImportPath] = createSignal("")
+  const [exportPath, setExportPath] = createSignal("")
   const [message, setMessage] = createSignal("")
   const [reason, setReason] = createSignal<string>()
   const [refreshFailed, setRefreshFailed] = createSignal(false)
   const [prepared, setPrepared] = createSignal<{
-    kind: "save" | "create"
+    kind: "save" | "create" | "import"
     updating?: boolean
     token: string
     name: string
@@ -114,6 +123,7 @@ export function ProjectTemplatesSimple(props: {
           else if (current.browserBindings?.length) await props.access.confirmSave(current.token, !!current.omittedLinks?.length, true)
           else await props.access.confirmSave(current.token, !!current.omittedLinks?.length)
         }
+        else if(current.kind === "import") await props.access.confirmImport!(current.token)
         else await props.access.confirmCreate(current.token)
       } catch (error) {
         setReason(templateErrorKey(error))
@@ -131,7 +141,7 @@ export function ProjectTemplatesSimple(props: {
       setMessage(
         current.kind === "save"
           ? current.updating ? "Template updated. No duplicate was created." : "Project saved as a template. Chats, data and secrets were not saved."
-          : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
+          : current.kind === "import" ? "Template imported to the library. Nothing was started. Choose Create to make a new project." : "Project created. Fill the empty Vault and sign in to browsers. Schedules are paused.",
       )
     })
   const collisions = () => {
@@ -142,7 +152,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : [])])]
+    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -152,7 +162,23 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (id.startsWith("replace-") && collisions().some((row) => row.id === id.slice(8))) void prepare("save", id.slice(8))
+    if (id === "import-path") pathInput?.focus()
+    else if (id === "copy-path" && exportPath() && props.access.copyPath) void run(async () => {
+      await props.access.copyPath?.(exportPath())
+      setMessage("Path copied.")
+    })
+    else if (id === "open-folder" && exportPath() && props.access.openFolder) void run(async () => {
+      await props.access.openFolder?.(exportPath())
+    })
+    else if (!prepared() && id === "import") void run(async()=>{
+      const result = await props.access.prepareImport!(importPath())
+      setPrepared({kind:"import",...result});setCursor("confirm");setDetails(false)
+    })
+    else if (!prepared() && id.startsWith("export-")) void run(async()=>{
+      const result = await props.access.exportFile!(id.slice(7))
+      setExportPath(result.path);setMessage("Template exported to the project folder. Do not commit this file to git. Review before sharing.")
+    })
+    else if (id.startsWith("replace-") && collisions().some((row) => row.id === id.slice(8))) void prepare("save", id.slice(8))
     else if (id === "confirm") void confirm()
     else if (id === "cancel") cancel()
     else if (id === "details") setDetails(!details())
@@ -168,11 +194,16 @@ export function ProjectTemplatesSimple(props: {
       const index = Math.max(0, ids.indexOf(focused() ?? ""))
       setCursor(ids[Math.max(0, Math.min(ids.length - 1, index + delta))])
     },
-    activate: () => activate(),
+    activate: () => focused() === "import-path" ? activate("import") : activate(),
+    input: () => focused() === "import-path" && !prepared() ? pathInput : undefined,
   })
   createEffect(() => {
     const id = focused()
-    if (id) props.scrollIntoView?.(`project-templates.${id}`)
+    if (!id) return
+    if (id === "import-path") pathInput?.focus()
+    else pathInput?.blur()
+    props.scrollIntoView?.(`project-templates.${id}`)
+
   })
   const Action = (action: { id: string; label: string; disabled?: boolean }) => (
     <HoverAction
@@ -193,43 +224,41 @@ export function ProjectTemplatesSimple(props: {
   )
   return (
     <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
-      <box flexDirection="column">
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")}</text>
-        <text fg={theme.text.muted} wrapMode="word">
-          {tr("Project process: roles, skills, rules and settings. No chats, data or secrets.")}
-        </text>
+      <box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")} · {templates().length}</text>
+        <Action id="save" label={tr("Save template")} disabled={!props.canSave || !!prepared()} />
       </box>
-      <box flexDirection="column">
-        <Action id="save" label={tr("Save project as template")} disabled={!props.canSave || !!prepared()} />
-        <Show when={!props.canSave}>
-          <text fg={theme.text.muted} paddingLeft={3}>{tr("Open a project to save a template.")}</text>
-        </Show>
-      </box>
-      <box flexDirection="column" gap={1}>
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Saved templates · {count}", { count: templates().length })}</text>
-        <Show when={templates().length === 0}>
-          <box flexDirection="column">
-            <Action id="create-empty" label={tr("Create project from template")} disabled />
-            <text fg={theme.text.muted} paddingLeft={3} wrapMode="word">{tr("No templates yet. Save a project above.")}</text>
+      <Show when={props.access.prepareImport && !prepared()}>
+        <box flexDirection="row" gap={1} alignItems="center">
+          <box flexGrow={1} minWidth={10} onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+            <input id="project-templates.import-path" ref={(value: InputRenderable) => { pathInput = value }} focused={focused() === "import-path"} value={importPath()} placeholder={tr("Template file (.orchestra-template)")} onInput={setImportPath} textColor={theme.text.base} focusedTextColor={theme.text.base} cursorColor={theme.text.base} />
           </box>
-        </Show>
-        <For each={templates()}>
-          {(template) => (
-            <box flexDirection="column">
-              <text fg={theme.text.base} paddingLeft={3} wrapMode="word">{template.name}</text>
-              <Action id={`create-${template.id}`} label={tr("Create project from template")} disabled={!!prepared()} />
+          <Action id="import" label={tr("Import")} disabled={!importPath().trim()} />
+        </box>
+      </Show>
+      <Show when={!prepared()}>
+        <box flexDirection="column">
+          <Show when={templates().length === 0}>
+            <text fg={theme.text.muted} wrapMode="word">{tr("No templates yet. Save a project above.")}</text>
+          </Show>
+          <For each={templates()}>{template => (
+            <box flexDirection="row" flexWrap="wrap" gap={1}>
+              <Action id={`create-${template.id}`} label={template.name + " · " + tr("Create")} />
+              <Show when={props.canSave && props.access.exportFile}>
+                <Action id={`export-${template.id}`} label={tr("Export")} />
+              </Show>
               <Show when={props.canSave}>
-                <Action id={`update-${template.id}`} label={tr("Update template from current project")} disabled={!!prepared()} />
+                <Action id={`update-${template.id}`} label={tr("Update")} />
               </Show>
             </box>
-          )}
-        </For>
-      </box>
+          )}</For>
+        </box>
+      </Show>
       <Show when={prepared()}>
         {(current) => (
           <box flexDirection="column" gap={1} paddingTop={1}>
             <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
-              {current().kind === "save" ? tr(current().updating ? "Update" : "Save") : tr("Create")} «{current().name}»?{" "}
+              {current().kind === "save" ? tr(current().updating ? "Update" : "Save") : tr(current().kind === "import" ? "Import" : "Create")} «{current().name}»?{" "}
               {current().kind === "save"
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
@@ -239,7 +268,7 @@ export function ProjectTemplatesSimple(props: {
               <For each={collisions()}>{(row) => <Action id={"replace-" + row.id} label={tr("Update existing template") + (collisions().length > 1 ? " · " + row.id : "")} />}</For>
             </Show>
             <box flexDirection="row" gap={1} flexWrap="wrap">
-              <Action id="confirm" label={current().kind === "save" ? (current().unresolvedRoles?.length ? tr("Save incomplete template") : current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr("Create")} />
+              <Action id="confirm" label={current().kind === "save" ? (current().unresolvedRoles?.length ? tr("Save incomplete template") : current().omittedLinks?.length ? tr("Save without blocked links") : tr(current().updating ? "Update" : collisions().length ? "Save separate copy" : "Save")) : tr(current().kind === "import" ? "Import" : "Create")} />
               <Action id="cancel" label={tr("Cancel")} />
               <Action id="details" label={details() ? tr("Hide details") : tr("Details")} />
             </box>
@@ -275,13 +304,22 @@ export function ProjectTemplatesSimple(props: {
           </box>
         )}
       </Show>
+      <Show when={exportPath()}>
+        <box flexDirection="column">
+          <text fg={theme.text.base} wrapMode="word">{tr("File: {path}", {path:exportPath()})}</text>
+          <text fg={theme.text.muted} wrapMode="word">{tr("Send this file to your friend. They choose Import from file.")}</text>
+          <Action id="copy-path" label={tr("Copy path")} disabled={!props.access.copyPath} />
+          <Action id="open-folder" label={tr("Open folder")} disabled={!props.access.openFolder} />
+          <Show when={!props.access.openFolder}><text fg={theme.text.muted} wrapMode="word">{tr("Folder is on the server. Open it on that computer.")}</text></Show>
+        </box>
+      </Show>
       <Show when={busy()}>
         <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
       <Show when={message()}>
         <text fg={theme.text.base} wrapMode="word">{tr(message())}{reason() ? " " + tr(reason()!) : ""}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
       </Show>
-      <text fg={theme.text.muted}>{tr("↑↓ select · Enter action")}</text>
+      <text fg={theme.text.muted} wrapMode="word">{tr(props.access.prepareImport ? "↑↓ select · Enter action · Paste path to import" : "↑↓ select · Enter action")}</text>
     </box>
   )
 }

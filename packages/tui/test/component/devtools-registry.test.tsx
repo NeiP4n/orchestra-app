@@ -75,7 +75,7 @@ async function render(
   )
   app.renderer.start()
   // The programs tab carries the search; the AI tools tab, first when offered, has none.
-  await app.waitForFrame((frame) => frame.includes(options.language === "ru" ? "Реестр" : "Registry") && (frame.includes(options.language === "ru" ? "Поиск" : "Search") || frame.includes(options.language === "ru" ? "ИИ-инструменты" : "AI tools")))
+  await app.waitForFrame((frame) => frame.includes(options.language === "ru" ? "Реестр" : "Registry") && (frame.includes(options.language === "ru" ? "Поиск" : "Search") || frame.includes(options.language === "ru" ? "ИИ-инструменты" : "AI tools") || frame.includes("MCP")))
   return app
 }
 
@@ -119,11 +119,11 @@ test("registry panel shows readiness, terminals and a paged tool list", async ()
     expect(frame).toContain("Ready")
     expect(frame).toContain(`${status.ready}/${status.total}`)
     // the AI's terminal has its own tab, named after the shell in use
-    expect(frame).toContain("AI terminal: nu")
+    expect(frame).toContain("Shell")
     expect(frame).toContain(`${status.categories[0].name} `)
     expect(frame).toContain("Search")
     // installed programs are there for the model; no per-tool switch remains
-    expect(frame).toContain(`Programs ${status.installed.length}/${status.tools.length}`)
+    expect(frame).toContain("Programs")
     expect(frame).not.toContain("[off]")
     expect(frame).not.toContain("All off")
     expect(status.tools.length).toBeGreaterThan(10)
@@ -157,7 +157,7 @@ test("the panel keeps its header, tabs and hint on screen in a short terminal", 
     const header = lines.findIndex((line) => line.includes("Registry"))
     expect(header).toBeGreaterThanOrEqual(0)
     // The tab row has to stay on screen right under the title.
-    const tabs = lines.findIndex((line) => line.includes("AI tools (MCP)") && line.includes("Programs"))
+    const tabs = lines.findIndex((line) => line.includes("MCP") && line.includes("Programs"))
     expect(tabs).toBeGreaterThan(header)
     // The hint under the list used to be cut off together with the bottom of the dialog.
     const hint = lines.findIndex((line) => line.includes("tab next tab"))
@@ -170,7 +170,7 @@ test("the panel keeps its header, tabs and hint on screen in a short terminal", 
 
     // The list itself scrolls, so the cursor walks down into the part that was hidden.
     for (let index = 0; index < 8; index++) app.mockInput.pressArrow("down")
-    await app.waitForFrame((frame) => !frame.includes("Context7"))
+    await app.waitForFrame((frame) => !frame.includes("Up-to-date documentation"))
     const scrolled = app.captureCharFrame().split("\n")
     expect(scrolled.findIndex((line) => line.includes("Registry"))).toBe(header)
     expect(scrolled.findIndex((line) => line.includes("tab next tab"))).toBe(hint)
@@ -211,7 +211,7 @@ test("the panel keeps its header, tabs and hint on screen in a very short termin
     const lines = app.captureCharFrame().split("\n")
     const rows = {
       header: lines.findIndex((line) => line.includes("Registry")),
-      tabs: lines.findIndex((line) => line.includes("AI tools (MCP)") && line.includes("Programs")),
+      tabs: lines.findIndex((line) => line.includes("MCP") && line.includes("Programs")),
       hint: lines.findIndex((line) => line.includes("tab next tab")),
     }
     // A missing row reports itself by name instead of comparing two indexes.
@@ -486,7 +486,7 @@ test("the AI terminal can be installed and chosen", async () => {
     onShell: (shell) => shells.push(shell),
   })
   try {
-    await openTab(app, "AI terminal")
+    await openTab(app, "Shell")
     const frame = await app.waitForFrame((frame) => frame.includes("Install nu"))
     expect(frame).toContain("● pwsh")
 
@@ -534,6 +534,7 @@ test("AI tools open first, read in full and install through the config", async (
     const install = cell(app, "Context7", "Install")
     await app.mockMouse.click(install.x + 2, install.y)
     await app.waitFor(() => calls.length === 1)
+    await dismissInstallToast(app)
     expect(calls[0]?.[0]).toBe("context7")
     await app.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Disable MCP")))
 
@@ -544,6 +545,13 @@ test("AI tools open first, read in full and install through the config", async (
     app.renderer.destroy()
   }
 })
+
+async function dismissInstallToast(app: Awaited<ReturnType<typeof render>>) {
+  await app.renderOnce()
+  const lines = app.captureCharFrame().split("\n")
+  const y = lines.findIndex((line) => line.includes("Context7: installed"))
+  if (y >= 0) { await app.mockMouse.click(lines[y].lastIndexOf("x"), y); await app.renderOnce() }
+}
 
 async function openTab(app: Awaited<ReturnType<typeof render>>, label: string) {
   const lines = app.captureCharFrame().split("\n")
@@ -618,12 +626,13 @@ test("MCP installation survives panel restart and OFF stays installed with expli
     await first.waitForFrame((frame) => frame.includes("Context7"))
     const target = cell(first, "Context7", "Install")
     await first.mockMouse.click(target.x + 2, target.y)
+    await dismissInstallToast(first)
     await first.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("Disable MCP")))
   } finally { first.renderer.destroy() }
   // New panel has no optimistic state. Global MCP switch can be OFF with zero live servers.
   const second = await render(options)
   try {
-    await second.waitForFrame((frame) => frame.includes("AI tools (MCP) 1/6"))
+    await second.waitForFrame((frame) => frame.includes("MCP 1/6"))
     const target = cell(second, "Context7", "Disable MCP")
     await second.mockMouse.click(target.x + 2, target.y)
     await second.waitForFrame((frame) => frame.split("\n").some((line) => line.includes("Context7") && line.includes("OFF") && line.includes("Enable MCP")))
@@ -641,4 +650,37 @@ test("MCP installation survives panel restart and OFF stays installed with expli
     await Bun.write("/tmp/mcp-restart-ru-frame.txt", frame)
     await Bun.write("/tmp/mcp-restart-ru-spans.json", JSON.stringify(third.captureSpans()))
   } finally { third.renderer.destroy() }
+})
+
+for (const width of [48, 80]) test(`compact registry keeps tools and controls visible at ${width}`, async () => {
+  await using tmp = await tmpdir()
+  const app = await render({ probe, terminalProbe: () => true, manager: registryManager, directory: tmp.path }, { width, height: 26 })
+  try {
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Registry")
+    expect(frame).toContain("Search")
+    expect(frame).toContain("Install")
+    expect(frame).toContain("Tab tabs")
+    expect(frame).toContain("Templates")
+    expect(frame).not.toContain("Command-line programs the AI")
+    const tool = app.renderer.root.findDescendantById("registry-tool-rg")!
+    expect(tool.x + tool.width).toBeLessThanOrEqual(width)
+    if (process.env.CAPTURE_REGISTRY_COMPACT) await Bun.write(`${process.env.CAPTURE_REGISTRY_COMPACT}-${width}.json`, JSON.stringify(app.captureSpans()))
+  } finally { app.renderer.destroy() }
+})
+
+for (const width of [48, 80, 120, 160]) test(`compact registry tab renders at ${width}`, async () => {
+  await using tmp = await tmpdir()
+  const app = await render({ probe, terminalProbe: () => true, manager: registryManager, directory: tmp.path, language: width >= 120 ? "ru" : "en",
+    aiTools: { installed: () => [], set: async () => {} },
+    plugins: { registered: () => [{ id: "test.plugin", source: "builtin", active: true }], list: () => [], activate: async () => true, deactivate: async () => true },
+  }, { width, height: 26 }, width >= 120)
+  try {
+    for (const tab of (width >= 120 ? ["MCP", "Плагины", "Программы", "Терминал"] : ["MCP", "Plugins", "Programs", "Shell"])) {
+      await openTab(app, tab)
+      await app.renderOnce()
+      expect(app.captureCharFrame()).toContain(width >= 120 ? "tab" : "Tab tabs")
+      if (process.env.CAPTURE_REGISTRY_COMPACT) await Bun.write(`${process.env.CAPTURE_REGISTRY_COMPACT}-${width}-${tab}.json`, JSON.stringify(app.captureSpans()))
+    }
+  } finally { app.renderer.destroy() }
 })

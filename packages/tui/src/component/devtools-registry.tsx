@@ -58,6 +58,7 @@ export function RegistryPanel(props: {
   const t = useT()
   const toast = useToast()
   const dimensions = useTerminalDimensions()
+  const compact = () => dimensions().width < 90
   const options = props.options ?? {}
   const install = options.install ?? Hub.HubActions.installTool
   const remove = options.remove ?? Hub.HubActions.removeTool
@@ -83,8 +84,9 @@ export function RegistryPanel(props: {
   // AI tools, programs and the AI's terminal are separate jobs, so each gets its own tab.
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
-  const [pluginCount, setPluginCount] = createSignal<string>()
+  const [, setPluginCount] = createSignal<string>()
   const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault", "templates"] : ["plugins", "programs", "terminal", "vault", "templates"])
+  const tabGroups = () => [tabs().slice(0, 3), tabs().slice(3)]
   const cycle = (delta: number) => {
     setArmed()
     const list = tabs()
@@ -269,6 +271,12 @@ export function RegistryPanel(props: {
     ],
   }))
 
+  Keymap.createLayer(() => ({
+    mode: "modal",
+    enabled: () => tab() === "templates" && templateKeys?.input() !== undefined,
+    target: () => templateKeys?.input(),
+  }))
+
   const counts = createMemo(() => ({
     programs: `${status().installed.length}/${status().tools.length}`,
     terminal: aiTerminal() ?? "—",
@@ -276,10 +284,10 @@ export function RegistryPanel(props: {
 
   return (
     <box
-      paddingLeft={2}
-      paddingRight={2}
-      paddingBottom={1}
-      gap={1}
+      paddingLeft={1}
+      paddingRight={1}
+      paddingBottom={0}
+      gap={dimensions().height < 16 ? 1 : 0}
       // Three rows of the terminal stay outside the panel: the centered dialog
       // puts one row of paddingTop above the content (src/ui/dialog.tsx:84), and
       // the header row and the tab row have to stay visible. The bound follows
@@ -296,20 +304,16 @@ export function RegistryPanel(props: {
         </text>
       </box>
 
-      <box flexDirection="row" gap={1} flexWrap="wrap">
-        <For each={tabs()}>
+      <box flexDirection="column" flexShrink={0}>
+        <For each={tabGroups()}>{(group) => <box flexDirection="row" gap={1} height={1}>
+        <For each={group}>
           {(item) => (
             <Button variant={tab() === item ? "primary" : "secondary"} onClick={() => setTab(item)}>
-              {item === "ai"
-                ? `${t("AI tools (MCP)")}${aiCount() ? ` ${aiCount()}` : ""}`
-                : item === "plugins"
-                  ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
-                  : item === "programs"
-                    ? `${t("Programs")} ${counts().programs}`
-                    : item === "vault" ? "Vault" : item === "templates" ? t("Templates") : `${t("AI terminal")}: ${counts().terminal}`}
+              {`${t(item === "ai" ? "MCP tools" : item === "plugins" ? "Plugins" : item === "programs" ? "Programs" : item === "terminal" ? "Shell" : item === "vault" ? "Vault" : "Templates")}${item === "ai" && aiCount() ? ` ${aiCount()}` : ""}`}
             </Button>
           )}
         </For>
+        </box>}</For>
       </box>
 
       <scrollbox
@@ -326,6 +330,7 @@ export function RegistryPanel(props: {
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
               <AiTools
+                compact={true}
                 tools={props.aiTools!}
                 active={tab() === "ai"}
                 pending={busy()}
@@ -345,6 +350,7 @@ export function RegistryPanel(props: {
             <Show when={props.plugins} fallback={<text fg={theme.text.muted}>{t("Plugin management is unavailable.")}</text>}>
               {(access) => (
                 <PluginTools
+                  compact={true}
                   plugins={access()}
                   onCount={setPluginCount}
                   keys={(keys) => (pluginKeys = keys)}
@@ -356,7 +362,7 @@ export function RegistryPanel(props: {
 
           <Match when={tab() === "terminal"}>
             <text fg={theme.text.muted} wrapMode="word">
-              {t("The shell the AI runs its commands and hub commands in.")}
+              {t(compact() ? "Shell for AI and hub commands." : "The shell the AI runs its commands and hub commands in.")}
             </text>
             <box flexDirection="row" gap={1} flexWrap="wrap">
               <For each={status().terminals}>
@@ -389,34 +395,34 @@ export function RegistryPanel(props: {
             <Show when={aiTerminal() === "nu"}>
               <text fg={theme.text.muted} wrapMode="word">
                 {t(
-                  "The AI's shell commands and hub commands run in nu. Nushell has no grammar the permission check understands, so each nu command is approved as a whole; each command shows the shell that ran it.",
+                  compact() ? "Nu commands need approval as a whole; each result names its shell." : "The AI's shell commands and hub commands run in nu. Nushell has no grammar the permission check understands, so each nu command is approved as a whole; each command shows the shell that ran it.",
                 )}
               </text>
             </Show>
           </Match>
 
           <Match when={tab() === "programs"}>
-            <text fg={theme.text.muted} wrapMode="word">
-              {t("Command-line programs the AI runs through the hub tool. Installed ones are available to every session; Teams → role → Programs narrows them per role.")}
-            </text>
-            <box flexDirection="row" gap={3}>
+            <Show when={!compact()}>
+              <text fg={theme.text.muted} wrapMode="word">
+                {t("Command-line programs the AI runs through the hub tool. Installed ones are available to every session; Teams → role → Programs narrows them per role.")}
+              </text>
+            </Show>
+            <box flexDirection="row" gap={1} flexWrap="wrap">
               <Stat label={t("Ready")} value={`${status().ready}/${status().total}`} />
-              <Stat label={t("Installed")} value={counts().programs} />
+              <Show when={dimensions().width >= 64}><Stat label={t("Installed")} value={counts().programs} /></Show>
               <box flexGrow={1} />
               <Button
                 variant="primary"
                 disabled={busy() !== undefined || missing().length === 0}
                 onClick={() => void onInstallMissing()}
               >
-                {t("Install missing ({count})", { count: missing().length })}
+                {t(compact() ? "Install {count}" : "Install missing ({count})", { count: missing().length })}
               </Button>
             </box>
 
-            <text fg={theme.text.muted} wrapMode="word">
-              {status()
-                .categories.map((entry) => `${entry.name} ${entry.ready}/${entry.total}`)
-                .join("  ")}
-            </text>
+            <Show when={!compact()}><text fg={theme.text.muted} wrapMode="word">
+              {status().categories.map((entry) => `${entry.name} ${entry.ready}/${entry.total}`).join("  ")}
+            </text></Show>
 
             <box flexDirection="row" gap={1}>
               <text fg={theme.text.muted} flexShrink={0}>
@@ -436,7 +442,7 @@ export function RegistryPanel(props: {
                 cursorColor={theme.text.formfield.focused}
                 cursorStyle={config.cursor}
                 focusedTextColor={theme.text.formfield.focused}
-                placeholder={t("tool, category or task: yaml, ports, docker logs")}
+                placeholder={t(compact() ? "Search tools" : "tool, category or task: yaml, ports, docker logs")}
                 placeholderColor={theme.text.muted}
                 ref={(input: InputRenderable) => {
                   setTimeout(() => {
@@ -456,6 +462,7 @@ export function RegistryPanel(props: {
                   <ToolRow
                     id={`registry-tool-${row.tool}`}
                     tool={row}
+                    compact={compact()}
                     active={index() === cursor()}
                     pending={busy() !== undefined}
                     working={busy() === row.tool}
@@ -478,10 +485,10 @@ export function RegistryPanel(props: {
       </scrollbox>
 
       <Show when={stale()}>
-        <text fg={theme.text.feedback.warning.base} wrapMode="word">
+        <text flexShrink={0} fg={theme.text.feedback.warning.base} wrapMode="word">
           {t("The package databases are outdated, so installs fail. Update the system, then install again.")}
         </text>
-        <box flexDirection="row">
+        <box flexDirection="row" height={1} flexShrink={0}>
           <Button
             variant="primary"
             disabled={busy() !== undefined}
@@ -493,13 +500,13 @@ export function RegistryPanel(props: {
       </Show>
       <Show when={message()}>
         {(text) => (
-          <text fg={theme.text.muted} wrapMode="word">
+          <text flexShrink={0} fg={theme.text.muted} wrapMode="word">
             {text()}
           </text>
         )}
       </Show>
       <text fg={theme.text.muted}>
-        {tab() === "templates" ? t("tab next tab · ↑↓ select · enter action · esc close") : tab() === "programs"
+        {compact() ? t("Tab tabs · ↑↓ select · Enter · Esc") : tab() === "templates" ? t("tab next tab · ↑↓ select · enter action · esc close") : tab() === "programs"
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
           : tab() === "plugins"
             ? t("tab next tab · ↑↓ select · enter enable/disable · esc close")
@@ -572,6 +579,7 @@ export type AiToolsAccess = {
 // global config. Runtime readiness and operator OFF remain separate from installation. Each row takes two
 // lines so the description is read in full instead of being cut in the middle.
 function PluginTools(props: {
+  compact?: boolean
   plugins: RegistryPluginsAccess
   onCount: (count: string) => void
   keys: (keys: PluginToolsKeys) => void
@@ -665,9 +673,9 @@ function PluginTools(props: {
   )
 
   return (
-    <box gap={1}>
+    <box gap={props.compact ? 0 : 1}>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("Plugin toggles are saved to config. Built-ins disabled at startup stay unloaded; restart to release modules already loaded.")}
+        {t(props.compact ? "Saved in config. Restart to unload disabled plugins." : "Plugin toggles are saved to config. Built-ins disabled at startup stay unloaded; restart to release modules already loaded.")}
       </text>
       <box flexDirection="row" gap={1}>
         <text fg={theme.text.muted} flexShrink={0}>{t("Search")}</text>
@@ -682,7 +690,7 @@ function PluginTools(props: {
           }}
           focusedBackgroundColor={theme.background.formfield.focused}
           cursorColor={theme.text.formfield.focused}
-          placeholder={t("plugin name or built-in / external")}
+          placeholder={t(props.compact ? "Plugin name" : "plugin name or built-in / external")}
           placeholderColor={theme.text.muted}
           ref={(input: InputRenderable) => {
             setTimeout(() => {
@@ -740,6 +748,7 @@ function PluginTools(props: {
 }
 
 function AiTools(props: {
+  compact?: boolean
   tools: AiToolsAccess
   active: boolean
   // The panel's own package-manager action, when it is installing a runtime such as uv.
@@ -752,6 +761,7 @@ function AiTools(props: {
   // Brings the row under the cursor into the visible part of the scrolling list.
   scrollIntoView?: (id: string) => void
 }) {
+  const dimensions = useTerminalDimensions()
   const theme = useTheme().surface("dialog")
   const t = useT()
   const toast = useToast()
@@ -814,9 +824,9 @@ function AiTools(props: {
   return (
     <box gap={0}>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("MCP servers that give the AI new abilities. Installed ones reach every session, which is told how to use them; Teams → role → Tools narrows them per role.")}
+        {t(props.compact ? "MCP for all chats; role access: Teams → Tools." : "MCP servers that give the AI new abilities. Installed ones reach every session, which is told how to use them; Teams → role → Tools narrows them per role.")}
       </text>
-      <box height={1} />
+      <Show when={!props.compact}><box height={1} /></Show>
       <For each={entries}>
         {(entry, index) => (
           <box
@@ -836,13 +846,17 @@ function AiTools(props: {
                 fg={index() === cursor() ? theme.text.formfield.focused : theme.text.base}
                 attributes={TextAttributes.BOLD}
                 flexShrink={0}
+                width={props.compact ? Math.max(9, Math.min(32, dimensions().width - 60)) : undefined}
+                minWidth={0}
+                truncate
+                wrapMode="none"
               >
                 {entry.name}
               </text>
               <Show when={entry.runtime}>
                 {(runtime) => <text fg={theme.text.muted} flexShrink={0}>{runtime()}</text>}
               </Show>
-              <Show when={entry.requires}>
+              <Show when={entry.requires && !props.compact ? entry.requires : undefined}>
                 {(keys) => (
                   <text fg={theme.text.feedback.warning.base} flexShrink={0}>
                     {t("needs {keys}", { keys: keys().join(", ") })}
@@ -877,9 +891,10 @@ function AiTools(props: {
                 </Match>
               </Switch>
             </box>
-            <text fg={theme.text.muted} wrapMode="word">
+            <Show when={props.compact && entry.requires ? entry.requires : undefined}>{(keys) => <text fg={theme.text.feedback.warning.base} wrapMode="word">{t("needs {keys}", { keys: keys().join(", ") })}</text>}</Show>
+            <Show when={!props.compact || index() === cursor()}><text fg={theme.text.muted} wrapMode="word">
               {t(entry.description)}
-            </text>
+            </text></Show>
           </box>
         )}
       </For>
@@ -899,6 +914,7 @@ function Stat(props: { label: string; value: string }) {
 
 function ToolRow(props: {
   tool: RegistryTool
+  compact: boolean
   active: boolean
   pending: boolean
   working: boolean
@@ -946,9 +962,9 @@ function ToolRow(props: {
           {props.tool.tool}
         </text>
       </box>
-      <box width={11}>
+      <Show when={!props.compact}><box width={11}>
         <text fg={theme.text.muted}>{t(props.tool.entries === 1 ? "{count} entry" : "{count} entries", { count: props.tool.entries })}</text>
-      </box>
+      </box></Show>
       <text fg={props.tool.installed ? theme.text.feedback.success.base : theme.text.feedback.warning.base}>
         {props.tool.installed ? t("installed") : t("missing")}
       </text>

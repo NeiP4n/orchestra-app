@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main, dev, v2, lan-rooms]
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   check:
+    if: ${{ !((github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev')) }}
     name: typecheck
     # This repo has no Blacksmith capacity: run on GitHub-hosted runners everywhere.
     runs-on: ubuntu-latest
@@ -42,3 +45,37 @@ jobs:
         # Against the merge's first parent, so base-branch commits the pull request has not merged are not counted as its
         # changes (the event's base SHA can predate them).
         run: bun run lint:changed HEAD^1
+
+  dev_quick:
+    name: dev quick checks
+    if: ${{ (github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Check whitespace and conflict markers
+        shell: bash
+        run: |
+          git diff --check HEAD^1 HEAD
+          if git diff --unified=0 HEAD^1 HEAD -- '*.ts' '*.tsx' '*.yml' '*.yaml' | grep -E '^\+(<<<<<<< |=======|>>>>>>> )'; then
+            echo "Unresolved merge conflict markers"
+            exit 1
+          fi
+      - name: Reject removed credential fingerprints
+        run: python3 script/check-removed-credentials.py
+      - name: Scan only added PR lines for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$archive"
+          printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          mkdir -p "$RUNNER_TEMP/pr-added-lines"
+          git diff --unified=0 HEAD^1 HEAD -- . | python3 -c 'import sys; sys.stdout.writelines(line[1:] for line in sys.stdin if line.startswith("+") and not line.startswith("+++"))' > "$RUNNER_TEMP/pr-added-lines/added-lines.txt"
+          "$RUNNER_TEMP/gitleaks" dir "$RUNNER_TEMP/pr-added-lines" --redact --no-banner

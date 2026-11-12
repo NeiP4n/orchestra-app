@@ -1,0 +1,29 @@
+name: editor-file-safety-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/tui/src/editor*.ts'
+      - 'packages/tui/test/editor*.test.ts'
+      - '.github/workflows/editor-file-safety-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: private editor files (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Real external-editor failure, hostile hardlink and private-file cleanup
+        run: bun test packages/tui/test/editor.test.ts packages/tui/test/editor-file.test.ts

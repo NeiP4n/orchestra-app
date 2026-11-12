@@ -1,0 +1,39 @@
+name: worker-terminal-report-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/orchestra.ts'
+      - 'packages/core/test/orchestra-team.test.ts'
+      - 'packages/core/test/team-report-answer.test.ts'
+      - '.github/workflows/worker-terminal-report-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Terminal report recovery (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Actual task dispatch, durable terminal recovery and main wake
+        run: bun test packages/core/test/orchestra-team.test.ts --test-name-pattern 'terminal BrowserAgent without|durable terminal|recovers a completed worker|claim went stale|provisional recovery|task.*queued|unrelated.*terminal'
+      - name: Tool-only final report extraction
+        run: bun test packages/core/test/team-report-answer.test.ts

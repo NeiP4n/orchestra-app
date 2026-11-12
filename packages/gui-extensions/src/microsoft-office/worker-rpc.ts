@@ -146,6 +146,9 @@ export function serveWorker<M extends Methods>(handlers: {
     signal: AbortSignal,
   ) => M[K]["output"] | Transfer<M[K]["output"]> | Promise<M[K]["output"] | Transfer<M[K]["output"]>>
 }) {
+  // The wire method name can select only explicitly registered own methods,
+  // never Object.prototype functions inherited by an ordinary object literal.
+  const methods = new Map(Object.entries(handlers))
   const queue: Request[] = []
 
   const state: ServerState = { running: false, current: undefined }
@@ -166,7 +169,7 @@ export function serveWorker<M extends Methods>(handlers: {
 
       if (!request) break
 
-      const handler = handlers[request.method]
+      const handler = methods.get(request.method)
       const controller = new AbortController()
 
       state.current = { id: request.id, controller }
@@ -243,6 +246,6 @@ export function serveWorker<M extends Methods>(handlers: {
 /** Frees the bitmaps among objects that were moved for a reply nobody takes. */
 function closeBitmaps(transfer: readonly Transferable[]) {
   transfer.forEach((item) => {
-    if (item instanceof ImageBitmap) item.close()
+    if (typeof ImageBitmap !== "undefined" && item instanceof ImageBitmap) item.close()
   })
 }

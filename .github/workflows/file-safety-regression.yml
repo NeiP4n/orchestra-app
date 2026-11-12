@@ -1,0 +1,33 @@
+name: file-safety-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/shell/source-file.ts'
+      - 'packages/core/src/tool/plugin/shell.ts'
+      - 'packages/core/src/project-files/metrics.ts'
+      - 'packages/core/test/shell-source-file.test.ts'
+      - 'packages/core/test/project-metrics.test.ts'
+      - 'packages/core/test/tool/desktop-isolation.test.ts'
+      - '.github/workflows/file-safety-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: private files (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Private parser input, linked metrics and desktop isolation
+        run: bun test packages/core/test/shell-source-file.test.ts packages/core/test/project-metrics.test.ts packages/core/test/tool/desktop-isolation.test.ts

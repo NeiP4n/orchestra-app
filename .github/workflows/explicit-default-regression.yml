@@ -1,0 +1,33 @@
+name: explicit-default-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/model.ts'
+      - 'packages/core/src/model-resolver.ts'
+      - 'packages/core/test/model-plugins.test.ts'
+      - '.github/workflows/explicit-default-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Explicit default fails closed (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Actual provider inventory, explicit default and resolver error propagation
+        working-directory: packages/core
+        run: bun test test/model-plugins.test.ts test/model-resolver.test.ts test/session-runner-model.test.ts test/generate.test.ts
+      - name: Actual HTTP default endpoint refusal
+        run: bun test packages/server/test/model.test.ts

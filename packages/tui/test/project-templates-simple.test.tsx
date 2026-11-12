@@ -1,5 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
+import { Keymap } from "../src/context/keymap"
 import { testRender } from "@opentui/solid"
 import { ProjectTemplatesSimple, type ProjectTemplatesAccess } from "../src/component/project-templates-simple"
 import { ConfigProvider } from "../src/config"
@@ -213,4 +214,74 @@ for(const width of [80,120]) test(`unavailable role save uses one visible warnin
   await app.waitForFrame(f=>f.includes("Проект сохранён как шаблон"))
   expect(calls).toEqual([["missing-role",false,false,true]])
  }finally{app.renderer.destroy()}
+})
+
+test("file export shows exact project-root path and git warning",async()=>{
+ const calls:string[]=[]
+ const access:ProjectTemplatesAccess={list:async()=>[{id:"demo",name:"Test2"}],prepareSave:async()=>{throw Error("not save")},confirmSave:async()=>{},prepareCreate:async()=>{throw Error("not create")},confirmCreate:async()=>{},
+  copyPath:async file=>{calls.push("copy:"+file)},openFolder:async file=>{calls.push("open:"+file)},
+  exportFile:async id=>{calls.push(id);return{path:"C:/Projects/Test2/Test2.orchestra-template",warning:"Do not commit to git"}},
+ }
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple access={access} canSave /></ThemeProvider></ConfigProvider></TestTuiContexts>,{width:100,height:30})
+ app.renderer.start()
+ try{
+  await app.waitForFrame(f=>f.includes("Экспорт"))
+  const box=app.renderer.root.findDescendantById("project-templates.export-demo")!
+  await app.mockMouse.click(box.x+1,box.y)
+  await app.waitForFrame(f=>f.includes("C:/Projects/Test2/Test2.orchestra-template"))
+  expect(app.captureCharFrame().replace(/\s+/g," ")).toContain("Не добавляйте этот файл в git")
+  expect(app.captureCharFrame()).toContain("Отправьте этот файл другу")
+  for(const action of ["copy-path","open-folder"]){
+    const node=app.renderer.root.findDescendantById("project-templates."+action)!
+    await app.mockMouse.click(node.x+1,node.y)
+    await app.renderOnce()
+  }
+  expect(calls).toEqual(["demo","copy:C:/Projects/Test2/Test2.orchestra-template","open:C:/Projects/Test2/Test2.orchestra-template"])
+  if(process.env.CAPTURE_TRANSFER)await Bun.write("/tmp/template-transfer.spans.json",JSON.stringify(app.captureSpans()))
+ }finally{app.renderer.destroy()}
+})
+
+test("import path receives keyboard focus and terminal paste, and clicking restores focus", async () => {
+  let keys: import("../src/component/project-templates-simple").ProjectTemplatesKeys | undefined
+  const imported: string[] = []
+  function Navigation() {
+    Keymap.createLayer(() => ({ mode: "base", commands: [
+      { bind: "down", title: "Next", run: () => keys?.move(1) },
+      { bind: "up", title: "Previous", run: () => keys?.move(-1) },
+      { bind: "return", title: "Import", run: () => keys?.activate() },
+    ] }))
+    Keymap.createLayer(() => ({ mode: "base", enabled: () => keys?.input() !== undefined, target: () => keys?.input() }))
+    return null
+  }
+  const app = await testRender(() => (
+    <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({ language: "ru" })}><ThemeProvider mode="dark" source={emptyThemeSource}><Keymap.Provider><Navigation />
+      <ProjectTemplatesSimple canSave={true} keys={value => { keys = value }} access={{
+        list: async () => [], prepareSave: async () => { throw Error("not used") }, confirmSave: async () => {}, prepareCreate: async () => { throw Error("not used") }, confirmCreate: async () => {},
+        prepareImport: async file => { imported.push(file); return { token: "review", name: "Импорт", details: "reviewed" } },
+      }} />
+    </Keymap.Provider></ThemeProvider></ConfigProvider></TestTuiContexts>
+  ), { width: 100, height: 24 })
+  app.renderer.start()
+  try {
+    await app.waitForFrame(frame => frame.includes("Путь к файлу"))
+    app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    expect(app.renderer.currentFocusedEditor?.id).toBe("project-templates.import-path")
+    await app.mockInput.pasteBracketedText('  "C:\\My Folder\\friend.orchestra-template"  ')
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("friend.orchestra-template")
+    await Bun.write("/tmp/template-input-focused-spans.json", JSON.stringify(app.captureSpans()))
+    app.mockInput.pressArrow("down")
+    await app.renderOnce()
+    expect(app.renderer.currentFocusedEditor?.id).not.toBe("project-templates.import-path")
+    const input = app.renderer.root.findDescendantById("project-templates.import-path")!
+    await app.mockMouse.click(input.x + 1, input.y)
+    await app.renderOnce()
+    expect(app.renderer.currentFocusedEditor?.id).toBe("project-templates.import-path")
+    app.mockInput.pressEnter()
+    await app.waitFor(() => imported.length === 1)
+    expect(imported[0]).toBe('  "C:\\My Folder\\friend.orchestra-template"  ')
+    await app.waitForFrame(frame => frame.includes("Импорт"))
+    await Bun.write("/tmp/template-input-spans.json", JSON.stringify(app.captureSpans()))
+  } finally { app.renderer.destroy() }
 })

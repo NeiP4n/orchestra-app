@@ -1,6 +1,7 @@
 export * as RuleEnforce from "./rule-enforce.js"
 
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
+import { RuleLessons } from "./rule-lessons.js"
 import { homedir } from "node:os"
 import { join, posix } from "node:path"
 
@@ -193,6 +194,7 @@ export function resourceRefusal(sessionID: string, call: { action: string; agent
   const unavailable = unavailableRefusal(sessionID, call.action, call.metadata)
   if (unavailable) return unavailable
   const broken = permissionViolation(recall(sessionID), call)
+  if (broken) RuleLessons.record(sessionID, broken)
   return broken ? refusal(broken) : undefined
 }
 
@@ -210,6 +212,10 @@ export interface Logged {
 }
 
 export const log = (item: Logged) => {
+  if (item.rule && item.outcome !== "passed" && item.by !== "built-in") {
+    const entry = recall(item.session).find(entry => entry.text === item.rule && entry.by === item.by)
+    if (entry) RuleLessons.record(item.session, entry)
+  }
   try {
     appendFileSync(LOG(), JSON.stringify({ ts: new Date().toISOString(), ...item, what: item.what.slice(0, 300) }) + "\n")
   } catch {}

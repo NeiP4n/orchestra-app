@@ -1,7 +1,7 @@
 import { Model } from "@orchestra/schema/model"
 import { Provider } from "./provider.js"
 import type { DeepMutable } from "./schema.js"
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Schema, Stream } from "effect"
 import { makeLocationNode } from "@orchestra/util/effect/app-node"
 import { Bus } from "./bus.js"
 import { State } from "./state.js"
@@ -49,11 +49,20 @@ export interface Editor {
   readonly provider: { readonly list: () => readonly Provider.Definition[]; readonly get: (providerID: Provider.ID) => Provider.Definition | undefined }
 }
 
+export class ConfiguredDefaultUnavailableError extends Schema.TaggedError<ConfiguredDefaultUnavailableError>()(
+  "Model.ConfiguredDefaultUnavailableError",
+  { providerID: Provider.ID, modelID: ID },
+) {
+  override get message() {
+    return `Configured default model unavailable: ${this.providerID}/${this.modelID}. Check the provider connection and model discovery, or explicitly select another model. No other provider was selected.`
+  }
+}
+
 export interface Interface extends State.Transformable<Editor> {
   readonly get: (providerID: Provider.ID, modelID: ID) => Effect.Effect<Info | undefined>
   readonly all: () => Effect.Effect<readonly Info[]>
   readonly available: () => Effect.Effect<readonly Info[]>
-  readonly default: () => Effect.Effect<Info | undefined>
+  readonly default: () => Effect.Effect<Info | undefined, ConfiguredDefaultUnavailableError>
   readonly small: (providerID: Provider.ID) => Effect.Effect<Info | undefined>
 }
 export class Service extends Context.Service<Service, Interface>()("@orchestra/Model") {}
@@ -201,9 +210,9 @@ const layer = Layer.effect(
         const requested = value.data.defaultModel
         if (requested) {
           const selected = value.byProvider.get(requested.providerID)?.get(requested.modelID)
-          // A configured model may be gone (a removed provider, a disabled one): fall through to
-          // the catalog instead of leaving the runtime without any model at all.
           if (selected) return selected
+          // An explicit default is intent, not a hint to route to another provider.
+          return yield* new ConfiguredDefaultUnavailableError(requested)
         }
         // `available` is ordered newest release first, so this is the newest model that can answer text.
         // Console/Go remain available when selected explicitly, never as an implicit product default.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs"
 import { spawn } from "node:child_process"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -96,8 +96,7 @@ const fakeDisplaySocket = (display: string): string => {
   const dir = "/tmp/.X11-unix"
   mkdirSync(dir, { recursive: true })
   const socket = path.join(dir, `X${display.slice(1)}`)
-  if (existsSync(socket)) throw new Error(`test display ${display} is already in use (socket ${socket} exists)`)
-  writeFileSync(socket, "")
+  writeFileSync(socket, "", { flag: "wx", mode: 0o600 })
   return socket
 }
 

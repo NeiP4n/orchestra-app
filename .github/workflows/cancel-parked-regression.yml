@@ -1,0 +1,32 @@
+name: cancel-parked-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - "packages/core/src/session/inbox.ts"
+      - "packages/core/test/session-execution.test.ts"
+      - ".github/workflows/cancel-parked-regression.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Cancel parked admission (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Cancel last input, preserve work and restart contracts
+        working-directory: packages/core
+        run: |
+          bun test test/session-execution.test.ts
+          bun test test/session-prompt.test.ts

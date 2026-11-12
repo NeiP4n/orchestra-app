@@ -1,0 +1,41 @@
+name: project-boundary-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/shell/in-place-paths.ts'
+      - 'packages/core/src/tool/plugin/shell.ts'
+      - 'packages/core/test/tool-shell.test.ts'
+      - '.github/workflows/project-boundary-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Project literal-write boundary (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Configure fixture identity
+        run: |
+          git config --global user.email "orchestra-bot@users.noreply.github.com"
+          git config --global user.name "orchestra-bot"
+      - name: Target extraction and existing isolation gates
+        run: bun test packages/core/test/shell-in-place-paths.test.ts packages/core/test/plot-shell.test.ts packages/core/test/workspace-project-isolation.test.ts
+      - name: Actual shell refuses before in-place sibling write
+        run: bun test packages/core/test/tool-shell.test.ts --test-name-pattern 'sibling project file|foreign live plot'
+      - name: Existing group scope and set_group permission
+        run: bun test packages/core/test/tool-federation.test.ts --test-name-pattern 'two societies'

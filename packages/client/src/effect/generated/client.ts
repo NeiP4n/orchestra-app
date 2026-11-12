@@ -285,6 +285,9 @@ import type {
   WebsearchProvidersOutput,
   WebsearchQueryInput,
   WebsearchQueryOutput,
+  ConfigContinuationGetOutput,
+  ConfigContinuationSetInput,
+  ConfigContinuationSetOutput,
   ConfigGetInput,
   ConfigGetOutput,
   ConfigShellsOutput,
@@ -395,6 +398,16 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectDebugGetInput,
+  OrchestraProjectDebugGetOutput,
+  OrchestraProjectDebugSetInput,
+  OrchestraProjectDebugSetOutput,
+  OrchestraProjectTemplateExportFileInput,
+  OrchestraProjectTemplateExportFileOutput,
+  OrchestraProjectTemplatePrepareImportInput,
+  OrchestraProjectTemplatePrepareImportOutput,
+  OrchestraProjectTemplateConfirmImportInput,
+  OrchestraProjectTemplateConfirmImportOutput,
   OrchestraProjectTemplateListOutput,
   OrchestraProjectTemplatePrepareSaveInput,
   OrchestraProjectTemplatePrepareSaveOutput,
@@ -1088,6 +1101,7 @@ const EndpointProviderDiscover = (raw: RawClient["server.provider"]) => (input: 
     raw["provider.discover"]({
       payload: {
         baseURL: input["baseURL"],
+        timeoutMs: input["timeoutMs"],
         apiKey: input["apiKey"],
         headers: input["headers"],
         providerID: input["providerID"],
@@ -1901,6 +1915,16 @@ const adaptGroupWebsearch = (raw: RawClient["server.websearch"]) => ({
   query: EndpointWebsearchQuery(raw),
 })
 
+const EndpointConfigContinuationGet = (raw: RawClient["server.config"]) => () =>
+  preserveEffect<ConfigContinuationGetOutput>()(
+    raw["config.continuation.get"]({}).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointConfigContinuationSet = (raw: RawClient["server.config"]) => (input: ConfigContinuationSetInput) =>
+  preserveEffect<ConfigContinuationSetOutput>()(
+    raw["config.continuation.set"]({ payload: { enabled: input["enabled"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const EndpointConfigGet = (raw: RawClient["server.config"]) => (input?: ConfigGetInput) =>
   preserveEffect<ConfigGetOutput>()(
     raw["config.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
@@ -1955,6 +1979,7 @@ const EndpointConfigCompatibilityUpdate =
     )
 
 const adaptGroupConfig = (raw: RawClient["server.config"]) => ({
+  continuation: { get: EndpointConfigContinuationGet(raw), set: EndpointConfigContinuationSet(raw) },
   get: EndpointConfigGet(raw),
   shells: EndpointConfigShells(raw),
   update: EndpointConfigUpdate(raw),
@@ -2448,6 +2473,47 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   },
 })
 
+const EndpointOrchestraProjectDebugGet =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectDebugGetInput) =>
+    preserveEffect<OrchestraProjectDebugGetOutput>()(
+      raw["orchestra.projectDebug.get"]({ params: { projectID: input["projectID"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointOrchestraProjectDebugSet =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectDebugSetInput) =>
+    preserveEffect<OrchestraProjectDebugSetOutput>()(
+      raw["orchestra.projectDebug.set"]({
+        params: { projectID: input["projectID"] },
+        payload: { enabled: input["enabled"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointOrchestraProjectTemplateExportFile =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateExportFileInput) =>
+    preserveEffect<OrchestraProjectTemplateExportFileOutput>()(
+      raw["orchestra.projectTemplate.exportFile"]({
+        payload: { templateID: input["templateID"], projectID: input["projectID"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointOrchestraProjectTemplatePrepareImport =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplatePrepareImportInput) =>
+    preserveEffect<OrchestraProjectTemplatePrepareImportOutput>()(
+      raw["orchestra.projectTemplate.prepareImport"]({ payload: { path: input["path"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointOrchestraProjectTemplateConfirmImport =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateConfirmImportInput) =>
+    preserveEffect<OrchestraProjectTemplateConfirmImportOutput>()(
+      raw["orchestra.projectTemplate.confirmImport"]({ payload: { token: input["token"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
 const EndpointOrchestraProjectTemplateList = (raw: RawClient["server.orchestra"]) => () =>
   preserveEffect<OrchestraProjectTemplateListOutput>()(
     raw["orchestra.projectTemplate.list"]({}).pipe(Effect.mapError(mapClientError)),
@@ -2753,7 +2819,11 @@ const EndpointOrchestraLinkList = (raw: RawClient["server.orchestra"]) => (input
   )
 
 const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
+  projectDebug: { get: EndpointOrchestraProjectDebugGet(raw), set: EndpointOrchestraProjectDebugSet(raw) },
   projectTemplate: {
+    exportFile: EndpointOrchestraProjectTemplateExportFile(raw),
+    prepareImport: EndpointOrchestraProjectTemplatePrepareImport(raw),
+    confirmImport: EndpointOrchestraProjectTemplateConfirmImport(raw),
     list: EndpointOrchestraProjectTemplateList(raw),
     prepareSave: EndpointOrchestraProjectTemplatePrepareSave(raw),
     confirmSave: EndpointOrchestraProjectTemplateConfirmSave(raw),

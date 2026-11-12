@@ -1,0 +1,29 @@
+name: project-journal-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - 'packages/core/src/project-files/format.ts'
+      - 'packages/core/test/project-journal-safety.test.ts'
+      - '.github/workflows/project-journal-regression.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: journal safety (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Hostile hardlink, normal rotation and project data persistence
+        run: bun test packages/core/test/project-journal-safety.test.ts packages/core/test/project-files-core.test.ts packages/core/test/project-files-data.test.ts packages/core/test/project-files-state.test.ts packages/core/test/project-files-integrations.test.ts

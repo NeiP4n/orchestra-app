@@ -68,6 +68,7 @@ export type FetchHandler = (url: URL, request: Request) => Response | undefined 
 
 export function createFetch(override?: FetchHandler, events?: ReturnType<typeof createEventStream>) {
   const session = [] as URL[]
+  let continuationEnabled = true
   async function fetch(input: RequestInfo | URL, init?: RequestInit) {
     const request = input instanceof Request ? input : new Request(input, init)
     const url = new URL(request.url)
@@ -135,6 +136,16 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
         data: { resources: [], templates: [] },
       })
     if (url.pathname === "/api/session") return json({ data: [], cursor: {} })
+    // Keep startup controls on the same default-ON wire contract as the backend.
+    if (url.pathname === "/api/config/continuation") {
+      if (request.method === "GET") return json({ enabled: continuationEnabled })
+      if (request.method === "PUT") {
+        const input = await request.json() as { enabled: boolean }
+        if (typeof input.enabled !== "boolean") return json({ error: "enabled must be boolean" }, { status: 400 })
+        continuationEnabled = input.enabled
+        return json({ enabled: continuationEnabled })
+      }
+    }
     if (url.pathname === "/api/config") return json([])
     if (url.pathname === "/api/session/active") return json({ data: {} })
     if (request.method === "POST" && /^\/api\/session\/[^/]+\/model$/.test(url.pathname))
@@ -194,6 +205,11 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (/^\/api\/room\/[^/]+\/feed$/.test(url.pathname)) return json({ events: [] })
     if (url.pathname === "/api/note" && request.method === "GET")
       return json({ location: { directory, project: { id: "proj_test", directory: worktree } }, data: [] })
+    if (request.method === "GET" && /^\/api\/orchestra\/project\/[^/]+\/debug$/.test(url.pathname))
+      return json({ enabled: false, path: `${worktree}/.orchestra/project-debug.jsonl`, bytes: 0 })
+    // A project with no template import has no browser definitions.
+    if (request.method === "GET" && /^\/api\/orchestra\/project-template\/[^/]+\/browsers$/.test(url.pathname))
+      return json(null)
     if (url.pathname === "/api/orchestra/project") return json([])
     if (/^\/api\/orchestra\/project\/[^/]+\/session$/.test(url.pathname))
       return json({ data: [], access: {}, category: {} })

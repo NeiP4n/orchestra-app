@@ -4,6 +4,7 @@ import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Str
 import { and, eq, inArray, notExists } from "drizzle-orm"
 import { SessionTable } from "./session/sql.js"
 import { ProjectTable } from "./project/sql.js"
+import { SessionContinuation } from "./session/continuation.js"
 import { SessionHold } from "./session/hold.js"
 import { ProjectTemplateV2Runtime } from "./project-template-v2-runtime.js"
 import { ProjectTemplateLiveStores } from "./project-template-live-stores.js"
@@ -25,6 +26,7 @@ import type { Session as SessionSchema } from "@orchestra/schema/session"
 import { AbsolutePath } from "./schema.js"
 import { Bus } from "./bus.js"
 import { KV } from "./kv.js"
+import { RuleLessons } from "./rule-lessons.js"
 import { Rules } from "./rules.js"
 import { Session } from "./session.js"
 import { SessionActivation } from "./session/activation.js"
@@ -418,10 +420,12 @@ const layer: Layer.Layer<
   | Global.Service
   | Autoloop.Service
   | CorePermission.DelegateRegistryService
+  | SessionContinuation.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
     const database = yield* Database.Service
+    const continuationControl = yield* SessionContinuation.Service
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const sessionStore = yield* SessionStore.Service
@@ -1569,6 +1573,7 @@ const layer: Layer.Layer<
     // Bus subscriptions only observe live events. Reconcile task markers left behind when a
     // worker completed before its terminal event could be observed by this process.
     const recoverPending = Effect.fn("Orchestra.recoverPending")(function* (mainID?: SessionID, olderThanMs = 0) {
+      if (!continuationControl.isEnabled()) return
       const read = (after?: string): Effect.Effect<KV.Entry[]> =>
         kv.scan({ prefix: TASK, after, limit: 1000 }).pipe(
           Effect.flatMap((result) =>
@@ -1596,7 +1601,13 @@ const layer: Layer.Layer<
             const sessionID = SessionID.make(entry.key.slice(TASK.length))
             if (active.has(sessionID)) return
             let staleClaim = false
-            if (suspended.has(sessionID)) {
+            // A terminal committed after this exact task delivery wins over a leftover
+            // execution claim. The live notification can be lost before claim cleanup;
+            // waiting for claim age in that window leaves main asleep despite a finished run.
+            const terminal = task.value.messageID
+              ? yield* terminalAfterDelivery(sessionID, task.value.messageID)
+              : undefined
+            if (suspended.has(sessionID) && !terminal) {
               // A fresh claim belongs to boot recovery, which resumes the run; a
               // stale one is dead (see STALE_CLAIM_MS). Release the dead claim and
               // fall through to the normal recovery below, so the task ends with a
@@ -1639,9 +1650,6 @@ const layer: Layer.Layer<
                 .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
               if (!recent.some((message) => finalText(message).length > 0)) return
             }
-            const terminal = task.value.messageID
-              ? yield* terminalAfterDelivery(sessionID, task.value.messageID)
-              : undefined
             yield* report(
               sessionID,
               terminal?.state ?? "recovered",
@@ -1811,7 +1819,7 @@ const layer: Layer.Layer<
             })
           if (event.type === SessionEvent.Execution.Failed.type)
             return report(event.data.sessionID, "failed", `Run failed: ${event.data.error.message}`)
-          if (event.data.reason === "shutdown") return Effect.void
+          if (event.data.reason === "shutdown" || event.data.reason === "pause") return Effect.void
           return report(event.data.sessionID, "stopped", `Run was interrupted (${event.data.reason}).`)
         }),
         Effect.forkScoped({ startImmediately: true }),
@@ -1825,6 +1833,7 @@ const layer: Layer.Layer<
     const NO_REPORT_REPEAT_MS = 10 * 60_000
     const noticed = new Map<string, number>()
     const watchReports = Effect.gen(function* () {
+      if (!continuationControl.isEnabled()) return
       yield* recoverPending(undefined, NO_REPORT_AFTER_MS)
       const active = yield* sessions.active
       for (const entry of yield* scanAll(TASK)) {
@@ -1996,6 +2005,7 @@ const layer: Layer.Layer<
       return yield* work.pipe(Effect.ensuring(TriggerDelivery.release(kv, kind, sweepOwner)))
     })
     const fireInternalTriggers = Effect.gen(function* () {
+      if (!continuationControl.isEnabled()) return
       if (!internalInbox.length) return
       const events = internalInbox.splice(0)
       const now = Date.now()
@@ -2027,6 +2037,7 @@ const layer: Layer.Layer<
     // Orchestrator as a <trigger-fired> message (steer + wake, like a <team-report>). The record is saved BEFORE the
     // message goes out with a durable pending fire; replay uses the same inbox id. A full cap pauses the trigger.
     const fireTriggers = Effect.gen(function* () {
+      if (!continuationControl.isEnabled()) return
       const now = Date.now()
       for (const entry of yield* scanAll(Trigger.PREFIX)) {
         if (!(yield* TriggerDelivery.acquire(kv, "time", sweepOwner, Date.now()))) return
@@ -2098,6 +2109,7 @@ const layer: Layer.Layer<
     })
     yield* Effect.addFinalizer(() => Effect.sync(stopBrowserWatch))
     const fireBrowserTriggers = Effect.gen(function* () {
+      if (!continuationControl.isEnabled()) return
       const now = Date.now()
       const mine = (yield* scanAll(Trigger.PREFIX)).flatMap((entry) => {
         const trigger = Trigger.parse(entry.value)
@@ -2452,6 +2464,7 @@ const layer: Layer.Layer<
     // the project, and has no outstanding task is claimed: claiming a run
     // that cannot run would strand it claimed until its lease expires.
     const reclaimDueRuns = Effect.fn("Orchestra.reclaimDueRuns")(function* () {
+      if (!continuationControl.isEnabled()) return
       const allProjects = yield* projects()
       const byID = new Map(allProjects.map((project) => [project.id, project]))
       const eventsOf = (view: View, runID: number): Array<EventRow> => {
@@ -2606,7 +2619,7 @@ const layer: Layer.Layer<
       }
     })
 
-    return Service.of({
+    const service = Service.of({
       projects,
       create: Effect.fn("Orchestra.create")(function* (input) {
         const template = input.template ? (yield* templates()).find((item) => item.id === input.template) : undefined
@@ -2823,6 +2836,7 @@ const layer: Layer.Layer<
                 yield* kv.remove(PROJECT_TEMPLATE + id)
                 // Import manifests and requirements are exact project records, not browser
                 // profiles or shared template receipts. Never scan by an ID prefix here.
+                yield* RuleLessons.forgetProject(kv, id)
                 yield* kv.remove("orchestra/project-import/" + id)
                 yield* kv.remove("orchestra/template-browsers/" + id)
                 yield* kv.remove("orchestra/template-requirements/" + id)
@@ -3111,6 +3125,7 @@ const layer: Layer.Layer<
         )
       }),
       dispatch: Effect.fn("Orchestra.dispatch")(function* (input) {
+        if (!continuationControl.isEnabled()) return yield* new DispatchError({ message: "Work is paused by the operator. The task was not sent. Wait until the operator turns Work ON; do not change autonomy or bypass the pause." })
         // Lock ordering is project -> worker. Project deletion/migration and task admission must
         // not race: otherwise a late send can create a durable task owned by a forgotten project.
         yield* mainLocks.withLock(input.project.id)(
@@ -3190,7 +3205,7 @@ const layer: Layer.Layer<
                 if (cycle === null) {
                   yield* kv.remove(key)
                   return yield* new DispatchError({
-                    message: `Autoloop has no run ready for this task (the dispatch rule is missing, ${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs are already in flight, or the Society's autonomy mode is observe/off — the operator may have set observe/off). The task was NOT sent and it is queued as a proposal. To let the Orchestrator delegate, the operator sets orchestra.society.autonomy to "auto" in the Orchestra config and restarts the server; until then do the work in this session yourself and say so.`,
+                    message: `Autoloop could not claim a run for this dispatch. The task was NOT sent to the worker. Possible blockers are dispatch capacity (${AutoloopOrchestrator.MAX_CONCURRENT_RUNS} runs in flight), a missing dispatch rule, or observe/off autonomy; this error alone does not establish which one. Inspect the cycle state and pending reports. If capacity is full, wait for the existing workers to report, then re-delegate. If policy prevents delegation or the cycle cannot recover, report the exact blocker to the operator. Do not silently do the worker's work in this session, change autonomy, or bypass the dispatch gate.`,
                   })
                 }
                 yield* kv.set(
@@ -3263,6 +3278,7 @@ const layer: Layer.Layer<
         return Option.getOrUndefined(Option.map(decodeTask(yield* kv.get(TASK + sessionID)), (task) => task.sent))
       }),
       recoverPendingTasks: Effect.fn("Orchestra.recoverPendingTasks")(function* () {
+        if (!continuationControl.isEnabled()) return
         const allProjects = yield* projects()
         const byID = new Map(allProjects.map((project) => [project.id, project]))
         const affected = new Set<ProjectID>()
@@ -3401,6 +3417,27 @@ const layer: Layer.Layer<
       reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
       changes: Stream.fromPubSub(changed),
     })
+    const removeContinuationListener = continuationControl.listen(
+      (enabled) =>
+        !enabled
+          ? Effect.void
+          : Effect.gen(function* () {
+              // Restart admission runs first. Renew only actually resumed workers' existing
+              // claims through the normal heartbeat path before the clock resumes. Never
+              // fabricate completion, revive unknown runs, or change lease/DoD rules.
+              const active = yield* sessions.active
+              for (const entry of yield* scanAll(TASK)) {
+                const id = SessionID.make(entry.key.slice(TASK.length)),
+                  task = decodeTask(entry.value)
+                if (active.has(id) && Option.isSome(task) && task.value.autoloopRun !== undefined)
+                  yield* AutoloopOrchestrator.heartbeatRun(autoloop, task.value.autoloopRun).pipe(Effect.ignore)
+              }
+              yield* service.recoverPendingTasks()
+            }),
+      20,
+    )
+    yield* Effect.addFinalizer(() => Effect.sync(removeContinuationListener))
+    return service
   }),
 )
 
@@ -4064,5 +4101,5 @@ function finalText(message: SessionMessage.Info) {
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [Database.node, KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode],
+  deps: [Database.node, KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, Autoloop.node, CorePermission.delegateNode, SessionContinuation.node],
 })

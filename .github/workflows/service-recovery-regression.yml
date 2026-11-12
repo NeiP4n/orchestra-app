@@ -1,0 +1,66 @@
+name: service-recovery-regression
+on:
+  pull_request:
+    branches-ignore: [dev]
+    paths:
+      - "packages/client/src/effect/service.ts"
+      - "packages/client/src/promise/service.ts"
+      - "packages/client/test/**service*"
+      - "packages/client/test/fixture/service.ts"
+      - "packages/cli/src/services/service-config.ts"
+      - "packages/cli/test/service-config-recovery.test.ts"
+      - ".github/workflows/service-recovery-regression.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: full lifecycle (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Effect and Promise lifecycle with real fixture processes
+        run: bun test packages/client/test/service.test.ts packages/client/test/promise-service.test.ts
+      - name: Persisted credentials fail closed and browser sessions survive reloads
+        run: bun test packages/cli/test/service-config-recovery.test.ts
+
+  recovery:
+    name: recovery regressions (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Reconnect grace period preserves the live owner in both clients
+        run: bun test packages/client/test/service.test.ts packages/client/test/promise-service.test.ts --test-name-pattern 'initially silent'
+      - name: Credential failure and browser token persistence
+        if: always()
+        run: bun test packages/cli/test/service-config-recovery.test.ts
+  windows-baseline:
+    name: unchanged dev lifecycle (Windows diagnostic)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: d8c56053f42587d6364c133f561e23e203e64b67
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Same full lifecycle suite without product fixes
+        run: bun test packages/client/test/service.test.ts packages/client/test/promise-service.test.ts

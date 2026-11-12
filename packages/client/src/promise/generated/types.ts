@@ -913,7 +913,7 @@ export type SessionExecutionInterrupted = {
   type: "session.execution.interrupted"
   durable: { aggregateID: string; seq: number; version: 1 }
   location?: LocationRef
-  data: { sessionID: string; reason: "user" | "shutdown" | "superseded" | "inactivity" }
+  data: { sessionID: string; reason: "user" | "shutdown" | "superseded" | "inactivity" | "pause" }
 }
 
 export type SessionInstructionsUpdated = {
@@ -1258,6 +1258,15 @@ export type ConfigUpdated = {
   type: "config.updated"
   location?: LocationRef
   data: {}
+}
+
+export type ConfigContinuationUpdated = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "config.continuation.updated"
+  location?: LocationRef
+  data: { enabled: boolean }
 }
 
 export type SkillUpdated = {
@@ -2840,6 +2849,7 @@ export type ConfigEntry =
         experimental?: {
           portable_shell_scanner?: boolean
           context_governor?: boolean
+          rule_lessons?: boolean
           subagent_depth?: number
           neural_functional_effects?: boolean
           policies?: Array<{
@@ -3086,6 +3096,7 @@ export type V2Event =
   | WorktreeResolved
   | CommandUpdated
   | ConfigUpdated
+  | ConfigContinuationUpdated
   | SkillUpdated
   | PtyCreated
   | PtyUpdated
@@ -6331,24 +6342,35 @@ export type ProviderGetOutput = { location: LocationPublicRef; data: ProviderInf
 export type ProviderDiscoverInput = {
   readonly baseURL: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
   }["baseURL"]
+  readonly timeoutMs?: {
+    readonly baseURL: string
+    readonly timeoutMs?: number | undefined
+    readonly apiKey?: string | undefined
+    readonly headers?: { readonly [x: string]: string } | undefined
+    readonly providerID?: string | undefined
+  }["timeoutMs"]
   readonly apiKey?: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
   }["apiKey"]
   readonly headers?: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
   }["headers"]
   readonly providerID?: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
@@ -7621,6 +7643,12 @@ export type WebsearchQueryOutput = {
   location: LocationPublicRef
   data: { providerID: string; results: Array<WebSearchResult> }
 }
+
+export type ConfigContinuationGetOutput = { enabled: boolean }
+
+export type ConfigContinuationSetInput = { readonly enabled: { readonly enabled: boolean }["enabled"] }
+
+export type ConfigContinuationSetOutput = { enabled: boolean }
 
 export type ConfigGetInput = {
   readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
@@ -14620,6 +14648,64 @@ export type RoomMeshRpcInput = {
 }
 
 export type RoomMeshRpcOutput = RoomMeshRpcResponse
+
+export type OrchestraProjectDebugGetInput = { readonly projectID: { readonly projectID: string }["projectID"] }
+
+export type OrchestraProjectDebugGetOutput = {
+  enabled: boolean
+  path: string
+  bytes: number
+  lastWrite?: number | undefined
+  error?: string | undefined
+}
+
+export type OrchestraProjectDebugSetInput = {
+  readonly projectID: { readonly projectID: string }["projectID"]
+  readonly enabled: { readonly enabled: boolean }["enabled"]
+}
+
+export type OrchestraProjectDebugSetOutput = {
+  enabled: boolean
+  path: string
+  bytes: number
+  lastWrite?: number | undefined
+  error?: string | undefined
+}
+
+export type OrchestraProjectTemplateExportFileInput = {
+  readonly templateID: { readonly templateID: string; readonly projectID: string }["templateID"]
+  readonly projectID: { readonly templateID: string; readonly projectID: string }["projectID"]
+}
+
+export type OrchestraProjectTemplateExportFileOutput = { path: string; warning: string }
+
+export type OrchestraProjectTemplatePrepareImportInput = { readonly path: { readonly path: string }["path"] }
+
+export type OrchestraProjectTemplatePrepareImportOutput = {
+  token: string
+  name: string
+  details: string
+  unresolvedRoles?: Array<string> | undefined
+  browserBindings?: Array<{ browser: number; reason: "missing" | "child" | "foreign" | "unlisted" }> | undefined
+  triggerReview?:
+    | Array<{
+        schedule: number
+        browser?: number | undefined
+        reason: "browser-rebind" | "browser-links-omitted" | "time-review" | "unsupported-event"
+      }>
+    | undefined
+  omittedLinks?:
+    | Array<{
+        browser: number
+        link: number
+        reason: "credentials" | "query" | "fragment" | "local" | "scheme" | "secret" | "invalid"
+      }>
+    | undefined
+}
+
+export type OrchestraProjectTemplateConfirmImportInput = { readonly token: { readonly token: string }["token"] }
+
+export type OrchestraProjectTemplateConfirmImportOutput = { id: string; name: string }
 
 export type OrchestraProjectTemplateListOutput = Array<{ id: string; name: string }>
 

@@ -7,6 +7,36 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(Layer.empty)
 
 describe("SessionRunCoordinator", () => {
+  it.effect("rechecks admission after a joiner waits for interrupted cleanup", () =>
+    Effect.gen(function* () {
+      let enabled = true,
+        runs = 0
+      const draining = yield* Deferred.make<void>(),
+        cleanup = yield* Deferred.make<void>()
+      const c = yield* SessionRunCoordinator.make<string, never, string>({
+        canRun: () => enabled,
+        drain: () =>
+          Effect.gen(function* () {
+            runs++
+            yield* Deferred.succeed(draining, undefined)
+            yield* Effect.never
+          }).pipe(Effect.ensuring(Deferred.await(cleanup))),
+      })
+      yield* c.wake("s")
+      yield* Deferred.await(draining)
+      yield* c.interrupt("s", "pause")
+      const joiner = yield* c.run("s").pipe(Effect.forkChild)
+      yield* Effect.yieldNow
+      enabled = false
+      yield* Deferred.succeed(cleanup, undefined)
+      yield* Fiber.join(joiner)
+      yield* c.awaitIdle("s")
+      expect(runs).toBe(1)
+      yield* c.wake("new")
+      expect(yield* c.active).toEqual(new Set())
+    }),
+  )
+
   it.effect("joins concurrent resumes for one key", () =>
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void>()
