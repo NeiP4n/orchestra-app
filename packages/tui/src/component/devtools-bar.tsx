@@ -518,7 +518,7 @@ export function DevToolsBar() {
       <Divider />
 
       {/* Zone 3: Environment, Controls & System Telemetry */}
-      <Show when={debugDirectory()}><BarItem active={recording() === true} onClick={openRecording}><text fg={recording() ? theme.text.feedback.warning.base : theme.text.muted}>{t(recording() ? "REC debug" : "Debug OFF")}</text></BarItem></Show>
+      <Show when={debugDirectory()}><BarItem active={recording() === true} onClick={openRecording}><text fg={recording() ? theme.text.action.primary.focused : theme.text.muted}>{t(recording() ? "REC debug" : "Debug OFF")}</text></BarItem></Show>
 
       <BarItem
         active={false}
