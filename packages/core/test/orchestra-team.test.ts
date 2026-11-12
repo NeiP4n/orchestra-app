@@ -2358,6 +2358,14 @@ describe("Orchestra team", () => {
           },
         }),
       )
+      const typedReport = tools.get("task_report")
+      expect(typedReport).toBeDefined()
+      const typed = yield* typedReport!.execute({ outcome: "partial", summary: "Remaining check" }, {
+        sessionID: Session.ID.create(), agent: Orchestra.role("developer"), messageID: SessionMessage.ID.create(),
+        id: Tool.CallID.make("typed_report"), progress: () => Effect.void,
+      })
+      expect(typed.output).toEqual({ outcome: "partial", summary: "Remaining check" })
+      expect(typed.content).toContain("partial")
       // What the permission service passes to plugins once every agent and config rule allowed the edit.
       const evaluate = (
         agent: Agent.ID,

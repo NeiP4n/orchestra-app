@@ -1067,7 +1067,7 @@ export const Plugin = {
       description: "Record this task's typed outcome before your final plain-text report. This declares progress, not proof: checks and delivery evidence are verified independently. Call again if the outcome changes.",
       input: Schema.Struct({ outcome: Schema.Literals(["complete", "partial", "incomplete", "failed"]), summary: Schema.String }),
       output: Schema.Struct({ outcome: Schema.Literals(["complete", "partial", "incomplete", "failed"]), summary: Schema.String }),
-      execute: (input) => Effect.succeed(input),
+      execute: (input) => Effect.succeed({ output: input, content: `Recorded task outcome: ${input.outcome}. ${input.summary}` }),
     }))
     // The 6-message rule, enforced: in a project's main session, after
     // ORCHESTRATOR_MESSAGE_LIMIT of the Orchestrator's own messages in a row
