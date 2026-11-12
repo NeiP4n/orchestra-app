@@ -2,6 +2,8 @@ import type { ProjectTemplateReader } from "@orchestra/core/project-template-rea
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
 import type { ProjectTemplateTriggerReview } from "@orchestra/core/project-template-trigger-review"
 import type { ProjectTemplateLinkReview } from "@orchestra/core/project-template-link-review"
+import type { ProjectTemplateCoreMigration } from "@orchestra/core/project-template-core-migration"
+import { templateErrorMessages } from "@orchestra/core/project-template-errors"
 import { templateFailureReason } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
@@ -34,9 +36,10 @@ export interface ProjectTemplatesAccess {
   exportFile?: (templateID: string) => Promise<{ path: string; warning: string }>
   prepareImport?: (path: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[] }>
   confirmImport?: (token: string) => Promise<unknown>
-  list: () => Promise<readonly { id: string; name: string }[]>
+  list: () => Promise<readonly { id: string; name: string; digest?: string }[]>
   prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean, acceptUnresolvedRoles?: boolean) => Promise<void>
+  prepareMigration?: (templateID: string) => Promise<{token:string;name:string;details:string;roleChanges?:readonly ProjectTemplateCoreMigration.Change[]}>
   prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
@@ -59,7 +62,7 @@ export function ProjectTemplatesSimple(props: {
 }) {
   const theme = useTheme().surface("dialog")
   const tr = useT()
-  const [templates, setTemplates] = createSignal<readonly { id: string; name: string }[]>([])
+  const [templates, setTemplates] = createSignal<readonly { id: string; name: string; digest?: string }[]>([])
   const [cursor, setCursor] = createSignal("save")
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
@@ -68,6 +71,7 @@ export function ProjectTemplatesSimple(props: {
   const [exportPath, setExportPath] = createSignal("")
   const [message, setMessage] = createSignal("")
   const [reason, setReason] = createSignal<string>()
+  const [failedTemplate, setFailedTemplate] = createSignal<string>()
   const [refreshFailed, setRefreshFailed] = createSignal(false)
   const [prepared, setPrepared] = createSignal<{
     kind: "save" | "create" | "import"
@@ -78,6 +82,7 @@ export function ProjectTemplatesSimple(props: {
     unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]
     omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]
     triggerReview?: readonly ProjectTemplateTriggerReview.Item[]
+    roleChanges?: readonly ProjectTemplateCoreMigration.Change[]
   }>()
   const run = async (action: () => Promise<void>, kind?: "save" | "create") => {
     if (busy()) return
@@ -105,6 +110,7 @@ export function ProjectTemplatesSimple(props: {
       setMessage("")
       setReason()
       setRefreshFailed(false)
+      if (kind === "create") setFailedTemplate(id)
       if (kind === "save" && !props.canSave) return
       if (kind === "save" && id === undefined) await refresh()
       const result = kind === "save" ? await props.access.prepareSave(id) : await props.access.prepareCreate(id!)
@@ -152,7 +158,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
+    : [...(reason() === templateErrorMessages.TEMPLATE_CORE_ROLE && props.access.prepareMigration && failedTemplate() ? ["migrate-core"] : []), ...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -162,7 +168,11 @@ export function ProjectTemplatesSimple(props: {
   const activate = (id = focused()) => {
     if (busy() || !id) return
     setCursor(id)
-    if (id === "import-path") pathInput?.focus()
+    if (id === "migrate-core" && props.access.prepareMigration && failedTemplate()) void run(async () => {
+      const result = await props.access.prepareMigration!(failedTemplate()!)
+      setReason(); setMessage(""); setPrepared({kind:"create",...result}); setCursor("confirm")
+    }, "create")
+    else if (id === "import-path") pathInput?.focus()
     else if (id === "copy-path" && exportPath() && props.access.copyPath) void run(async () => {
       await props.access.copyPath?.(exportPath())
       setMessage("Path copied.")
@@ -244,6 +254,7 @@ export function ProjectTemplatesSimple(props: {
           <For each={templates()}>{template => (
             <box flexDirection="row" flexWrap="wrap" gap={1}>
               <Action id={`create-${template.id}`} label={template.name + " · " + tr("Create")} />
+              <Show when={template.digest || templates().filter(r=>r.name===template.name).length > 1}><text fg={theme.text.muted}>#{(template.digest ?? template.id).slice(-8)}</text></Show>
               <Show when={props.canSave && props.access.exportFile}>
                 <Action id={`export-${template.id}`} label={tr("Export")} />
               </Show>
@@ -263,6 +274,10 @@ export function ProjectTemplatesSimple(props: {
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
+            <Show when={current().roleChanges?.length}>
+              <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.")}</text>
+              <For each={current().roleChanges}>{change => <text fg={theme.text.base} wrapMode="word">{`${change.role}: ${change.fields.join(", ")}\nsha256 ${change.fromHash.slice(0,12)} -> ${change.toHash.slice(0,12)}`}</text>}</For>
+            </Show>
             <Show when={collisions().length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("A template with this name already exists. Update it or save a separate copy.")}</text>
               <For each={collisions()}>{(row) => <Action id={"replace-" + row.id} label={tr("Update existing template") + (collisions().length > 1 ? " · " + row.id : "")} />}</For>
@@ -316,6 +331,7 @@ export function ProjectTemplatesSimple(props: {
       <Show when={busy()}>
         <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
+      <Show when={!prepared() && reason() === templateErrorMessages.TEMPLATE_CORE_ROLE && props.access.prepareMigration && failedTemplate()}><Action id="migrate-core" label={tr("Review current built-in roles")} /></Show>
       <Show when={message() || reason()}>
         <text fg={theme.text.base} wrapMode="word">{reason() ? tr(reason()!) : ""}{message() ? (reason() ? " " : "") + tr(message()) : ""}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
       </Show>

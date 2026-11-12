@@ -4770,6 +4770,14 @@ export type OrchestraProjectTemplateExportFileOperation<E = never> = (
 
 export type OrchestraProjectTemplatePrepareImportInput = { readonly path: string }
 export type OrchestraProjectTemplatePrepareImportOutput = {
+  readonly roleChanges?:
+    | ReadonlyArray<{
+        readonly role: string
+        readonly fields: ReadonlyArray<string>
+        readonly fromHash: string
+        readonly toHash: string
+      }>
+    | undefined
   readonly token: string
   readonly name: string
   readonly details: string
@@ -4802,7 +4810,11 @@ export type OrchestraProjectTemplateConfirmImportOperation<E = never> = (
   input: OrchestraProjectTemplateConfirmImportInput,
 ) => Effect.Effect<OrchestraProjectTemplateConfirmImportOutput, E>
 
-export type OrchestraProjectTemplateListOutput = ReadonlyArray<{ readonly id: string; readonly name: string }>
+export type OrchestraProjectTemplateListOutput = ReadonlyArray<{
+  readonly id: string
+  readonly name: string
+  readonly digest?: string | undefined
+}>
 export type OrchestraProjectTemplateListOperation<E = never> = () => Effect.Effect<
   OrchestraProjectTemplateListOutput,
   E
@@ -4819,6 +4831,14 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
   readonly templateID?: string | undefined
 }
 export type OrchestraProjectTemplatePrepareSaveOutput = {
+  readonly roleChanges?:
+    | ReadonlyArray<{
+        readonly role: string
+        readonly fields: ReadonlyArray<string>
+        readonly fromHash: string
+        readonly toHash: string
+      }>
+    | undefined
   readonly token: string
   readonly name: string
   readonly details: string
@@ -4865,8 +4885,17 @@ export type OrchestraProjectTemplateConfirmSaveOperation<E = never> = (
 export type OrchestraProjectTemplatePrepareCreateInput = {
   readonly templateID: string
   readonly settingsDirectory: string
+  readonly migrateCore?: boolean | undefined
 }
 export type OrchestraProjectTemplatePrepareCreateOutput = {
+  readonly roleChanges?:
+    | ReadonlyArray<{
+        readonly role: string
+        readonly fields: ReadonlyArray<string>
+        readonly fromHash: string
+        readonly toHash: string
+      }>
+    | undefined
   readonly token: string
   readonly name: string
   readonly details: string

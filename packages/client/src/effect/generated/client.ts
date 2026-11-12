@@ -2562,7 +2562,11 @@ const EndpointOrchestraProjectTemplatePrepareCreate =
   (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplatePrepareCreateInput) =>
     preserveEffect<OrchestraProjectTemplatePrepareCreateOutput>()(
       raw["orchestra.projectTemplate.prepareCreate"]({
-        payload: { templateID: input["templateID"], settingsDirectory: input["settingsDirectory"] },
+        payload: {
+          templateID: input["templateID"],
+          settingsDirectory: input["settingsDirectory"],
+          migrateCore: input["migrateCore"],
+        },
       }).pipe(Effect.mapError(mapClientError)),
     )
 

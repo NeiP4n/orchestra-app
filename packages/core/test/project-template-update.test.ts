@@ -28,7 +28,7 @@ test("v1 update binds old and new digests, rechecks source, keeps ID and is idem
   expect(JSON.parse(update.details).version).toBe(1)
   await operator.confirmSave(update.token,[])
   await operator.confirmSave(update.token,[])
-  expect(await operator.list()).toEqual([{id:entry.id,name:"Final"}])
+  expect(await operator.list()).toMatchObject([{id:entry.id,name:"Final",digest:expect.stringMatching(/^[a-f0-9]{64}$/)}])
   const library=ProjectTemplateLibrary.local(data)
   const prior=await library.preview(entry.id)
   name="Race A";const a=await operator.prepareSave("prj_a",[],entry.id)
@@ -36,6 +36,6 @@ test("v1 update binds old and new digests, rechecks source, keeps ID and is idem
   await operator.confirmSave(b.token,[])
   await expect(operator.confirmSave(a.token,[])).rejects.toThrow("Template changed")
   expect((await library.preview(entry.id)).digest).not.toBe(prior.digest)
-  expect(await operator.list()).toEqual([{id:entry.id,name:"Race B"}])
+  expect(await operator.list()).toMatchObject([{id:entry.id,name:"Race B",digest:expect.stringMatching(/^[a-f0-9]{64}$/)}])
  } finally {await rm(data,{recursive:true,force:true})}
 })

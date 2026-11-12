@@ -11,7 +11,8 @@ const TemplateBrowserInput = Schema.Struct({
   chat: Schema.optional(Schema.String),
   mode: Schema.optional(Schema.Literals(["headless", "window", "capture"])),
 })
-const TemplatePrepared = Schema.Struct({ token: Schema.String, name: Schema.String, details: Schema.String, unresolvedRoles: Schema.optional(Schema.Array(Schema.String)), browserBindings: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, reason: Schema.Literals(["missing", "child", "foreign", "unlisted"]) }))), triggerReview: Schema.optional(Schema.Array(Schema.Struct({ schedule: Schema.Number, browser: Schema.optional(Schema.Number), reason: Schema.Literals(["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]) }))), omittedLinks: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, link: Schema.Number, reason: Schema.Literals(["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]) }))) })
+const TemplatePrepared = Schema.Struct({
+  roleChanges: Schema.optional(Schema.Array(Schema.Struct({ role: Schema.String, fields: Schema.Array(Schema.String), fromHash: Schema.String, toHash: Schema.String }))), token: Schema.String, name: Schema.String, details: Schema.String, unresolvedRoles: Schema.optional(Schema.Array(Schema.String)), browserBindings: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, reason: Schema.Literals(["missing", "child", "foreign", "unlisted"]) }))), triggerReview: Schema.optional(Schema.Array(Schema.Struct({ schedule: Schema.Number, browser: Schema.optional(Schema.Number), reason: Schema.Literals(["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]) }))), omittedLinks: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, link: Schema.Number, reason: Schema.Literals(["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]) }))) })
 const TemplateBrowsers = Schema.Struct({
   importID: Schema.String,
   projectID: Schema.String,
@@ -43,7 +44,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   }))
   .add(
     HttpApiEndpoint.get("orchestra.projectTemplate.list", "/api/orchestra/project-template", {
-      success: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+      success: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, digest: Schema.optional(Schema.String) })),
       error: InvalidRequestError,
     }),
   )
@@ -63,7 +64,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   )
   .add(
     HttpApiEndpoint.post("orchestra.projectTemplate.prepareCreate", "/api/orchestra/project-template/prepare-create", {
-      payload: Schema.Struct({ templateID: Schema.String, settingsDirectory: Schema.String }),
+      payload: Schema.Struct({ templateID: Schema.String, settingsDirectory: Schema.String, migrateCore: Schema.optional(Schema.Boolean) }),
       success: TemplatePrepared,
       error: InvalidRequestError,
     }),

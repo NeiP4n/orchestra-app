@@ -88,7 +88,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       return yield* agents.list()
     }).pipe(Effect.provide(locations.get(Location.Ref.make({ directory: AbsolutePath.make(directory) })))))
     const coreRoles = async () => ProjectTemplateCoreRoles.current(await Effect.runPromise(orchestra.roles()))
-    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version,
+    const operator = ProjectTemplateOperator.make({ kv, store, dataDirectory: global.data, installedVersion: app.version, coreRoles,
       processStores: projectID => ProjectTemplateV2OwnerReader.make({ kv, store, orchestra, coreRoles,
         runtimeRoles: async input => ProjectTemplateRuntimeRoles.merge(await Promise.all(input.sessionIDs.map(async id => {
           const info = await Effect.runPromise(store.get(SessionID.make(id)))
@@ -141,7 +141,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       .handle("orchestra.projectTemplate.list",()=>templateOperation("list",()=>operator.list()))
       .handle("orchestra.projectTemplate.prepareSave",ctx=>templateOperation("prepareSave",()=>operator.prepareSave(ctx.payload.projectID,ctx.payload.browsers,ctx.payload.templateID)))
       .handle("orchestra.projectTemplate.confirmSave",ctx=>templateOperation("confirmSave",()=>operator.confirmSave(ctx.payload.token,ctx.payload.browsers,ctx.payload.omitUnsafeLinks,ctx.payload.omitInvalidBrowserBindings,ctx.payload.acceptUnresolvedRoles)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
-      .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation("prepareCreate",()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory)))
+      .handle("orchestra.projectTemplate.prepareCreate",ctx=>templateOperation("prepareCreate",()=>operator.prepareCreate(ctx.payload.templateID,ctx.payload.settingsDirectory,ctx.payload.migrateCore)))
       .handle("orchestra.projectTemplate.confirmCreate",ctx=>templateOperation("confirmCreate",()=>operator.confirmCreate(ctx.payload.token)))
       .handle("orchestra.projectTemplate.finishCreate",ctx=>templateOperation("finishCreate",()=>operator.finishCreate(ctx.payload.token)).pipe(Effect.as(HttpApiSchema.NoContent.make())))
       .handle("orchestra.projectTemplate.browsers",ctx=>templateOperation("browsers",()=>operator.browserDefinitions(ctx.params.projectID)))

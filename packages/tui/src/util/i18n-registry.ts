@@ -1,5 +1,8 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Review current built-in roles": "Review current built-in roles",
+  "Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.": "Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.",
+
   "A model required by this template is unavailable. Connect its provider or restore that model, then retry.": "A model required by this template is unavailable. Connect its provider or restore that model, then retry.",
   "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.": "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.",
   "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.": "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.",
@@ -238,6 +241,9 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Review current built-in roles": "Сравнить с текущими встроенными ролями",
+  "Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.": "Для нового проекта используем встроенные роли этого сервера. Проектные правила, свои роли, инструкции и расписания на паузе не меняются. Исходный шаблон и правила сервера не редактируются.",
+
   "A model required by this template is unavailable. Connect its provider or restore that model, then retry.": "Нужная шаблону модель недоступна. Подключите её провайдера или восстановите модель и повторите.",
   "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.": "Встроенные роли шаблона отличаются от сервера. Обновите Orchestra и сохраните шаблон заново. Правила безопасности не заменены.",
   "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.": "Нужен полный путь на компьютере сервера. В Windows укажите диск, например C:\\Folder.",

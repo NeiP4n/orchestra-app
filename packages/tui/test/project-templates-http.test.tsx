@@ -139,6 +139,23 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect(rejected.status).toBe(400)
         expect(rejected.body.kind).toBe("TEMPLATE_MODEL")
         expect(JSON.stringify(rejected.body)).not.toContain("missing-fixture-provider")
+        const old=JSON.parse(await readFile(exported.path,"utf8"))
+        old.process.roles.find((r:{agent:string})=>r.agent==="orchestrator").rules="Old server fingerprint"
+        const oldFile=await ProjectTemplateTransfer.write(source,JSON.stringify(old))
+        const oldPreview=(await call("/api/orchestra/project-template/prepare-import","POST",{path:oldFile.path}).pipe(Effect.runPromise)).body
+        const oldEntry=(await call("/api/orchestra/project-template/confirm-import","POST",{token:oldPreview.token}).pipe(Effect.runPromise)).body
+        const blocked=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:oldEntry.id,settingsDirectory:source}).pipe(Effect.runPromise)
+        expect(blocked.body.kind).toBe("TEMPLATE_CORE_ROLE")
+        const migration=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:oldEntry.id,settingsDirectory:source,migrateCore:true}).pipe(Effect.runPromise)
+        expect(migration.status).toBe(200)
+        expect(migration.body.roleChanges).toHaveLength(1)
+        expect(migration.body.roleChanges[0]).toMatchObject({role:"orchestrator",fields:["rules"]})
+        expect(migration.body.roleChanges[0].fromHash).not.toBe(migration.body.roleChanges[0].toHash)
+        expect(JSON.parse(migration.body.details).rules).toEqual(old.rules)
+        expect((await call("/api/orchestra/project-template/confirm-create","POST",{token:migration.body.token}).pipe(Effect.runPromise)).status).toBe(200)
+        expect(JSON.parse(await readFile(oldFile.path,"utf8"))).toEqual(old)
+        const listed=(await call("/api/orchestra/project-template").pipe(Effect.runPromise)).body
+        expect(new Set(listed.map((r:{digest:string})=>r.digest)).size).toBe(listed.length)
         const winPath=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:"C:\\Users\\Isako\\Desktop\\Test2"}).pipe(Effect.runPromise)
         if(process.platform!=="win32") { expect(winPath.status).toBe(400); expect(winPath.body.kind).toBe("TEMPLATE_PATH") }
 

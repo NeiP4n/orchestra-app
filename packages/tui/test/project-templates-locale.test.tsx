@@ -127,3 +127,19 @@ for (const width of [48,80,120]) test(`create shows one actual safe cause withou
   await Bun.write(`/tmp/template-actual-cause-${width}.json`,JSON.stringify(app.captureSpans()))
  } finally {app.renderer.destroy()}
 })
+
+for (const width of [48,80,120]) test(`core migration requires a visible review and confirmation ${width}`,async()=>{
+ let creates=0,migrations=0
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave={false} access={{list:async()=>[{id:"old",name:"Test2",digest:"a".repeat(64)},{id:"new",name:"Test2",digest:"b".repeat(64)}],prepareSave:async()=>{throw Error("unused")},confirmSave:async()=>{},prepareCreate:async()=>{throw Object.assign(Error("private"),{_tag:"InvalidRequestError",kind:"TEMPLATE_CORE_ROLE"})},prepareMigration:async()=>{migrations++;return{token:"reviewed",name:"Test2",details:JSON.stringify({format:"orchestra.project-template",version:2,process:{skills:[],roles:[]},sessions:[]}),roleChanges:[{role:"orchestrator",fields:["rules"],fromHash:"a".repeat(64),toHash:"c".repeat(64)}]}},confirmCreate:async token=>{expect(token).toBe("reviewed");creates++}}}/></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:28})
+ app.renderer.start()
+ const click=async(id:string)=>{const n=app.renderer.root.findDescendantById("project-templates."+id)!;await app.mockMouse.click(n.x+1,n.y);await app.renderOnce()}
+ try{
+  await app.waitForFrame(f=>f.includes("#aaaaaaaa")&&f.includes("#bbbbbbbb"))
+  await click("create-old");await app.waitForFrame(f=>f.includes("Встроенные роли"))
+  expect(creates).toBe(0)
+  await click("migrate-core");await app.waitForFrame(f=>f.includes("sha256")&&f.includes("cccccccccccc"))
+  expect(creates).toBe(0);expect(migrations).toBe(1)
+  await Bun.write(`/tmp/core-migration-review-${width}.json`,JSON.stringify(app.captureSpans()))
+  await click("confirm");await app.waitForFrame(f=>f.includes("Проект создан"));expect(creates).toBe(1)
+ }finally{app.renderer.destroy()}
+})

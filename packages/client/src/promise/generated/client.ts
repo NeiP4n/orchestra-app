@@ -3518,7 +3518,11 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: `/api/orchestra/project-template/prepare-create`,
-              body: { templateID: input["templateID"], settingsDirectory: input["settingsDirectory"] },
+              body: {
+                templateID: input["templateID"],
+                settingsDirectory: input["settingsDirectory"],
+                migrateCore: input["migrateCore"],
+              },
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,

@@ -52,6 +52,7 @@ export function ProjectTemplatesConnected(props: { keys?: (keys: ProjectTemplate
       if (saveOwners.get(token) !== projectID()) throw Error("Project changed after preview.")
       await client.api.orchestra.projectTemplate.confirmSave({ token, browsers: browsers(), omitUnsafeLinks, omitInvalidBrowserBindings, acceptUnresolvedRoles })
     },
+    prepareMigration: templateID => client.api.orchestra.projectTemplate.prepareCreate({templateID,settingsDirectory:projects.list().find(row=>row.id===projectID())?.directory ?? paths.cwd,migrateCore:true}),
     prepareCreate: (templateID) =>
       client.api.orchestra.projectTemplate.prepareCreate({
         templateID,

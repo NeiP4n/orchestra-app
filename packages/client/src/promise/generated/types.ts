@@ -14694,6 +14694,7 @@ export type OrchestraProjectTemplateExportFileOutput = { path: string; warning: 
 export type OrchestraProjectTemplatePrepareImportInput = { readonly path: { readonly path: string }["path"] }
 
 export type OrchestraProjectTemplatePrepareImportOutput = {
+  roleChanges?: Array<{ role: string; fields: Array<string>; fromHash: string; toHash: string }> | undefined
   token: string
   name: string
   details: string
@@ -14719,7 +14720,7 @@ export type OrchestraProjectTemplateConfirmImportInput = { readonly token: { rea
 
 export type OrchestraProjectTemplateConfirmImportOutput = { id: string; name: string }
 
-export type OrchestraProjectTemplateListOutput = Array<{ id: string; name: string }>
+export type OrchestraProjectTemplateListOutput = Array<{ id: string; name: string; digest?: string | undefined }>
 
 export type OrchestraProjectTemplatePrepareSaveInput = {
   readonly projectID: {
@@ -14755,6 +14756,7 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
 }
 
 export type OrchestraProjectTemplatePrepareSaveOutput = {
+  roleChanges?: Array<{ role: string; fields: Array<string>; fromHash: string; toHash: string }> | undefined
   token: string
   name: string
   details: string
@@ -14842,11 +14844,25 @@ export type OrchestraProjectTemplateConfirmSaveInput = {
 export type OrchestraProjectTemplateConfirmSaveOutput = void
 
 export type OrchestraProjectTemplatePrepareCreateInput = {
-  readonly templateID: { readonly templateID: string; readonly settingsDirectory: string }["templateID"]
-  readonly settingsDirectory: { readonly templateID: string; readonly settingsDirectory: string }["settingsDirectory"]
+  readonly templateID: {
+    readonly templateID: string
+    readonly settingsDirectory: string
+    readonly migrateCore?: boolean | undefined
+  }["templateID"]
+  readonly settingsDirectory: {
+    readonly templateID: string
+    readonly settingsDirectory: string
+    readonly migrateCore?: boolean | undefined
+  }["settingsDirectory"]
+  readonly migrateCore?: {
+    readonly templateID: string
+    readonly settingsDirectory: string
+    readonly migrateCore?: boolean | undefined
+  }["migrateCore"]
 }
 
 export type OrchestraProjectTemplatePrepareCreateOutput = {
+  roleChanges?: Array<{ role: string; fields: Array<string>; fromHash: string; toHash: string }> | undefined
   token: string
   name: string
   details: string

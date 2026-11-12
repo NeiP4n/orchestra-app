@@ -21472,6 +21472,38 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "roleChanges": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "role": {
+                                "type": "string"
+                              },
+                              "fields": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "fromHash": {
+                                "type": "string"
+                              },
+                              "toHash": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["role", "fields", "fromHash", "toHash"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "token": {
                       "type": "string"
                     },
@@ -21768,6 +21800,16 @@
                       },
                       "name": {
                         "type": "string"
+                      },
+                      "digest": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       }
                     },
                     "required": ["id", "name"],
@@ -21821,6 +21863,38 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "roleChanges": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "role": {
+                                "type": "string"
+                              },
+                              "fields": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "fromHash": {
+                                "type": "string"
+                              },
+                              "toHash": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["role", "fields", "fromHash", "toHash"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "token": {
                       "type": "string"
                     },
@@ -22208,6 +22282,38 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "roleChanges": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "role": {
+                                "type": "string"
+                              },
+                              "fields": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "fromHash": {
+                                "type": "string"
+                              },
+                              "toHash": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["role", "fields", "fromHash", "toHash"],
+                            "additionalProperties": false
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "token": {
                       "type": "string"
                     },
@@ -22401,6 +22507,16 @@
                   },
                   "settingsDirectory": {
                     "type": "string"
+                  },
+                  "migrateCore": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": ["templateID", "settingsDirectory"],

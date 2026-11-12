@@ -1,3 +1,5 @@
+import { ProjectTemplateCoreMigration } from "./project-template-core-migration.js"
+import type { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 import { templateStage } from "./project-template-errors.js"
 export * as ProjectTemplateOperator from "./project-template-operator.js"
 
@@ -42,12 +44,15 @@ interface Create {
   libraryID: string
   digest: string
   done?: boolean
+  sourceDigest?: string
+  roleChanges?: ProjectTemplateCoreMigration.Change[]
 }
 interface Deps {
   kv: KV.Interface
   store: SessionStore.Interface
   dataDirectory: string
   installedVersion: string
+  coreRoles?: () => Promise<readonly V2.Role[]>
   processStores?: (projectID: string) => ProjectTemplateV2Reader.Stores
   live: (settingsDirectory: string) => ReturnType<typeof Live.make>
 }
@@ -198,7 +203,7 @@ export function make(deps: Deps) {
       const pending = await run(deps.kv.get(PREPARED + token))
       if (!record(pending) || pending.kind !== "file-import" || typeof pending.file !== "string" || typeof pending.digest !== "string" || typeof pending.text !== "string") throw Error("Unknown import.")
       const current = await ProjectTemplateTransfer.read(pending.file)
-      if (current.digest !== pending.digest) throw Error("Template changed after preview.")
+      if (current.digest !== (pending.sourceDigest ?? pending.digest)) throw Error("Template changed after preview.")
       return Flock.withLock("template-content-" + current.digest, async () => {
       const duplicate = (await library.list()).find(row => row.state === "ready" && row.digest === current.digest)
       if (duplicate) return { id: duplicate.name, name: current.bundle.name }
@@ -217,7 +222,7 @@ export function make(deps: Deps) {
         if (seen.has(key)) return false
         seen.add(key)
         return true
-      }).map(row => ({ id: row.name, name: row.title ?? row.name }))
+      }).map(row => ({ id: row.name, name: row.title ?? row.name, digest: row.digest }))
     },
     prepareSave: async (projectID: string, browsers: readonly BrowserInput[], templateID?: string) => {
       const prior = templateID === undefined ? undefined : await library.preview(templateID)
@@ -301,9 +306,12 @@ export function make(deps: Deps) {
         }
         await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
       }),
-    prepareCreate: async (libraryID: string, settingsDirectory: string) => {
+    prepareCreate: async (libraryID: string, settingsDirectory: string, migrateCore = false) => {
       if (!path.isAbsolute(settingsDirectory)) throw Error("A verified model settings directory is required.")
-      const preview = await library.preview(libraryID)
+      const source = await library.preview(libraryID)
+      const migration = migrateCore && deps.coreRoles ? ProjectTemplateCoreMigration.prepare(source.text, await deps.coreRoles()) : undefined
+      if (migrateCore && !migration) throw Error("Canonical built-in role is unavailable or ambiguous.")
+      const preview = migration ?? source
       if (preview.bundle.version === 2 && preview.bundle.process.unresolvedRoles?.length) throw Error("Unresolved source role definitions must be restored before creating a project.")
       const key =
         "orchestra/template-create-reservation/" +
@@ -325,6 +333,7 @@ export function make(deps: Deps) {
             const receipt = await deps.live(settingsDirectory).readReceipt(previous)
             if (!receipt) throw Error("Pending import receipt is missing.")
             return {
+              roleChanges: pending.roleChanges,
               token: receipt.id,
               name: receipt.name,
               details: receipt.process?.template ?? receipt.template,
@@ -336,11 +345,12 @@ export function make(deps: Deps) {
         await run(
           deps.kv.atomicUpdate(PREPARED + receipt.id, (current) => {
             if (current !== undefined) throw Error("Create reservation collision.")
-            return json({ kind: "create", settingsDirectory, libraryID, digest: preview.digest } satisfies Create)
+            return json({ kind: "create", settingsDirectory, libraryID, digest: preview.digest, ...(migration ? { sourceDigest: migration.sourceDigest, roleChanges: migration.changes } : {}) } satisfies Create)
           }),
         )
         await run(deps.kv.set(key, receipt.id))
         return {
+          ...(migration ? { roleChanges: migration.changes } : {}),
           token: receipt.id,
           name: receipt.name,
           details: preview.text,
@@ -365,7 +375,7 @@ export function make(deps: Deps) {
         throw Error("Create reservation differs.")
       if (receipt.phase === "reserved") {
         const current = await library.preview(pending.libraryID)
-        if (current.digest !== pending.digest) throw Error("Template changed after preview.")
+        if (current.digest !== (pending.sourceDigest ?? pending.digest)) throw Error("Template changed after preview.")
       }
       const result = await live.resume(token)
       return {
