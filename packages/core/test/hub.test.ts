@@ -324,3 +324,13 @@ describe("unknown entry", () => {
   })
 })
 
+
+test("unknown hub ids return soft planned discovery feedback rather than execution failure",()=>{
+ for(const id of ["fd","git","zzz"]){
+  const result=HubTool.unknownEntryResult(id)
+  expect(result.status).toBe("planned")
+  expect(result.output).toBe(HubTool.unknownEntry(id))
+  expect(result.command).toBeUndefined()
+  expect(result.exit).toBeUndefined()
+ }
+})

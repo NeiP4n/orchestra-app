@@ -130,6 +130,11 @@ export const unknownEntry = (id: string) => {
   ].join("\n")
 }
 
+// Discovery feedback is not an execution failure: no command has run yet.
+export const unknownEntryResult = (id: string): Output => ({
+  output: unknownEntry(id), status: "planned", hubID: id,
+})
+
 // Words that carry no meaning in a query such as "search content in files with regex".
 const FILLER = new Set(["a", "an", "the", "in", "on", "of", "to", "for", "with", "and", "or", "by", "all", "using", "from"])
 
@@ -266,7 +271,7 @@ export const Plugin = {
               if (input.install === true) {
                 if (!input.id) return yield* failure("Pass an entry id to get its install command")
                 const found = Hub.get(input.id)
-                if (!found) return yield* failure(`Unknown hub command: ${input.id}`)
+                if (!found) return unknownEntryResult(input.id)
                 const lacking = Hub.missingTools(found)
                 if (lacking.length === 0)
                   return {
@@ -314,7 +319,7 @@ export const Plugin = {
               }
               if (!input.id) return yield* failure("Pass an entry id, or use list/query to discover one")
               const entry = Hub.get(input.id)
-              if (!entry) return yield* failure(unknownEntry(input.id))
+              if (!entry) return unknownEntryResult(input.id)
               if (allowed !== undefined && !allowed.includes(entry.category))
                 return yield* failure(
                   `${entry.id} is in the ${entry.category} category, which this role may not run. Allowed categories: ${allowed.join(", ") || "none"}.`,
