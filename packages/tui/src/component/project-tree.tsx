@@ -38,6 +38,7 @@ import { DialogSelect } from "../ui/dialog-select"
 import { DialogRules } from "./dialog-rules"
 import * as BrowserRuntime from "../util/browser-runtime"
 import { DialogConfirm } from "../ui/dialog-confirm"
+import { ClearOrphansAction } from "./clear-orphans"
 import { ClearSessionsAction } from "./clear-sessions"
 import { useNotes, type NotesTab } from "../context/notes"
 import { NotesPanel } from "./notes-panel"
@@ -1722,6 +1723,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined}
           leaveCurrentSession={() => route.navigate({ type: "home" })}
         />
+        <ClearOrphansAction local={client.isLocal} api={client.api.session.orphans} currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined} confirm={confirmClear} notify={options => toast.show(options)} afterRemove={afterRemoveChat} />
       </box>
     </Show>
   )

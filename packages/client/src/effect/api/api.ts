@@ -140,6 +140,26 @@ export interface PluginApi<E = never> {
   readonly update: PluginUpdateOperation<E>
 }
 
+export type SessionOrphansPrepareInput = { readonly currentSessionID?: Session.ID | undefined }
+export type SessionOrphansPrepareOutput = {
+  readonly token: string
+  readonly count: number
+  readonly definition: string
+}
+export type SessionOrphansPrepareOperation<E = never> = (
+  input?: SessionOrphansPrepareInput,
+) => Effect.Effect<SessionOrphansPrepareOutput, E>
+
+export type SessionOrphansConfirmInput = { readonly token: string }
+export type SessionOrphansConfirmOutput = {
+  readonly removed: number
+  readonly skipped: number
+  readonly deleted: ReadonlyArray<Session.ID>
+}
+export type SessionOrphansConfirmOperation<E = never> = (
+  input: SessionOrphansConfirmInput,
+) => Effect.Effect<SessionOrphansConfirmOutput, E>
+
 export type SessionListInput = {
   readonly limit?: number | undefined
   readonly order?: "asc" | "desc" | undefined
@@ -1469,6 +1489,10 @@ export type SessionViewOutput = void
 export type SessionViewOperation<E = never> = (input: SessionViewInput) => Effect.Effect<SessionViewOutput, E>
 
 export interface SessionApi<E = never> {
+  readonly orphans: {
+    readonly prepare: SessionOrphansPrepareOperation<E>
+    readonly confirm: SessionOrphansConfirmOperation<E>
+  }
   readonly list: SessionListOperation<E>
   readonly stats: SessionStatsOperation<E>
   readonly create: SessionCreateOperation<E>

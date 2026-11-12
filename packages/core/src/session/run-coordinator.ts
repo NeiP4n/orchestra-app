@@ -9,6 +9,7 @@ export interface Coordinator<Key, E, Reason = never> {
   readonly active: Effect.Effect<ReadonlySet<Key>>
   /** Checks ownership for one key, including cleanup and terminal settlement. */
   readonly isActive: (key: Key) => Effect.Effect<boolean>
+  readonly whileIdle: <A, E2, R>(key: Key, effect: Effect.Effect<A, E2, R>) => Effect.Effect<A | undefined, E2, R>
   /** Starts an execution while idle, or joins the active execution and returns its exit. */
   readonly run: (key: Key) => Effect.Effect<void, E>
   /** Rings the doorbell: an idle key starts an execution; an active one drains again before settling. */
@@ -72,6 +73,7 @@ export const make = <Key, E, Reason = never>(options: {
 }): Effect.Effect<Coordinator<Key, E, Reason>, never, Scope.Scope> =>
   Effect.gen(function* () {
     const executions = new Map<Key, Execution<E, Reason>>()
+    const idleReservations = new Map<Key, { done: Deferred.Deferred<void>; wake?: Promotable }>()
     const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
     const loop = (key: Key, execution: Execution<E, Reason>, force: boolean): Effect.Effect<void, E> =>
@@ -167,6 +169,8 @@ export const make = <Key, E, Reason = never>(options: {
       Effect.uninterruptibleMask((restore) =>
         Effect.suspend(() => {
           if (options.canRun?.() === false) return Effect.void
+          const reserved = idleReservations.get(key)
+          if (reserved) return restore(Deferred.await(reserved.done)).pipe(Effect.andThen(run(key)))
           const execution = executions.get(key)
           if (execution !== undefined) {
             // A stopping execution or an execution in terminal settlement refuses joiners: wait out its cleanup, then run fresh.
@@ -187,6 +191,8 @@ export const make = <Key, E, Reason = never>(options: {
     const wake = (key: Key, scope: Promotable = "input") =>
       Effect.sync(() => {
         if (options.canRun?.() === false) return
+        const reserved = idleReservations.get(key)
+        if (reserved) { reserved.wake = reserved.wake === "input" ? "input" : scope; return }
         const execution = executions.get(key)
         if (execution !== undefined) {
           // Coalesced wakes keep the widest scope: "input" subsumes "steer".
@@ -233,6 +239,16 @@ export const make = <Key, E, Reason = never>(options: {
       )
 
     return {
+      whileIdle: (key, effect) => Effect.suspend(() => {
+        if (executions.has(key) || idleReservations.has(key)) return Effect.succeed(undefined)
+        const reservation: { done: Deferred.Deferred<void>; wake?: Promotable } = { done: Deferred.makeUnsafe<void>() }
+        idleReservations.set(key, reservation)
+        return effect.pipe(Effect.ensuring(Effect.suspend(() => {
+          idleReservations.delete(key)
+          Deferred.doneUnsafe(reservation.done, Exit.void)
+          return reservation.wake ? wake(key, reservation.wake) : Effect.void
+        })))
+      }),
       active: Effect.sync(() => new Set(executions.keys())),
       isActive,
       run,

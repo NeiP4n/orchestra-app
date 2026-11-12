@@ -1,5 +1,12 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Clear orphans": "Clear orphans",
+  "Clear orphan sessions": "Clear orphan sessions",
+  "No orphan sessions found": "No orphan sessions found",
+  "Checking…": "Checking…",
+  "Delete {count} idle orphan sessions whose parent no longer exists? Project, group, root, browser, archived and active chats are preserved. This cannot be undone.": "Delete {count} idle orphan sessions whose parent no longer exists? Project, group, root, browser, archived and active chats are preserved. This cannot be undone.",
+  "Deleted {removed} orphan sessions; skipped {skipped}.": "Deleted {removed} orphan sessions; skipped {skipped}.",
+
   "REC debug": "REC debug",
   "Debug OFF": "Debug OFF",
   "REC error": "REC error",
@@ -219,6 +226,13 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Clear orphans": "Очистить сироты",
+  "Clear orphan sessions": "Очистить сессии-сироты",
+  "No orphan sessions found": "Сессий-сирот не найдено",
+  "Checking…": "Проверка…",
+  "Delete {count} idle orphan sessions whose parent no longer exists? Project, group, root, browser, archived and active chats are preserved. This cannot be undone.": "Удалить {count} неактивных сессий-сирот без родителя? Чаты проектов и групп, корневые, браузерные, архивные и активные чаты сохранятся. Отменить нельзя.",
+  "Deleted {removed} orphan sessions; skipped {skipped}.": "Удалено сессий-сирот: {removed}; пропущено: {skipped}.",
+
   "REC debug": "REC дебаг",
   "Debug OFF": "Дебаг ВЫКЛ",
   "REC error": "REC ошибка",

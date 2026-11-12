@@ -23,6 +23,10 @@ import type {
   PluginCheckOutput,
   PluginUpdateInput,
   PluginUpdateOutput,
+  SessionOrphansPrepareInput,
+  SessionOrphansPrepareOutput,
+  SessionOrphansConfirmInput,
+  SessionOrphansConfirmOutput,
   SessionListInput,
   SessionListOutput,
   SessionStatsInput,
@@ -589,6 +593,18 @@ const adaptGroupPlugin = (raw: RawClient["server.plugin"]) => ({
   update: EndpointPluginUpdate(raw),
 })
 
+const EndpointSessionOrphansPrepare = (raw: RawClient["server.session"]) => (input?: SessionOrphansPrepareInput) =>
+  preserveEffect<SessionOrphansPrepareOutput>()(
+    raw["session.orphans.prepare"]({ payload: { currentSessionID: input?.["currentSessionID"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointSessionOrphansConfirm = (raw: RawClient["server.session"]) => (input: SessionOrphansConfirmInput) =>
+  preserveEffect<SessionOrphansConfirmOutput>()(
+    raw["session.orphans.confirm"]({ payload: { token: input["token"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const EndpointSessionList = (raw: RawClient["server.session"]) => (input?: SessionListInput) =>
   preserveEffect<SessionListOutput>()(
     raw["session.list"]({
@@ -994,6 +1010,7 @@ const EndpointSessionView = (raw: RawClient["server.session"]) => (input: Sessio
   )
 
 const adaptGroupSession = (raw: RawClient["server.session"]) => ({
+  orphans: { prepare: EndpointSessionOrphansPrepare(raw), confirm: EndpointSessionOrphansConfirm(raw) },
   list: EndpointSessionList(raw),
   stats: EndpointSessionStats(raw),
   create: EndpointSessionCreate(raw),

@@ -1,3 +1,5 @@
+import { SessionExecution } from "@orchestra/core/session/execution"
+import { SessionInbox } from "@orchestra/core/session/inbox"
 import { SessionContinuation } from "@orchestra/core/session/continuation"
 import { KV } from "@orchestra/core/kv"
 import { SessionStore } from "@orchestra/core/session/store"
@@ -74,6 +76,8 @@ const applicationServiceNodes = [
   Project.node,
   Worktree.node,
   Session.node,
+  SessionExecution.node,
+  SessionInbox.node,
   Instance.node,
   SessionTransfer.node,
   SdkPlugins.node,

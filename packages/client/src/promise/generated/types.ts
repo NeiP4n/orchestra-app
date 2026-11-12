@@ -3480,6 +3480,16 @@ export type PluginUpdateInput = {
 
 export type PluginUpdateOutput = void
 
+export type SessionOrphansPrepareInput = {
+  readonly currentSessionID?: { readonly currentSessionID?: string | undefined }["currentSessionID"]
+}
+
+export type SessionOrphansPrepareOutput = { token: string; count: number; definition: string }
+
+export type SessionOrphansConfirmInput = { readonly token: { readonly token: string }["token"] }
+
+export type SessionOrphansConfirmOutput = { removed: number; skipped: number; deleted: Array<string> }
+
 export type SessionListInput = {
   readonly limit?: {
     readonly limit?: number | undefined

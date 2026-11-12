@@ -25,6 +25,8 @@ export interface Interface {
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   /** Checks process-local ownership, including interruption cleanup and terminal settlement. */
   readonly isActive: (sessionID: SessionSchema.ID) => Effect.Effect<boolean>
+  /** Reserve an idle session without interrupting work. New wakeups wait until release. */
+  readonly whileIdle?: <A, E, R>(sessionID: SessionSchema.ID, effect: Effect.Effect<A, E, R>) => Effect.Effect<A | undefined, E, R>
   /** Starts execution while idle or joins the active execution. */
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, SessionRunner.RunError>
   /** Registers newly recorded work. Repeated wakeups may coalesce. */
@@ -261,6 +263,7 @@ export const layer = Layer.effect(
       )
 
     return Service.of({
+      whileIdle: coordinator.whileIdle,
       active: coordinator.active,
       isActive: coordinator.isActive,
       interrupt: (sessionID, options) =>

@@ -1,3 +1,5 @@
+import { SessionOrphanCleanup } from "../src/session/orphan-cleanup"
+import { SessionRunCoordinator } from "../src/session/run-coordinator"
 import { ProjectTemplateReader } from "../src/project-template-reader"
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
@@ -304,6 +306,47 @@ it.live("project debug captures an existing Orchestrator session enabled mid-cha
     expect(text).toContain(main.id)
   }).pipe(Effect.scoped),
 )
+
+it.live("orphan cleanup preserves visible, running, queued, archived and current sessions with a dry-run", () => Effect.gen(function* () {
+  const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orphan-cleanup-")))
+  const sessions = yield* Session.Service, orchestra = yield* Orchestra.Service
+  const store = yield* SessionStore.Service, kv = yield* KV.Service, inbox = yield* SessionInbox.Service
+  const db = (yield* Database.Service).db
+  const coordinator = yield* SessionRunCoordinator.make<Session.ID, never>({ drain: () => Effect.never })
+  const execution = { active: coordinator.active, whileIdle: coordinator.whileIdle } as SessionExecution.Interface
+  const cleanup = SessionOrphanCleanup.make({ sessions, store, kv, db, inbox, execution, projects: orchestra.projects() })
+  const orphan = Effect.fn(function* (title: string) {
+    const parent = yield* sessions.create({ title: "parent", location: { directory: AbsolutePath.make(tmp.path) } })
+    const child = yield* sessions.create({ title, parentID: parent.id })
+    yield* sessions.remove(parent.id, { recursive: false })
+    return child
+  })
+  const root = yield* sessions.create({ title: "Visible root", location: { directory: AbsolutePath.make(tmp.path) } })
+  const eligible = yield* orphan("Missing parent")
+  const running = yield* orphan("Running")
+  yield* coordinator.wake(running.id)
+  const archived = yield* orphan("Archived")
+  yield* sessions.setArchived({ sessionID: archived.id, archived: true })
+  const current = yield* orphan("Current")
+  const queued = yield* orphan("Queued")
+  yield* sessions.prompt({ sessionID: queued.id, text: "pending", resume: false })
+  yield* Effect.promise(() => mkdir(path.join(tmp.path, "owned")))
+  const project = yield* orchestra.create({ name: "Visible", directory: path.join(tmp.path, "owned") })
+  const member = yield* orchestra.createMember({ project, title: "Visible member", agent: Orchestra.role("developer") })
+  const preview = yield* cleanup.prepare(current.id)
+  expect(preview.count).toBe(1)
+  expect(yield* store.get(eligible.id)).toBeDefined()
+  const outcome = yield* cleanup.confirm(preview.token)
+  expect(outcome).toMatchObject({ removed: 1, skipped: 0, deleted: [eligible.id] })
+  expect(yield* store.get(eligible.id)).toBeUndefined()
+  for (const id of [root.id, running.id, archived.id, current.id, queued.id, member.id, project.main!]) expect(yield* store.get(id)).toBeDefined()
+  const changes = yield* orphan("Becomes active after preview")
+  const stalePreview = yield* cleanup.prepare(current.id)
+  expect(stalePreview.count).toBe(1)
+  yield* coordinator.wake(changes.id)
+  expect(yield* cleanup.confirm(stalePreview.token)).toMatchObject({ removed: 0, skipped: 1 })
+  expect(yield* store.get(changes.id)).toBeDefined()
+}).pipe(Effect.scoped))
 
 describe("Orchestra sandbox project", () => {
   it.live("works in a new worktree of the repository and leaves the source checkout untouched", () =>

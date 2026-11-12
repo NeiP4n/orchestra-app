@@ -178,6 +178,8 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
   formLocationMiddleware: Context.Key<FormI, FormS>,
 ) =>
   HttpApiGroup.make("server.session")
+    .add(HttpApiEndpoint.post("session.orphans.prepare", "/api/session-orphans/prepare", { payload: Schema.Struct({ currentSessionID: Schema.optional(Session.ID) }), success: Schema.Struct({ token: Schema.String, count: Schema.Number, definition: Schema.String }), error: InvalidRequestError }))
+    .add(HttpApiEndpoint.post("session.orphans.confirm", "/api/session-orphans/confirm", { payload: Schema.Struct({ token: Schema.String }), success: Schema.Struct({ removed: Schema.Number, skipped: Schema.Number, deleted: Schema.Array(Session.ID) }), error: InvalidRequestError }))
     .add(
       HttpApiEndpoint.get("session.list", "/api/session", {
         query: SessionsQuery,

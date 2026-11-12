@@ -17,6 +17,10 @@ import type {
   PluginCheckOutput,
   PluginUpdateInput,
   PluginUpdateOutput,
+  SessionOrphansPrepareInput,
+  SessionOrphansPrepareOutput,
+  SessionOrphansConfirmInput,
+  SessionOrphansConfirmOutput,
   SessionListInput,
   SessionListOutput,
   SessionStatsInput,
@@ -765,6 +769,32 @@ export function make(options: ClientOptions) {
         ),
     },
     session: {
+      orphans: {
+        prepare: (input?: SessionOrphansPrepareInput, requestOptions?: RequestOptions) =>
+          request<SessionOrphansPrepareOutput>(
+            {
+              method: "POST",
+              path: `/api/session-orphans/prepare`,
+              body: { currentSessionID: input?.["currentSessionID"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        confirm: (input: SessionOrphansConfirmInput, requestOptions?: RequestOptions) =>
+          request<SessionOrphansConfirmOutput>(
+            {
+              method: "POST",
+              path: `/api/session-orphans/confirm`,
+              body: { token: input["token"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
       list: (input?: SessionListInput, requestOptions?: RequestOptions) =>
         request<SessionListOutput>(
           {

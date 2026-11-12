@@ -1,3 +1,10 @@
+import { SessionOrphanCleanup } from "@orchestra/core/session/orphan-cleanup"
+import { SessionExecution } from "@orchestra/core/session/execution"
+import { SessionStore } from "@orchestra/core/session/store"
+import { SessionInbox } from "@orchestra/core/session/inbox"
+import { KV } from "@orchestra/core/kv"
+import { Database } from "@orchestra/core/database/database"
+import { HttpServerRequest } from "effect/unstable/http"
 import { Session } from "@orchestra/core/session"
 import { SessionHold } from "@orchestra/core/session/hold"
 import { Orchestra } from "@orchestra/core/orchestra"
@@ -6,7 +13,7 @@ import { SessionTitle } from "@orchestra/core/session/title"
 import { SessionTransfer } from "@orchestra/core/session/transfer"
 import { InstructionEntry } from "@orchestra/core/session/instruction-entry"
 import { Form } from "@orchestra/core/form"
-import { DateTime, Effect, Stream } from "effect"
+import { DateTime, Effect, Stream, Option } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
 import { SessionsCursor } from "@orchestra/protocol/groups/session"
@@ -40,6 +47,15 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
     const session = yield* Session.Service
     const orchestra = yield* Orchestra.Service
     const transfer = yield* SessionTransfer.Service
+    const cleanup = SessionOrphanCleanup.make({ sessions: session, store: yield* SessionStore.Service, execution: yield* SessionExecution.Service, inbox: yield* SessionInbox.Service, kv: yield* KV.Service, db: (yield* Database.Service).db, projects: orchestra.projects() })
+    const localCleanup = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      const address = Option.getOrUndefined(request.remoteAddress)?.replace(/^::ffff:/, "")
+      const host = new URL(request.url, `http://${request.headers.host ?? "unverified.invalid"}`).hostname
+      if ((address && address !== "::1" && !address.startsWith("127.")) || !["localhost", "127.0.0.1", "[::1]"].includes(host))
+        return yield* new InvalidRequestError({ message: "Orphan cleanup is available only on the local backend." })
+      return yield* effect.pipe(Effect.catchCause(() => Effect.fail(new InvalidRequestError({ message: "Cleanup failed or preview expired. Check the count again." }))))
+    })
     const requireOwnedForm = Effect.fnUntraced(function* (sessionID: Form.Info["sessionID"], formID: Form.ID) {
       const form = yield* Form.Service
       const info = yield* form.get(formID).pipe(Effect.catchTag("Form.NotFoundError", () => missingForm(formID)))
@@ -62,6 +78,8 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       )
 
     return handlers
+      .handle("session.orphans.prepare", ctx => localCleanup(cleanup.prepare(ctx.payload.currentSessionID)))
+      .handle("session.orphans.confirm", ctx => localCleanup(cleanup.confirm(ctx.payload.token)))
       .handle(
         "session.list",
         Effect.fn(function* (ctx) {

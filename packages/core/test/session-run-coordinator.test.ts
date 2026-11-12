@@ -7,6 +7,24 @@ import { testEffect } from "./lib/effect"
 const it = testEffect(Layer.empty)
 
 describe("SessionRunCoordinator", () => {
+  it.effect("idle reservation refuses active sessions and defers wake until release", () => Effect.gen(function* () {
+    let runs = 0
+    const started = yield* Deferred.make<void>(), release = yield* Deferred.make<void>()
+    const c = yield* SessionRunCoordinator.make<string, never>({ drain: () => Effect.sync(() => { runs++ }) })
+    const reserved = yield* c.whileIdle("s", Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.as("removed"))).pipe(Effect.forkChild)
+    yield* Deferred.await(started)
+    yield* c.wake("s")
+    expect(runs).toBe(0)
+    expect(yield* c.whileIdle("s", Effect.succeed("unsafe"))).toBeUndefined()
+    yield* Deferred.succeed(release, undefined)
+    expect(yield* Fiber.join(reserved)).toBe("removed")
+    yield* c.awaitIdle("s")
+    expect(runs).toBe(1)
+    const active = yield* SessionRunCoordinator.make<string, never>({ drain: () => Effect.never })
+    yield* active.wake("busy")
+    expect(yield* active.whileIdle("busy", Effect.succeed("unsafe"))).toBeUndefined()
+  }))
+
   it.effect("rechecks admission after a joiner waits for interrupted cleanup", () =>
     Effect.gen(function* () {
       let enabled = true,
