@@ -750,3 +750,14 @@ describe("AuthorizationError", () => {
     expect(new Integration.AuthorizationError({ cause: undefined }).message).toBe("Authorization failed")
   })
 })
+
+it.effect("Antigravity discovery reports only a missing-config code without touching OAuth",()=>Effect.gen(function*(){
+ const integrations=yield* Integration.Service
+ const id=Integration.ID.make("google-antigravity")
+ yield* integrations.transform(editor=>editor.method.update({integrationID:id,method:{type:"oauth",id:Integration.MethodID.make("oauth"),label:"Antigravity"},authorize:()=>Effect.die(new Error("discovery must not authorize"))}))
+ const info=yield* integrations.get(id)
+ const method=info?.methods[0]
+ if(!process.env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET?.trim())expect(method).toMatchObject({unavailableReason:"antigravity-client-secret"})
+ else expect(method).not.toHaveProperty("unavailableReason")
+ expect(JSON.stringify(info)).not.toContain("client_secret=")
+}))

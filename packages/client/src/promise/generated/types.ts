@@ -2919,7 +2919,13 @@ export type FormDetail = {
   state: FormState
 }
 
-export type IntegrationOAuthMethod = { id: string; type: "oauth"; label: string; form?: FormFields }
+export type IntegrationOAuthMethod = {
+  id: string
+  type: "oauth"
+  unavailableReason?: "antigravity-client-secret"
+  label: string
+  form?: FormFields
+}
 
 export type IntegrationKeyMethod = { type: "key"; label?: string; form?: FormFields }
 

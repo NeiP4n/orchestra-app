@@ -5,6 +5,8 @@ export type Language = "en" | "ru"
 // English text is the key, so untranslated strings fall back to it as written.
 // `{name}` placeholders are filled from the values passed to `t`.
 const ru: Record<string, string> = {
+  "Not configured": "Не настроено",
+  "Not configured: set ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET and restart Orchestra. Set it locally on the server, never in chat.": "Не настроено: задай ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET и перезапусти Orchestra. Задай локально на сервере, не в чате.",
   // Neural interface
   "{count} agents thinking": "думают агенты: {count}",
   "network ready": "нейросеть готова",

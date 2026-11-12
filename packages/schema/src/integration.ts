@@ -19,6 +19,7 @@ export interface OAuthMethod extends Schema.Schema.Type<typeof OAuthMethod> {}
 export const OAuthMethod = Schema.Struct({
   id: MethodID,
   type: Schema.Literal("oauth"),
+  unavailableReason: optional(Schema.Literal("antigravity-client-secret")),
   label: Schema.String,
   form: optional(Form.Fields),
 }).annotate({ identifier: "Integration.OAuthMethod" })

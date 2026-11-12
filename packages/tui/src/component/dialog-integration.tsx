@@ -54,6 +54,8 @@ type ConnectMethod = Exclude<IntegrationInfo["methods"][number], { type: "env" }
 type IntegrationAttempt = IntegrationOauthConnectOutput["data"]
 type CommandAttempt = IntegrationCommandConnectOutput["data"]
 type OnIntegrationConnected = (providerID?: string) => void
+export const ANTIGRAVITY_SETUP = "Not configured: set ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET and restart Orchestra. Set it locally on the server, never in chat."
+export const methodUnavailable = (method: ConnectMethod) => method.type === "oauth" && method.unavailableReason === "antigravity-client-secret"
 const CANCELLED = Symbol("cancelled")
 const CUSTOM = Symbol("custom")
 const OPEN = Symbol("open")
@@ -90,6 +92,7 @@ export function connectionSummary(integration: IntegrationInfo) {
 export function DialogIntegration(
   props: { onConnected?: OnIntegrationConnected; integrationID?: string; autoConnect?: boolean } = {},
 ) {
+  const t = useT()
   const data = useData()
   const currentLocation = useLocation()
   const dialog = useDialog()
@@ -116,6 +119,7 @@ export function DialogIntegration(
   const options = createMemo(() => {
     return integrations().map((integration) => {
       const methods = connectMethods(integration)
+      const unavailable = methods.length > 0 && methods.every(methodUnavailable)
       const credentials = credentialConnections(integration)
       let category = "Services"
       if (integration.id in INTEGRATION_PRIORITY) category = "Popular"
@@ -124,9 +128,9 @@ export function DialogIntegration(
       return {
         title: integration.name,
         value: integration.id,
-        description: methods.length === 0 ? "Environment only" : undefined,
+        description: unavailable ? t("Not configured") : methods.length === 0 ? "Environment only" : undefined,
         footer: status ? "Sign in required →" : connectionSummary(integration) || undefined,
-        footerColor: status ? theme.text.feedback.warning.base : undefined,
+        footerColor: unavailable ? theme.text.feedback.warning.base : status ? theme.text.feedback.warning.base : undefined,
         category,
         disabled: methods.length === 0 && credentials.length === 0,
         gutter:
@@ -134,6 +138,7 @@ export function DialogIntegration(
             ? () => <text fg={theme.text.feedback.success.base}>✓</text>
             : undefined,
         onSelect: () => {
+          if(unavailable && !credentials.length)return
           if (credentials.length) return manageConnections(integration, methods, location, dialog, props.onConnected)
           return selectMethod(integration, methods, location, dialog, props.onConnected)
         },
@@ -145,6 +150,7 @@ export function DialogIntegration(
     <DialogSelect
       title="Connect an integration"
       options={options()}
+      footer={<Show when={integrations().some(i=>connectMethods(i).some(methodUnavailable))}><text fg={theme.text.feedback.warning.base} wrapMode="word">{t(ANTIGRAVITY_SETUP)}</text></Show>}
       emptyView={
         <box paddingLeft={4} paddingRight={4}>
           <text fg={theme.text.muted}>No integrations available</text>
@@ -300,17 +306,19 @@ function selectMethod(
   dialog: ReturnType<typeof useDialog>,
   onConnected?: OnIntegrationConnected,
 ) {
-  if (methods.length === 1) return openMethod(integration, methods[0], location, dialog, onConnected)
-  dialog.replace(() => (
+  if (methods.length === 1 && !methodUnavailable(methods[0]!)) return openMethod(integration, methods[0], location, dialog, onConnected)
+  dialog.replace(() => {const t=useT();const theme=useTheme().surface("dialog");return (
     <DialogSelect
       title={`Connect ${integration.name}`}
+      footer={<Show when={methods.some(methodUnavailable)}><text fg={theme.text.feedback.warning.base} wrapMode="word">{t(ANTIGRAVITY_SETUP)}</text></Show>}
       options={methods.map((method) => ({
         title: method.type === "key" ? (method.label ?? "API key") : method.label,
+        description: methodUnavailable(method) ? t("Not configured") : undefined,
         value: method.type === "key" ? "key" : method.id,
         onSelect: () => openMethod(integration, method, location, dialog, onConnected),
       }))}
     />
-  ))
+  )})
 }
 
 function openMethod(
@@ -320,6 +328,7 @@ function openMethod(
   dialog: ReturnType<typeof useDialog>,
   onConnected?: OnIntegrationConnected,
 ) {
+  if (methodUnavailable(method)) return
   if (method.type === "key") {
     void beginKey(integration, method, location, dialog, onConnected)
     return
@@ -620,8 +629,10 @@ function OAuthStarting(props: {
   const dialog = useDialog()
   const client = useClient()
   const toast = useToast()
+  const t=useT()
 
   onMount(() => {
+    if(methodUnavailable(props.method))return
     void client.api.integration.oauth
       .connect({
         integrationID: props.integration.id,
@@ -653,7 +664,8 @@ function OAuthStarting(props: {
         ))
       })
       .catch((cause) => {
-        toast.show({ variant: "error", message: errorMessage(cause) })
+        const missing=errorMessage(cause).includes("ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET is not set")
+        toast.show({ variant: missing ? "warning" : "error", message: missing ? t(ANTIGRAVITY_SETUP) : errorMessage(cause) })
         dialog.clear()
       })
   })

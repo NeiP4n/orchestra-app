@@ -29978,6 +29978,10 @@
             "type": "string",
             "enum": ["oauth"]
           },
+          "unavailableReason": {
+            "type": "string",
+            "enum": ["antigravity-client-secret"]
+          },
           "label": {
             "type": "string"
           },
