@@ -178,6 +178,54 @@ describe("operator continuation switch", () => {
   )
 })
 
+describe("cancelled paused admission", () => {
+  for (const retained of ["none", "other-input", "in-flight-claim"] as const) {
+    it.effect(`cancel last user input preserves only ${retained}`, () =>
+      Effect.gen(function* () {
+        const database = yield* Database.Service
+        const kv = yield* KV.Service
+        const admission = yield* SessionInbox.Service
+        const id = Session.ID.make(`ses_cancel_parked_${retained}`)
+        yield* seedSessions(database, [id], retained === "in-flight-claim" ? { time_suspended: Date.now() } : {})
+        yield* kv.set(SessionContinuation.KEY, false)
+        const inputID = SessionMessage.ID.create()
+        yield* admission.admit({
+          id: inputID,
+          sessionID: id,
+          item: { type: "user", delivery: "steer", payload: SessionInbox.UserPayload.make({ text: "Build the app" }) },
+        })
+        if (retained === "other-input")
+          yield* admission.admit({
+            id: SessionMessage.ID.create(),
+            sessionID: id,
+            item: {
+              type: "user",
+              delivery: "steer",
+              payload: SessionInbox.UserPayload.make({ text: "Keep this task" }),
+            },
+          })
+        const scope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+        let runs = 0
+        const context = yield* buildExecution(scope, () =>
+          Effect.sync(() => {
+            runs++
+          }),
+        )
+        const execution = Context.get(context, SessionExecution.Service)
+        yield* execution.wake(id)
+        expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(true)
+        yield* admission.cancel({ sessionID: id, id: inputID })
+        expect(yield* admission.list(id)).toHaveLength(retained === "other-input" ? 1 : 0)
+        expect(yield* kv.get(SessionContinuation.pausedKey(id))).toBe(retained === "none" ? undefined : true)
+        yield* Context.get(context, SessionContinuation.Service).set(true)
+        yield* execution.awaitIdle(id)
+        expect(runs).toBe(retained === "none" ? 0 : 1)
+      }),
+    )
+  }
+})
+
 describe("paused child admissions", () => {
   it.effect("queues a new child while OFF and resumes it on ON", () =>
     Effect.gen(function* () {

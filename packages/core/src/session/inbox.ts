@@ -18,11 +18,13 @@ import {
 } from "@orchestra/schema/session-inbox"
 import { Database } from "../database/database.js"
 import { Bus } from "../bus.js"
+import { KV } from "../kv.js"
+import { SessionContinuation } from "./continuation.js"
 import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { SessionEvent } from "./event.js"
 import { SessionMessage } from "./message.js"
 import { SessionSchema } from "./schema.js"
-import { SessionInboxTable, SessionMessageTable } from "./sql.js"
+import { SessionInboxTable, SessionMessageTable, SessionTable } from "./sql.js"
 
 type DatabaseService = Database.Interface["db"]
 
@@ -150,6 +152,7 @@ export const make = Effect.fn("SessionInbox.make")(function* () {
   const database = yield* Database.Service
   const db = database.db
   const bus = yield* Bus.Service
+  const kv = yield* KV.Service
 
   /** First admission wins for matching Session and type, without preparing a new payload. */
   const reconcile = Effect.fn("SessionInbox.reconcile")(function* <Type extends Item["type"]>(request: {
@@ -230,9 +233,33 @@ export const make = Effect.fn("SessionInbox.make")(function* () {
   const cancel = Effect.fn("SessionInbox.cancel")((input: PendingRef) =>
     publishMutation(
       input,
-      bus.publish(SessionEvent.InboxCancelled, {
-        sessionID: input.sessionID,
-        inboxID: input.id,
+      Effect.gen(function* () {
+        const cancelled = yield* find(db, input.id)
+        yield* bus.publish(
+          SessionEvent.InboxCancelled,
+          {
+            sessionID: input.sessionID,
+            inboxID: input.id,
+          },
+          {
+            commit: () =>
+              Effect.gen(function* () {
+                // A wake parked while OFF is not a task of its own. Cancelling its
+                // last user admission must not leave an empty wake that ON can use
+                // to start a fresh turn from project memory. Never discard a real
+                // in-flight claim or another pending admission.
+                if (cancelled?.type !== "user" || (yield* list(db, input.sessionID)).length !== 0) return
+                const session = yield* db
+                  .select({ suspended: SessionTable.time_suspended })
+                  .from(SessionTable)
+                  .where(eq(SessionTable.id, input.sessionID))
+                  .get()
+                  .pipe(Effect.orDie)
+                if (session?.suspended != null) return
+                yield* kv.remove(SessionContinuation.pausedKey(input.sessionID))
+              }),
+          },
+        )
       }),
     ),
   )
@@ -272,7 +299,7 @@ export const make = Effect.fn("SessionInbox.make")(function* () {
 
 export const layer = Layer.effect(Service, make())
 
-export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, Bus.node] })
+export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node, Bus.node, KV.node] })
 
 export const projectAdmitted = Effect.fn("SessionInbox.projectAdmitted")(function* (
   db: DatabaseService,
