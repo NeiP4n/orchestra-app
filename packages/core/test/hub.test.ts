@@ -334,3 +334,15 @@ test("unknown hub ids return soft planned discovery feedback rather than executi
   expect(result.exit).toBeUndefined()
  }
 })
+
+test("known read-only git misspellings auto-resolve to real entries without fuzzy destructive substitution",()=>{
+ expect(HubTool.canonicalCommand("git.log.recent")).toEqual({id:"git.log-graph",args:{limit:10}})
+ expect(HubTool.canonicalCommand("git.log.recent",{limit:3})).toEqual({id:"git.log-graph",args:{limit:3}})
+ expect(HubTool.canonicalCommand("git.status.short")).toEqual({id:"git.status",args:{}})
+ expect(HubTool.canonicalCommand("git.reset-hard").id).toBe("git.reset-hard")
+ for(const id of ["git.log.recent","git.status.short"]){
+  const cmd=HubTool.canonicalCommand(id)
+  const entry=Hub.get(cmd.id!)!
+  expect(entry).toBeDefined();expect(entry.danger).not.toBe(true)
+ }
+})

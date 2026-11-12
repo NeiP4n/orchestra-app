@@ -130,6 +130,14 @@ export const unknownEntry = (id: string) => {
   ].join("\n")
 }
 
+// Only reviewed read-only spellings are auto-corrected. A fuzzy guess must
+// never select a destructive or wallet-bearing command.
+export const canonicalCommand = (id: string | undefined, args: Readonly<Record<string, string | number | boolean>> = {}) => {
+  if (id === "git.log.recent") return { id: "git.log-graph", args: { limit: 10, ...args } }
+  if (id === "git.status.short") return { id: "git.status", args }
+  return { id, args }
+}
+
 // Discovery feedback is not an execution failure: no command has run yet.
 export const unknownEntryResult = (id: string): Output => ({
   output: unknownEntry(id), status: "planned", hubID: id,
@@ -268,6 +276,7 @@ export const Plugin = {
           output: Output,
           execute: (input, context) =>
             Effect.gen(function* () {
+              if (input.install !== true) input = { ...input, ...canonicalCommand(input.id, input.args) }
               if (input.install === true) {
                 if (!input.id) return yield* failure("Pass an entry id to get its install command")
                 const found = Hub.get(input.id)
