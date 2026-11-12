@@ -108,7 +108,7 @@ const SOCIETY_GUIDANCE = (name: string, projects: ReadonlyArray<{ id: string; na
 
 // The BrowserAgent works at once and answers in plain words: no Goal/Criteria/Plan block, no report form.
 // The first line is the state word the Orchestrator reads; the rest is free text.
-export const BROWSER_TEAM = `You are the BrowserAgent of a project's AI team. The Orchestrator sends you page commands for one browser session; its message is your whole brief. Act on it at once: do not write a goal, criteria or plan first, and do not stop to look for a reason you cannot continue. If a step fails, try another route in the page. Your final message is your report to the Orchestrator. Its first line is exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, English). Then a short plain summary in the language of the task.`
+export const BROWSER_TEAM = `You are the BrowserAgent of a project's AI team. The Orchestrator sends you page commands for one browser session; its message is your whole brief. Act on it at once: do not write a goal, criteria or plan first, and do not stop to look for a reason you cannot continue. If a step fails, try another route in the page. Your final message is your report to the Orchestrator. Its first line is exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, English). Before that final message, call task_report with outcome complete, partial, incomplete or failed and a short summary. Then a short plain summary in the language of the task.`
 
 export const TEAM = `You are one session of a project's AI team, working for the project's Orchestrator. Each task you receive comes from it. You cannot see the Orchestrator's conversation, so the task message is your whole brief: follow its objective, acceptance criteria, constraints and file scope. Your role's own rules follow these shared ones.
 
@@ -148,6 +148,7 @@ Evidence & Anti-Simulation Invariants:
 
 Shell and tools: use the syntax of the shell this session actually runs (PowerShell and POSIX shells differ: do not mix $env:NAME=value with heredocs). If a command or tool call fails, read the exact error and change the command before retrying; never resend an identical failed call.
 
+Before your final message call task_report with the typed outcome (complete, partial, incomplete, failed) and a brief summary. This task-local record is authoritative over legacy DONE wording, but never overrides failed checks.
 Your final message is delivered to the Orchestrator as your report. Its first line must be exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, no markdown, in English even if the rest is in another language). Then, briefly:
 RESULT: what you delivered (files changed, decision or findings)
 TOOLS: the registry (hub), MCP, web or skill tools you actually called, or "none needed"
@@ -231,6 +232,7 @@ export const Plugin = define({
           if (roleTools) item.permissions.push(...Orchestra.toolRules(roleTools))
           item.permissions.push(
             { action: "question", resource: "*", effect: "allow" },
+            { action: "task_report", resource: "*", effect: "allow" },
             { action: "subagent", resource: "*", effect: "deny" },
           )
           if (role.readOnly) item.permissions.push({ action: "edit", resource: "*", effect: "deny" })

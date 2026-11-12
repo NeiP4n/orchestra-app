@@ -1304,7 +1304,7 @@ const layer: Layer.Layer<
               ? state
               : noFinal
                 ? "incomplete"
-                : outcomeOf(answer)
+                : typedOutcomeOf(taskMessages) ?? outcomeOf(answer)
           // DONE from a role that changes files is evidence only with a check it actually ran and
           // none that failed; otherwise the task stays open as partial, whatever the worker says.
           const editor = (yield* roles(task.value.projectID)).some((role) => role.agent === session?.agent && !role.readOnly)
@@ -3801,6 +3801,14 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
 // markup, a status label and emoji are ignored, and a labelled status line further down counts.
 // Anything else is "unknown", which the Orchestrator judges from the report text itself.
 /** A report must say where its edits live; tests alone do not deliver code. */
+export function typedOutcomeOf(messages: ReadonlyArray<SessionMessage.Info>): "complete" | "partial" | "incomplete" | "failed" | undefined {
+  const calls = messages.filter((message): message is SessionMessage.Assistant => message.type === "assistant")
+    .toSorted((a,b) => DateTime.toEpochMillis(a.time.created) - DateTime.toEpochMillis(b.time.created))
+    .flatMap(message => message.content.flatMap(part => part.type === "tool" && part.name === "task_report" && part.state.status === "completed" ? [part] : []))
+  const value = calls.at(-1)?.state.input.outcome
+  return value === "complete" || value === "partial" || value === "incomplete" || value === "failed" ? value : undefined
+}
+
 export const deliveryLocationOf = (answer: string) =>
   /\b(?:commit|sha)\s*[:=]?\s*[a-f0-9]{7,40}\b|коммит\s*[:=]?\s*[a-f0-9]{7,40}\b|(?:\bbranch|ветк[ае])\s*[:=]?\s*[`"']?[\w./-]+|\blocal[ -]only\b|\bonly locally\b|только локально/iu.test(answer)
 
@@ -3922,6 +3930,7 @@ const LOOKING = new Set([
   "websearch",
   "research",
   "dod",
+  "task_report",
   "idea_bank",
   "plots",
   "memory",

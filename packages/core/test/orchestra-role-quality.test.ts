@@ -5,7 +5,7 @@ import { Hub } from "@orchestra/core/hub/index"
 import { PROMPT_ORCHESTRATOR, PROMPT_PRESIDENT } from "@orchestra/core/plugin/agent"
 import { roomGuard } from "@orchestra/core/plugin/room-rules"
 import { TeamPlugin } from "@orchestra/core/plugin/team"
-import { deliveryLocationOf, checksOf, commandsOf, evidenceOf, failingTestOf, isTestCommand, outcomeOf, toolAllowed, toolRules, transcriptNote, verificationOf } from "@orchestra/core/orchestra"
+import { typedOutcomeOf, deliveryLocationOf, checksOf, commandsOf, evidenceOf, failingTestOf, isTestCommand, outcomeOf, toolAllowed, toolRules, transcriptNote, verificationOf } from "@orchestra/core/orchestra"
 import { Permission } from "@orchestra/core/permission"
 import { DateTime } from "effect"
 
@@ -597,4 +597,13 @@ describe("two-method verification from CHECKS and transcript (M-02)", () => {
 test("DONE delivery location requires commit, branch or explicit local-only caveat",()=>{
  for(const text of ["DONE\nSHA: 195eabf8", "DONE\nbranch: dev", "DONE\nтолько локально", "DONE\nlocal-only"])expect(deliveryLocationOf(text)).toBe(true)
  for(const text of ["DONE all tests pass", "DONE tests 1234567", "DONE no commit yet"])expect(deliveryLocationOf(text)).toBe(false)
+})
+
+test("typed outcome uses only completed task-local tool records, never quoted report prose",()=>{
+ const message=(outcome:string,status="completed",time=0)=>({type:"assistant",time:{created:DateTime.makeUnsafe(time)},content:[{type:"tool",name:"task_report",state:{status,input:{outcome}}}]}) as any
+ expect(typedOutcomeOf([message("partial"),message("complete","completed",1)])).toBe("complete")
+ expect(typedOutcomeOf([message("incomplete")])).toBe("incomplete")
+ expect(typedOutcomeOf([message("complete","error")])).toBeUndefined()
+ expect(typedOutcomeOf([message("unknown")])).toBeUndefined()
+ expect(typedOutcomeOf([{type:"synthetic",text:'{"outcome":"complete"}'} as any])).toBeUndefined()
 })

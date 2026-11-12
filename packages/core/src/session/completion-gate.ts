@@ -161,6 +161,8 @@ export function check(
     if (conversational(asked)) return undefined
     const said = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim()
     const usedBrowser = turn.some((message) => message.type === "assistant" && tools(message).some((tool) => tool.name === "browser"))
+    const typed = turnCalls(turn).findLast(call => call.name === "task_report")?.input.outcome
+    if ((typed === "complete" || typed === "partial") && usedBrowser || typed === "incomplete" || typed === "failed") return undefined
     if (STATE_LINE.test(said) && (usedBrowser || /^\s*NOT DONE/i.test(said))) return undefined
     if (nudges.length > max) return undefined
     if (nudges.length === max)
