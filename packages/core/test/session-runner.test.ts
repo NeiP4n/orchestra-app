@@ -6009,6 +6009,23 @@ describe("SessionRunnerLLM", () => {
     },
   )
 
+  scenario("falls back after partial A10 retries while preserving text and avoiding replay", function* (s) {
+    yield* s.session.setMetadata({sessionID,metadata:{"orchestra:worker-models":[{id:"replacement",providerID:"fake"}]}})
+    yield* s.admit("Continue partial output on another model")
+    const failure=incompleteStream()
+    for(let i=0;i<2;i++)yield* s.llm.push(TestLLM.failAfter(failure,LLMEvent.stepStart({index:0}),LLMEvent.textStart({id:`a10-${i}`}),LLMEvent.textDelta({id:`a10-${i}`,text:`Partial ${i}`})))
+    yield* s.llm.push(TestLLM.text("Recovered on fallback","fallback-result"))
+    const scheduled=yield* subscribeRetries(s)
+    const run=yield* s.resume.pipe(Effect.forkChild)
+    yield* Queue.take(scheduled);yield* TestClock.adjust("2400 millis");yield* Fiber.join(run)
+    expect(s.requests).toHaveLength(3)
+    expect(s.requests[2]?.model).toBe(replacementModel)
+    expect(JSON.stringify(s.requests[2]?.messages)).toContain("Partial 0")
+    expect(JSON.stringify(s.requests[2]?.messages)).toContain("Partial 1")
+    expect(JSON.stringify(s.requests[2]?.messages)).toContain("Continue from where you left off")
+    expect((yield* s.context).filter(m=>m.type === "synthetic" && m.description === "Error escalation")).toHaveLength(0)
+  })
+
   scenario("stops incomplete stream continuations once the retry allowance is spent", function* (s) {
     yield* s.admit("Exhaust partial continuations")
     const failure = incompleteStream()

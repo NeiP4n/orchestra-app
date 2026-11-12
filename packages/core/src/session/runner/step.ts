@@ -334,17 +334,6 @@ export const make = Effect.gen(function* () {
             return Outcome.Switched()
           }
         }
-        // Retries and fallbacks are exhausted: the failure is announced in the session itself
-        // (escalation ladder, block Б5) instead of failing silently into the log. The
-        // orchestrator reads it as its next instruction; the society/president rung is
-        // decided by the ladder, not by waiting for a human.
-        if (llmFailure && llmError && retry !== undefined && !retry.retry)
-          yield* SessionEscalate.announce({
-            bus,
-            sessionID: input.sessionID,
-            cause: llmFailure,
-            escalation: SessionEscalate.ladder({ cause: llmFailure, limitsExhausted: true }),
-          })
         if (llmError) yield* publisher.failAssistant(llmError)
 
         for (const decline of tools.declines)
@@ -483,6 +472,25 @@ export const make = Effect.gen(function* () {
         )
           return Outcome.Continue({ error: llmError, decision: retry })
 
+        // Partial text is durable by now, and all local tools are settled. A
+        // model fallback resumes from that history, never replays the step.
+        if (llmFailure && llmError && retry !== undefined && !retry.retry && record.outputStarted &&
+            isInterruptedStream(llmFailure) && tools.declines.length === 0 && !tools.interrupted &&
+            (yield* restore(input.fallback(llmFailure,llmError)))) {
+          yield* bus.publish(SessionEvent.Synthetic,{sessionID:input.sessionID,text:"The previous response was interrupted. Continue from where you left off without repeating completed content."})
+          return Outcome.Switched()
+        }
+        // Retries and fallbacks are exhausted: the failure is announced in the session itself
+        // (escalation ladder, block Б5) instead of failing silently into the log. The
+        // orchestrator reads it as its next instruction; the society/president rung is
+        // decided by the ladder, not by waiting for a human.
+        if (llmFailure && llmError && retry !== undefined && !retry.retry)
+          yield* SessionEscalate.announce({
+            bus,
+            sessionID: input.sessionID,
+            cause: llmFailure,
+            escalation: SessionEscalate.ladder({ cause: llmFailure, limitsExhausted: true }),
+          })
         if (Exit.isFailure(stream)) return yield* Effect.failCause(stream.cause)
         if (tools.declines.length > 0) {
           if (input.isLocationClosed()) return Outcome.Completed({ needsContinuation: true })
