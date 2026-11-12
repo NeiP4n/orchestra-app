@@ -158,37 +158,11 @@ jobs:
           chmod +x "$RUNNER_TEMP/gitleaks"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Scan secrets in pushed changes or full history
+      - name: Audit full-history secret baseline (advisory)
         shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          common=(--redact --report-format sarif --report-path="$RUNNER_TEMP/gitleaks.sarif")
-
-          # Scheduled/manual runs audit the entire Git history. Push and PR runs scan
-          # only commits introduced by the event to keep feedback quick and actionable.
-          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            gitleaks git . "${common[@]}"
-            exit 0
-          fi
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            base="$PR_BASE_SHA"
-          else
-            base="$PUSH_BEFORE"
-          fi
-
-          # A new branch's before SHA is all zeroes. Fall back to the full history scan
-          # rather than attempting to resolve a nonexistent commit.
-          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            gitleaks git . "${common[@]}"
-            exit 0
-          fi
-
-          gitleaks git . --log-opts="$base..HEAD" "${common[@]}"
+          gitleaks git . --redact --report-format sarif --report-path="$RUNNER_TEMP/gitleaks.sarif"
 
       - name: Preserve redacted secret-scan report
         if: always()
