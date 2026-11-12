@@ -1,5 +1,12 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "REC debug": "REC debug",
+  "Project recording: ON": "Project recording: ON",
+  "Project recording: OFF": "Project recording: OFF",
+  "Local messages and commands, secrets redacted. Review before sharing.": "Local messages and commands, secrets redacted. Review before sharing.",
+  "Copy debug log path": "Copy debug log path",
+  "Open debug log folder": "Open debug log folder",
+
   "Shell for AI and hub commands.": "Shell for AI and hub commands.",
   "Nu commands need approval as a whole; each result names its shell.": "Nu commands need approval as a whole; each result names its shell.",
   "Saved in config. Restart to unload disabled plugins.": "Saved in config. Restart to unload disabled plugins.",
@@ -207,6 +214,13 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "REC debug": "REC дебаг",
+  "Project recording: ON": "Запись проекта: ВКЛ",
+  "Project recording: OFF": "Запись проекта: ВЫКЛ",
+  "Local messages and commands, secrets redacted. Review before sharing.": "Локальные сообщения и команды, секреты скрыты. Проверь перед отправкой.",
+  "Copy debug log path": "Копировать путь лога",
+  "Open debug log folder": "Открыть папку лога",
+
   "Shell for AI and hub commands.": "Терминал для команд ИИ и hub.",
   "Nu commands need approval as a whole; each result names its shell.": "Команды nu требуют полного одобрения; в результате указан терминал.",
   "Saved in config. Restart to unload disabled plugins.": "Сохраняется в конфиге. Перезапуск выгрузит отключённые плагины.",

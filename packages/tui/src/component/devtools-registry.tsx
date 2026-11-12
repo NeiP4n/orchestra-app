@@ -84,9 +84,9 @@ export function RegistryPanel(props: {
   // AI tools, programs and the AI's terminal are separate jobs, so each gets its own tab.
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
-  const [pluginCount, setPluginCount] = createSignal<string>()
+  const [, setPluginCount] = createSignal<string>()
   const tabs = (): readonly Tab[] => (props.aiTools ? ["ai", "plugins", "programs", "terminal", "vault", "templates"] : ["plugins", "programs", "terminal", "vault", "templates"])
-  const tabGroups = () => compact() && dimensions().width < 64 ? [tabs().slice(0, 3), tabs().slice(3)] : [tabs()]
+  const tabGroups = () => [tabs().slice(0, 3), tabs().slice(3)]
   const cycle = (delta: number) => {
     setArmed()
     const list = tabs()
@@ -309,13 +309,7 @@ export function RegistryPanel(props: {
         <For each={group}>
           {(item) => (
             <Button variant={tab() === item ? "primary" : "secondary"} onClick={() => setTab(item)}>
-              {compact() ? t(item === "ai" ? "MCP tools" : item === "plugins" ? "Plugins" : item === "programs" ? "Programs" : item === "terminal" ? "Shell" : item === "vault" ? "Vault" : "Templates") : item === "ai"
-                ? `${t("AI tools (MCP)")}${aiCount() ? ` ${aiCount()}` : ""}`
-                : item === "plugins"
-                  ? `${t("Plugins")}${pluginCount() ? ` ${pluginCount()}` : ""}`
-                  : item === "programs"
-                    ? `${t("Programs")} ${counts().programs}`
-                    : item === "vault" ? "Vault" : item === "templates" ? t("Templates") : `${t("AI terminal")}: ${counts().terminal}`}
+              {`${t(item === "ai" ? "MCP tools" : item === "plugins" ? "Plugins" : item === "programs" ? "Programs" : item === "terminal" ? "Shell" : item === "vault" ? "Vault" : "Templates")}${item === "ai" && aiCount() ? ` ${aiCount()}` : ""}`}
             </Button>
           )}
         </For>
@@ -336,7 +330,7 @@ export function RegistryPanel(props: {
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
               <AiTools
-                compact={compact()}
+                compact={true}
                 tools={props.aiTools!}
                 active={tab() === "ai"}
                 pending={busy()}
@@ -356,7 +350,7 @@ export function RegistryPanel(props: {
             <Show when={props.plugins} fallback={<text fg={theme.text.muted}>{t("Plugin management is unavailable.")}</text>}>
               {(access) => (
                 <PluginTools
-                  compact={compact()}
+                  compact={true}
                   plugins={access()}
                   onCount={setPluginCount}
                   keys={(keys) => (pluginKeys = keys)}
@@ -491,10 +485,10 @@ export function RegistryPanel(props: {
       </scrollbox>
 
       <Show when={stale()}>
-        <text fg={theme.text.feedback.warning.base} wrapMode="word">
+        <text flexShrink={0} fg={theme.text.feedback.warning.base} wrapMode="word">
           {t("The package databases are outdated, so installs fail. Update the system, then install again.")}
         </text>
-        <box flexDirection="row">
+        <box flexDirection="row" height={1} flexShrink={0}>
           <Button
             variant="primary"
             disabled={busy() !== undefined}
@@ -506,7 +500,7 @@ export function RegistryPanel(props: {
       </Show>
       <Show when={message()}>
         {(text) => (
-          <text fg={theme.text.muted} wrapMode="word">
+          <text flexShrink={0} fg={theme.text.muted} wrapMode="word">
             {text()}
           </text>
         )}
@@ -767,6 +761,7 @@ function AiTools(props: {
   // Brings the row under the cursor into the visible part of the scrolling list.
   scrollIntoView?: (id: string) => void
 }) {
+  const dimensions = useTerminalDimensions()
   const theme = useTheme().surface("dialog")
   const t = useT()
   const toast = useToast()
@@ -850,7 +845,8 @@ function AiTools(props: {
               <text
                 fg={index() === cursor() ? theme.text.formfield.focused : theme.text.base}
                 attributes={TextAttributes.BOLD}
-                flexShrink={1}
+                flexShrink={0}
+                width={props.compact ? Math.max(9, Math.min(32, dimensions().width - 60)) : undefined}
                 minWidth={0}
                 truncate
                 wrapMode="none"
