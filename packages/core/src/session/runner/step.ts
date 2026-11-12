@@ -334,6 +334,8 @@ export const make = Effect.gen(function* () {
             return Outcome.Switched()
           }
         }
+        if (llmFailure && llmError && retry !== undefined && !retry.retry && (!recorded.outputStarted || !isInterruptedStream(llmFailure)))
+          yield* SessionEscalate.announce({bus,sessionID:input.sessionID,cause:llmFailure,escalation:SessionEscalate.ladder({cause:llmFailure,limitsExhausted:true})})
         if (llmError) yield* publisher.failAssistant(llmError)
 
         for (const decline of tools.declines)
@@ -484,7 +486,7 @@ export const make = Effect.gen(function* () {
         // (escalation ladder, block Б5) instead of failing silently into the log. The
         // orchestrator reads it as its next instruction; the society/president rung is
         // decided by the ladder, not by waiting for a human.
-        if (llmFailure && llmError && retry !== undefined && !retry.retry)
+        if (llmFailure && llmError && retry !== undefined && !retry.retry && recorded.outputStarted && isInterruptedStream(llmFailure))
           yield* SessionEscalate.announce({
             bus,
             sessionID: input.sessionID,
