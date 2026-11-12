@@ -1,6 +1,6 @@
 import { PluginTestLayer } from "./fixture"
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Logger } from "effect"
 import { Credential } from "@orchestra/core/credential"
 import { Integration } from "@orchestra/core/integration"
 import { Model } from "@orchestra/core/model"
@@ -106,4 +106,28 @@ describe("KlinchPlugin (arch3 №4)", () => {
       expect(snapshot.records.get(providerID)?.models.size).toBe(0)
     }),
   )
+})
+
+
+describe("Klinch discovery diagnostics", () => {
+  for (const outcome of ["no-connection", "success", "empty", "auth", "http"] as const) {
+    it.effect(`reports safe ${outcome} outcome without endpoint messages or credentials`, () =>
+      Effect.gen(function* () {
+        if (outcome !== "no-connection") yield* createKey()
+        const logs: unknown[] = []
+        const run = addPlugin().pipe(Effect.provideService(Logger.CurrentLoggers,
+          new Set([Logger.make(entry => logs.push(entry.message))])))
+        yield* outcome === "no-connection" ? run : withStubbedFetch(
+          outcome === "auth" ? 401 : outcome === "http" ? 503 : 200,
+          outcome === "auth" || outcome === "http" ? {error:{message:"RAW_SECRET_CANARY"}} :
+            {data:outcome === "empty" ? [] : [{id:"test-model"}]},run)
+        const text = JSON.stringify(logs)
+        expect(text).toContain("Klinch model discovery")
+        expect(text).toContain("startup")
+        expect(text).toContain(outcome === "no-connection" ? "not-attempted" : outcome === "auth" || outcome === "http" ? "failed" : "succeeded")
+        expect(text).not.toContain("test-klinch-key")
+        expect(text).not.toContain("RAW_SECRET_CANARY")
+      }),
+    )
+  }
 })
