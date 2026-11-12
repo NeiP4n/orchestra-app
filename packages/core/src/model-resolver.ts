@@ -99,6 +99,7 @@ export class UnsupportedCompactionError extends Schema.TaggedError<UnsupportedCo
 }
 
 export type Error =
+  | Model.ConfiguredDefaultUnavailableError
   | VariantUnavailableError
   | UnsupportedPackageError
   | ModelConfigurationError
