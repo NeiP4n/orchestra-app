@@ -69,6 +69,9 @@ import { SessionEnvironment } from "./session/environment.js"
 import { InstructionEntry } from "./session/instruction-entry.js"
 import { CompactionPolicy } from "./session/compaction-policy.js"
 import { SessionPlan } from "./session/plan.js"
+import { ProjectDebug } from "./session/project-debug.js"
+import { SessionProjectOwner } from "./session/project-owner.js"
+import { Orchestra as OrchestraSchema } from "@orchestra/schema/orchestra"
 
 // get project -> project.locations
 //
@@ -278,6 +281,30 @@ const layer = Layer.effect(
       Effect.provideService(SessionExecution.Service, resumeAwareExecution),
     )
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
+
+    // Live-only diagnostic capture, never replayed or sent to a service. Canonical owner
+    // lookup keeps nested workers in one exact project's file, not a nearby directory.
+    yield* bus.subscribe().pipe(
+      Stream.filter((event) => ProjectDebug.eventTypes.has(event.type) && "sessionID" in event.data),
+      Stream.runForEach((event) => Effect.gen(function* () {
+        const sessionID = SessionSchema.ID.make(String(event.data.sessionID))
+        const session = yield* store.get(sessionID)
+        if (!session) return
+        const owner = yield* SessionProjectOwner.resolve(kv, session)
+        if (!owner) return
+        const project = Schema.decodeUnknownOption(OrchestraSchema.Project)(yield* kv.get("orchestra/project/" + owner))
+        if (project._tag === "None") return
+        const directory = project.value.directory
+        yield* Effect.tryPromise(() => ProjectDebug.record(directory, {
+          timestamp: event.created,
+          sessionID,
+          role: event.type === "session.inbox.enqueued" ? "user" : String(session.agent ?? "assistant"),
+          eventType: event.type,
+          data: event.data,
+        }))
+      }).pipe(Effect.catch(() => Effect.logWarning("Project debug recording failed; check local path permissions")))),
+      Effect.forkScoped({ startImmediately: true }),
+    )
 
     const result = Service.of({
       create: Effect.fn("Session.create")(function* (input) {

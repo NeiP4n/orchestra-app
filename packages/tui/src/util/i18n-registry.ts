@@ -1,6 +1,7 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
   "REC debug": "REC debug",
+  "Debug OFF": "Debug OFF",
   "Project recording: ON": "Project recording: ON",
   "Project recording: OFF": "Project recording: OFF",
   "Local messages and commands, secrets redacted. Review before sharing.": "Local messages and commands, secrets redacted. Review before sharing.",
@@ -215,6 +216,7 @@ export const registryEn = {
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
   "REC debug": "REC дебаг",
+  "Debug OFF": "Дебаг ВЫКЛ",
   "Project recording: ON": "Запись проекта: ВКЛ",
   "Project recording: OFF": "Запись проекта: ВЫКЛ",
   "Local messages and commands, secrets redacted. Review before sharing.": "Локальные сообщения и команды, секреты скрыты. Проверь перед отправкой.",

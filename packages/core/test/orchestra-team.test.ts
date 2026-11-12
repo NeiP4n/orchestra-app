@@ -27,7 +27,8 @@ import { Federation } from "@orchestra/core/federation"
 import { Dod } from "@orchestra/core/dod"
 import { CompactionPolicy } from "@orchestra/core/session/compaction-policy"
 import { SessionPlan } from "@orchestra/core/session/plan"
-import { mkdir } from "node:fs/promises"
+import { mkdir, readFile } from "node:fs/promises"
+import { ProjectDebug } from "../src/session/project-debug"
 import path from "node:path"
 import { createHash } from "node:crypto"
 import { Session } from "@orchestra/core/session"
@@ -264,6 +265,24 @@ const reports = (sessionID: Session.ID) =>
       item.type === "synthetic" && item.payload.text.startsWith("<team-report") ? [item.payload.text] : [],
     )
   })
+
+it.live("project debug captures live worker events in the owning project file", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-debug-live-")))
+    const orchestra = yield* Orchestra.Service
+    const project = yield* orchestra.create({ name: "Debug live", directory: tmp.path, template: "bugfix" })
+    const worker = yield* orchestra.createMember({ project, title: "Developer", agent: Orchestra.role("developer") })
+    yield* Effect.promise(() => ProjectDebug.setEnabled(tmp.path, true))
+    yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Inspect debug recording" })
+    const text = yield* Effect.tryPromise(() => readFile(ProjectDebug.logPath(tmp.path), "utf8")).pipe(
+      Effect.filterOrFail((text) => text.includes("session.text.ended")),
+      Effect.retry(Schedule.spaced("20 millis")), Effect.timeout("3 seconds"),
+    )
+    const events = text.trim().split("\n").map((line) => JSON.parse(line))
+    expect(events.some((event) => event.sessionID === worker.id && event.eventType === "session.text.ended")).toBe(true)
+    expect(events.some((event) => event.eventType === "session.inbox.enqueued")).toBe(true)
+  }).pipe(Effect.scoped),
+)
 
 describe("Orchestra sandbox project", () => {
   it.live("works in a new worktree of the repository and leaves the source checkout untouched", () =>

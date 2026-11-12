@@ -48,6 +48,8 @@ import { useT } from "../util/i18n"
 import { stringWidth } from "../util/string-width"
 import { NeuronDot, neuralPalette, useNeuralEnergy } from "./neural"
 import { SculkResonanceMonitor } from "./sculk-effects"
+import { ProjectDebug } from "@orchestra/core/session/project-debug"
+import { openPath } from "@orchestra/util/open"
 import { SculkSprite } from "./sculk-sprite-view"
 
 const graphWidth = 23
@@ -82,6 +84,30 @@ export function DevToolsBar() {
   const [dumping, setDumping] = createSignal(false)
   const [dumpPath, setDumpPath] = createSignal<string>()
   const [dumpError, setDumpError] = createSignal<string>()
+  const debugDirectory = createMemo(() => {
+    if (!client.isLocal || route.data.type !== "session") return undefined
+    const owner = projects.owner(route.data.sessionID)
+    return projects.list().find((project) => project.id === owner)?.directory
+  })
+  const [recording, { refetch: refreshRecording }] = createResource(debugDirectory, (directory) => ProjectDebug.enabled(directory))
+  const [recordingBusy, setRecordingBusy] = createSignal(false)
+  const toggleRecording = async () => {
+    const directory = debugDirectory()
+    if (!directory || recordingBusy()) return
+    setRecordingBusy(true)
+    try { await ProjectDebug.setEnabled(directory, !recording()); await refreshRecording() }
+    catch (error) { toast.error(error) }
+    finally { setRecordingBusy(false) }
+  }
+  const recordingControls = () => (<Show when={debugDirectory()}>{(directory) => <>
+              <Action onClick={() => void toggleRecording()} disabled={recordingBusy()} hoverBackground>
+                {t(recording() ? "Project recording: ON" : "Project recording: OFF")}
+              </Action>
+              <text fg={theme.text.muted} wrapMode="word">{t("Local messages and commands, secrets redacted. Review before sharing.")}</text>
+              <Action onClick={() => void copy("Debug log path", ProjectDebug.logPath(directory()))} hoverBackground>{t("Copy debug log path")}</Action>
+              <Action onClick={() => void openPath(path.dirname(ProjectDebug.logPath(directory()))).catch(toast.error)} hoverBackground>{t("Open debug log folder")}</Action>
+            </>}</Show>)
+  const openRecording = () => dialog.replace(() => <box paddingLeft={1} paddingRight={1} paddingBottom={1}><PanelTitle>{t("Tools")}</PanelTitle>{recordingControls()}</box>)
   const [frontendSamples, setFrontendSamples] = createSignal<readonly ProcessSample[]>([])
   const [debugOverlay, setDebugOverlay] = createSignal(renderer.debugOverlay.enabled)
   let focus: Renderable | null
@@ -330,6 +356,7 @@ export function DevToolsBar() {
     // Dividers, language switch and the first-project button keep their full width.
     const fixed =
       4 +
+      (debugDirectory() ? stringWidth(t(recording() ? "REC debug" : "Debug OFF")) + 2 : 0) +
       stringWidth(`${t("Language")} EN`) +
       2 +
       (projects.loaded() && projects.list().length === 0 ? stringWidth(t("+ Project")) + 2 : 0)
@@ -491,6 +518,8 @@ export function DevToolsBar() {
       <Divider />
 
       {/* Zone 3: Environment, Controls & System Telemetry */}
+      <Show when={debugDirectory()}><BarItem active={recording() === true} onClick={openRecording}><text fg={recording() ? theme.text.feedback.warning.base : theme.text.muted}>{t(recording() ? "REC debug" : "Debug OFF")}</text></BarItem></Show>
+
       <BarItem
         active={false}
         onClick={() =>
@@ -529,6 +558,8 @@ export function DevToolsBar() {
         <Show when={panel() === "tools"}>
           <PanelBox align="right">
             <PanelTitle>{t("Tools")}</PanelTitle>
+            {recordingControls()}
+
             <Action onClick={() => void dump()} disabled={dumping()} hoverBackground>
               {dumping() ? t("Writing debug snapshot…") : t("Write debug snapshot")}
             </Action>
