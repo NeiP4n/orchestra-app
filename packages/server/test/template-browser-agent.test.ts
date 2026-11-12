@@ -91,6 +91,14 @@ for (const archived of [false, true])
           expect(importedFile.status).toBe(200)
           templateID = importedFile.body.id
         }
+        // The QA harness truncated the canonical template_ prefix. Reject the ID, not its role.
+        const invalid = yield* call("/orchestra/project-template/prepare-create", {
+          templateID: "process:83c365acebab4ca7978b13d4e1301e26",
+          settingsDirectory: tmp.path,
+        })
+        expect(invalid.status).toBe(400)
+        expect(invalid.body.kind).toBe("TEMPLATE_NAME")
+        expect(JSON.stringify(invalid.body)).not.toContain("83c365")
         const prepared = yield* call("/orchestra/project-template/prepare-create", {
           templateID,
           settingsDirectory: tmp.path,

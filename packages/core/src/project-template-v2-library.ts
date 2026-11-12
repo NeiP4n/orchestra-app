@@ -1,5 +1,6 @@
 export * as ProjectTemplateV2Library from "./project-template-v2-library.js"
 
+import { TemplateStageError } from "./project-template-errors.js"
 import { unlinkedPath } from "./project-template-path.js"
 import { lstat, mkdir, readdir } from "node:fs/promises"
 import path from "node:path"
@@ -8,7 +9,7 @@ import { ProjectTemplateFiles as Files } from "./project-template-files.js"
 /** Self-contained process library used by the v2 operator and portable export/import.
  * Stored documents are not installed processes; activation belongs to the reviewed live installer. */
 export function local(dataDirectory: string) {
-  const name = (value: string) => { if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw Error("Select a simple process template name."); V2.relativePath(value); return value }
+  const name = (value: string) => { if (!/^[a-z][a-z0-9_-]{0,59}$/.test(value)) throw new TemplateStageError("template-name", new Error("Invalid template library name"), "name-invalid"); V2.relativePath(value); return value }
   const folder = async () => {
     if (!path.isAbsolute(dataDirectory)) throw Error("Absolute application data directory required.")
     const parent = path.resolve(dataDirectory), stat = await lstat(parent)

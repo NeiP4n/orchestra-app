@@ -93,3 +93,22 @@ test("prepare-create role and model refusals identify a bounded cause, never rol
     expect(JSON.stringify({ messages, result })).not.toContain("PRIVATE_")
   }
 })
+
+
+test("actual invalid process-library name has a safe public error and bounded log", async () => {
+  const { ProjectTemplateV2Library } = await import("@orchestra/core/project-template-v2-library")
+  const { mkdtemp, rm } = await import("node:fs/promises")
+  const { tmpdir } = await import("node:os")
+  const path = await import("node:path")
+  const root = await mkdtemp(path.join(tmpdir(), "invalid-template-name-"))
+  try {
+    const failure = await ProjectTemplateV2Library.local(root).preview("83_PRIVATE_CANARY").then(() => undefined, error => error)
+    const { result, messages } = await refused(failure)
+    expect(result.kind).toBe("TEMPLATE_NAME")
+    expect(messages).toEqual([["project template operation refused", {
+      operation: "prepareSave", kind: "TEMPLATE_NAME", reason: result.message,
+      stage: "template-name", reasonCode: "name-invalid",
+    }]])
+    expect(JSON.stringify({ result, messages })).not.toContain("PRIVATE_CANARY")
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
