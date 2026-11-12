@@ -1,5 +1,9 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Save template": "Save template",
+  "Export": "Export",
+  "Template file (.orchestra-template)": "Template file path",
+  "↑↓ select · Enter action · Paste path to import": "↑↓ select · Enter · Ctrl+V path",
   "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.": "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.",
   "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.": "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.",
   "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.": "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.",
@@ -191,6 +195,10 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Save template": "Сохранить шаблон",
+  "Export": "Экспорт",
+  "Template file (.orchestra-template)": "Путь к файлу",
+  "↑↓ select · Enter action · Paste path to import": "↑↓ выбор · Enter · Ctrl+V путь",
   "A project session uses a role whose portable definition is unavailable. Select an existing project role or auto for that session, then review again. No role or rule was removed.": "Сессия проекта использует роль без доступного определения для переноса. Выберите существующую роль проекта или auto и повторите проверку. Роли и правила не удалены.",
   "A project rule targets a role whose definition is unavailable. Restore that role or review the rule in the project rulebook. No rule was removed.": "Правило проекта относится к роли, которой нет. Восстановите роль или проверьте правило в правилах проекта. Ни одно правило не удалено.",
   "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.": "План работы проекта рекомендует недоступную роль. Восстановите роль или проверьте рекомендацию. Настройки процесса не удалены.",

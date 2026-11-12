@@ -224,52 +224,35 @@ export function ProjectTemplatesSimple(props: {
   )
   return (
     <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
-      <box flexDirection="column">
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")}</text>
-        <text fg={theme.text.muted} wrapMode="word">
-          {tr("Project process: roles, skills, rules and settings. No chats, data or secrets.")}
-        </text>
-      </box>
-      <box flexDirection="column">
-        <Action id="save" label={tr("Save project as template")} disabled={!props.canSave || !!prepared()} />
-        <Show when={!props.canSave}>
-          <text fg={theme.text.muted} paddingLeft={3}>{tr("Open a project to save a template.")}</text>
-        </Show>
+      <box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")} · {templates().length}</text>
+        <Action id="save" label={tr("Save template")} disabled={!props.canSave || !!prepared()} />
       </box>
       <Show when={props.access.prepareImport && !prepared()}>
-        <box flexDirection="column">
-          <text fg={theme.text.muted}>{tr("Template file path (.orchestra-template)")}</text>
-          <box onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : theme.background.raised.base} paddingLeft={1} paddingRight={1}>
-            <input id="project-templates.import-path" ref={(value: InputRenderable) => { pathInput = value }} focused={focused() === "import-path"} value={importPath()} placeholder={tr("Paste the full file path")} onInput={setImportPath} textColor={theme.text.base} focusedTextColor={theme.text.base} cursorColor={theme.text.base} />
+        <box flexDirection="row" gap={1} alignItems="center">
+          <box flexGrow={1} minWidth={10} onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+            <input id="project-templates.import-path" ref={(value: InputRenderable) => { pathInput = value }} focused={focused() === "import-path"} value={importPath()} placeholder={tr("Template file (.orchestra-template)")} onInput={setImportPath} textColor={theme.text.base} focusedTextColor={theme.text.base} cursorColor={theme.text.base} />
           </box>
-          <text fg={theme.text.muted} wrapMode="word">{tr("Click the path or use Up/Down. Paste with Ctrl+V or terminal paste, then press Enter to import.")}</text>
-          <Action id="import" label={tr("Import from file")} disabled={!importPath().trim() || !!prepared()} />
+          <Action id="import" label={tr("Import")} disabled={!importPath().trim()} />
         </box>
       </Show>
       <Show when={!prepared()}>
-      <box flexDirection="column" gap={1}>
-        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Saved templates · {count}", { count: templates().length })}</text>
-        <Show when={templates().length === 0}>
-          <box flexDirection="column">
-            <Action id="create-empty" label={tr("Create project from template")} disabled />
-            <text fg={theme.text.muted} paddingLeft={3} wrapMode="word">{tr("No templates yet. Save a project above.")}</text>
-          </box>
-        </Show>
-        <For each={templates()}>
-          {(template) => (
-            <box flexDirection="column">
-              <text fg={theme.text.base} paddingLeft={3} wrapMode="word">{template.name}</text>
-              <Action id={`create-${template.id}`} label={tr("Create project from template")} disabled={!!prepared()} />
+        <box flexDirection="column">
+          <Show when={templates().length === 0}>
+            <text fg={theme.text.muted} wrapMode="word">{tr("No templates yet. Save a project above.")}</text>
+          </Show>
+          <For each={templates()}>{template => (
+            <box flexDirection="row" flexWrap="wrap" gap={1}>
+              <Action id={`create-${template.id}`} label={template.name + " · " + tr("Create")} />
               <Show when={props.canSave && props.access.exportFile}>
-                <Action id={`export-${template.id}`} label={tr("Export to file")} disabled={!!prepared()} />
+                <Action id={`export-${template.id}`} label={tr("Export")} />
               </Show>
               <Show when={props.canSave}>
-                <Action id={`update-${template.id}`} label={tr("Update template from current project")} disabled={!!prepared()} />
+                <Action id={`update-${template.id}`} label={tr("Update")} />
               </Show>
             </box>
-          )}
-        </For>
-      </box>
+          )}</For>
+        </box>
       </Show>
       <Show when={prepared()}>
         {(current) => (
@@ -336,7 +319,7 @@ export function ProjectTemplatesSimple(props: {
       <Show when={message()}>
         <text fg={theme.text.base} wrapMode="word">{tr(message())}{reason() ? " " + tr(reason()!) : ""}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
       </Show>
-      <text fg={theme.text.muted}>{tr("↑↓ select · Enter action")}</text>
+      <text fg={theme.text.muted} wrapMode="word">{tr(props.access.prepareImport ? "↑↓ select · Enter action · Paste path to import" : "↑↓ select · Enter action")}</text>
     </box>
   )
 }

@@ -4,7 +4,7 @@ import { mockWorkspace } from "../utils/workspace"
 for(const width of [1440,768,390]) test(`connected shell template file export and reviewed import at ${width}`,async({page},info)=>{
  await page.context().grantPermissions(["clipboard-read","clipboard-write"])
  await page.setViewportSize({width,height:900})
- await mockWorkspace(page,{name:"Template transfer",seed:{tabs:[],settings:{appearance:{animations:false}}}})
+ await mockWorkspace(page,{name:"Template transfer",seed:{locale:"ru",tabs:[],settings:{appearance:{animations:false}}}})
  await page.route("**/api/config/continuation",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({enabled:true})}))
  await page.route("**/api/orchestra/project",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify([{id:"prj_source",name:"Test2"}])}))
  await page.route("**/api/orchestra/project-template",route=>route.fulfill({status:200,contentType:"application/json",body:JSON.stringify([{id:"process:demo",name:"Test2"}])}))
