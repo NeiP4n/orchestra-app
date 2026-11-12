@@ -1,0 +1,32 @@
+name: browser-delete-persistence-regression
+on:
+  pull_request:
+    paths:
+      - 'packages/core/src/browser/runtime.ts'
+      - 'packages/tui/src/context/notes.tsx'
+      - 'packages/tui/src/component/session-frame.tsx'
+      - 'packages/core/test/browser-sessions-persistence.test.ts'
+      - 'packages/tui/test/browser-publish-owning-store.test.tsx'
+      - '.github/workflows/browser-delete-persistence-regression.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  focused:
+    name: Browser deletion persistence (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-bun
+      - name: Actual disk startup and restart persistence
+        run: bun test packages/core/test/browser-sessions-persistence.test.ts packages/core/test/browser-project-entry.test.ts
+      - name: Connected TUI owning store, lifecycle and sidebar persistence
+        working-directory: packages/tui
+        run: bun test test/browser-publish-owning-store.test.tsx test/browser-chat-connected.test.tsx test/browser-chat-lifecycle.test.ts test/browser-sessions-chat.test.ts test/browser-sessions.test.ts test/browser-runtime.test.ts test/browser-sidebar-controls.test.ts
