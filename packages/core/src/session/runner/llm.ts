@@ -825,6 +825,7 @@ export const node = makeLocationNode({
   layer,
   deps: [
     Bus.node,
+    KV.node,
     LocationLifecycle.node,
     llmClient,
     Model.node,
