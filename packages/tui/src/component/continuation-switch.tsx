@@ -2,11 +2,13 @@ import { createContinuationControl, type ContinuationAccess } from "@orchestra/c
 import { Show } from "solid-js"
 import { useClient } from "../context/client"
 import { useTheme } from "../context/theme"
+import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
 
 export function ContinuationSwitch(props: { access: ContinuationAccess; compact?: boolean }) {
   const control = createContinuationControl(props.access)
   const theme = useTheme()
+  const tr = useT()
   return (
     <box flexDirection="column" flexShrink={0} paddingLeft={1}>
       <HoverAction
@@ -18,16 +20,16 @@ export function ContinuationSwitch(props: { access: ContinuationAccess; compact?
       >
         <text fg={control.enabled() === false ? theme.text.action.primary.base : theme.text.base}>
           {control.busy()
-            ? "◌ Приостанавливаем / продолжаем…"
+            ? `◌ ${tr("Pausing / resuming…")}`
             : control.enabled() === undefined
-              ? "Все проекты: нет данных"
+              ? tr("All projects: no data")
               : control.enabled()
                 ? props.compact
                   ? "∀▶"
-                  : "▶ Все проекты: ВКЛ"
+                  : `▶ ${tr("All projects: ON")}`
                 : props.compact
                   ? "∀Ⅱ"
-                  : "Ⅱ Все проекты: ПАУЗА"}
+                  : `Ⅱ ${tr("All projects: PAUSED")}`}
         </text>
       </HoverAction>
       <Show when={control.failed()}>
@@ -37,7 +39,7 @@ export function ContinuationSwitch(props: { access: ContinuationAccess; compact?
             void control.refresh()
           }}
         >
-          <text fg={theme.text.action.primary.base}>Не удалось обновить. Повторить</text>
+          <text fg={theme.text.action.primary.base}>{tr("Could not update. Retry")}</text>
         </HoverAction>
       </Show>
     </box>

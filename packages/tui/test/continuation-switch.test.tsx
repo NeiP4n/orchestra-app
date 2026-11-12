@@ -71,3 +71,16 @@ for (const width of [32, 80])
       app.renderer.destroy()
     }
   })
+
+for(const language of ["en","ru"] as const)test(`continuation switch localizes all-project states at 120 in ${language}`,async()=>{
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language})}><ThemeProvider mode="dark" source={emptyThemeSource}><ContinuationSwitch access={{get:async()=>({enabled:true}),set:async value=>value}}/></ThemeProvider></ConfigProvider></TestTuiContexts>,{width:120,height:6})
+ app.renderer.start()
+ try{
+  await app.waitForFrame(f=>f.includes(language==="en"?"All projects: ON":"Все проекты: ВКЛ"))
+  const node=app.renderer.root.findDescendantById("continuation.toggle")!
+  await app.mockMouse.click(node.x+1,node.y)
+  await app.waitForFrame(f=>f.includes(language==="en"?"All projects: PAUSED":"Все проекты: ПАУЗА"))
+  if(language==="en")expect(app.captureCharFrame()).not.toContain("Все проекты")
+  await Bun.write(`/tmp/continuation-${language}-120.json`,JSON.stringify(app.captureSpans()))
+ }finally{app.renderer.destroy()}
+})

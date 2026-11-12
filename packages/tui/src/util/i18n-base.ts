@@ -5,6 +5,11 @@ export type Language = "en" | "ru"
 // English text is the key, so untranslated strings fall back to it as written.
 // `{name}` placeholders are filled from the values passed to `t`.
 const ru: Record<string, string> = {
+  "Pausing / resuming…": "Приостанавливаем / продолжаем…",
+  "All projects: no data": "Все проекты: нет данных",
+  "All projects: ON": "Все проекты: ВКЛ",
+  "All projects: PAUSED": "Все проекты: ПАУЗА",
+  "Could not update. Retry": "Не удалось обновить. Повторить",
   "Not configured": "Не настроено",
   "Not configured: create .orchestra/credentials.env in the server launch folder. Format: ORCHESTRA_ANTIGRAVITY_CLIENT_ID=your-client-id and ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET=your-secret (only for confidential clients), one per line. Restart Orchestra. Never send secrets in chat.": "Не настроено: создай .orchestra/credentials.env в папке запуска сервера. Формат: ORCHESTRA_ANTIGRAVITY_CLIENT_ID=свой-client-id и ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET=свой-секрет (только для confidential-клиента), по одной строке. Перезапусти Orchestra. Не отправляй секреты в чат.",
   // Neural interface
