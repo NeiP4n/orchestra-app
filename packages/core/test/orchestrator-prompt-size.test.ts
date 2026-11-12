@@ -38,6 +38,12 @@ describe("orchestrator prompt size", () => {
     expect(PROMPT_ORCHESTRATOR).toContain("masked Vault input only, never chat, .env")
     expect(PROMPT_ORCHESTRATOR).toContain("Never ask how to solve or whether to continue")
   })
+  test("intent, outcome and dead-worker recovery are explicit without duplicating live work", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("Reconstruct vague intent from conversation and project evidence")
+    expect(PROMPT_ORCHESTRATOR).toContain("Completion means the user outcome, not a finished step")
+    expect(PROMPT_ORCHESTRATOR).toContain("idle, unreported <team-status>")
+    expect(PROMPT_ORCHESTRATOR).toContain("never duplicate a live assignment")
+  })
   test("the base prompt stays under its word budget", () => {
     expect(words(PROMPT_ORCHESTRATOR)).toBeLessThanOrEqual(BASE_WORD_LIMIT)
   })
