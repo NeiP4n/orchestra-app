@@ -1320,7 +1320,9 @@ const layer: Layer.Layer<
                     ? "Reported executed checks, but this task ran no command: the CHECKS were copied from earlier work or never run. Treated as partial until a check is run."
                     : !workerRemoved && evidence.editedAfterRun
                       ? "Reported executed checks, but files were edited after the last command ran: the results describe older code. Treated as partial until the checks are run again."
-                      : undefined
+                      : !deliveryLocationOf(answer) && taskMessages.some((message) => message.type === "assistant" && message.content.some((part) => part.type === "tool" && part.state.status === "completed" && WRITING.has(part.name)))
+                        ? "Reported DONE after file changes without a commit/branch or an explicit local-only notice. Treated as partial until delivery location is stated."
+                        : undefined
               : undefined
           const outcome = unproven ? "partial" : stated
           // Proof for the autoloop gates (M-02), built from the two
@@ -3798,6 +3800,10 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
 // Models often decorate it ("**DONE**", "Status: DONE", "✅ DONE") or answer in Russian, so
 // markup, a status label and emoji are ignored, and a labelled status line further down counts.
 // Anything else is "unknown", which the Orchestrator judges from the report text itself.
+/** A report must say where its edits live; tests alone do not deliver code. */
+export const deliveryLocationOf = (answer: string) =>
+  /\b(?:commit|sha)\s*[:=]?\s*[a-f0-9]{7,40}\b|коммит\s*[:=]?\s*[a-f0-9]{7,40}\b|(?:\bbranch|ветк[ае])\s*[:=]?\s*[`"']?[\w./-]+|\blocal[ -]only\b|\bonly locally\b|только локально/iu.test(answer)
+
 export function outcomeOf(
   answer: string,
 ): "complete" | "partial" | "incomplete" | "unknown" | "failed" {

@@ -5,7 +5,7 @@ import { Hub } from "@orchestra/core/hub/index"
 import { PROMPT_ORCHESTRATOR, PROMPT_PRESIDENT } from "@orchestra/core/plugin/agent"
 import { roomGuard } from "@orchestra/core/plugin/room-rules"
 import { TeamPlugin } from "@orchestra/core/plugin/team"
-import { checksOf, commandsOf, evidenceOf, failingTestOf, isTestCommand, outcomeOf, toolAllowed, toolRules, transcriptNote, verificationOf } from "@orchestra/core/orchestra"
+import { deliveryLocationOf, checksOf, commandsOf, evidenceOf, failingTestOf, isTestCommand, outcomeOf, toolAllowed, toolRules, transcriptNote, verificationOf } from "@orchestra/core/orchestra"
 import { Permission } from "@orchestra/core/permission"
 import { DateTime } from "effect"
 
@@ -592,4 +592,9 @@ describe("two-method verification from CHECKS and transcript (M-02)", () => {
       expect(isTestCommand(command)).toBe(false)
     }
   })
+})
+
+test("DONE delivery location requires commit, branch or explicit local-only caveat",()=>{
+ for(const text of ["DONE\nSHA: 195eabf8", "DONE\nbranch: dev", "DONE\nтолько локально", "DONE\nlocal-only"])expect(deliveryLocationOf(text)).toBe(true)
+ for(const text of ["DONE all tests pass", "DONE tests 1234567", "DONE no commit yet"])expect(deliveryLocationOf(text)).toBe(false)
 })
