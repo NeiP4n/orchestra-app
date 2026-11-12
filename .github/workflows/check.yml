@@ -76,5 +76,6 @@ jobs:
             --output "$archive"
           printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$archive" | sha256sum --check -
           tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
-          git diff --unified=0 HEAD^1 HEAD -- . ':!bun.lock' | python3 -c 'import sys; sys.stdout.writelines(line[1:] for line in sys.stdin if line.startswith("+") and not line.startswith("+++"))' > "$RUNNER_TEMP/added-lines.txt"
-          "$RUNNER_TEMP/gitleaks" dir "$RUNNER_TEMP/added-lines.txt" --redact --no-banner
+          mkdir -p "$RUNNER_TEMP/pr-added-lines"
+          git diff --unified=0 HEAD^1 HEAD -- . ':!bun.lock' | python3 -c 'import sys; sys.stdout.writelines(line[1:] for line in sys.stdin if line.startswith("+") and not line.startswith("+++"))' > "$RUNNER_TEMP/pr-added-lines/added-lines.txt"
+          "$RUNNER_TEMP/gitleaks" dir "$RUNNER_TEMP/pr-added-lines" --redact --no-banner
