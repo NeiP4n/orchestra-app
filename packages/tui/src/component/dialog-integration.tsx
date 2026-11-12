@@ -55,7 +55,7 @@ type ConnectMethod = Exclude<IntegrationInfo["methods"][number], { type: "env" }
 type IntegrationAttempt = IntegrationOauthConnectOutput["data"]
 type CommandAttempt = IntegrationCommandConnectOutput["data"]
 type OnIntegrationConnected = (providerID?: string) => void
-export const ANTIGRAVITY_SETUP = "Not configured: set your own ORCHESTRA_ANTIGRAVITY_CLIENT_ID locally and restart Orchestra. For a confidential client also set ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET. Never send secrets in chat."
+export const ANTIGRAVITY_SETUP = "Not configured: create .orchestra/credentials.env in the server launch folder. Format: ORCHESTRA_ANTIGRAVITY_CLIENT_ID=your-client-id and ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET=your-secret (only for confidential clients), one per line. Restart Orchestra. Never send secrets in chat."
 export const methodUnavailable = (method: ConnectMethod) => method.type === "oauth" && method.unavailableReason === "antigravity-client-secret"
 const CANCELLED = Symbol("cancelled")
 const CUSTOM = Symbol("custom")

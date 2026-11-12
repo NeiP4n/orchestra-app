@@ -665,6 +665,7 @@
       "name": "@orchestra/plugin-antigravity-auth",
       "version": "2.1.2",
       "dependencies": {
+        "@orchestra/util": "workspace:*",
         "@ai-sdk/google": "^3.0.73",
         "@openauthjs/openauth": "catalog:",
         "@orchestra/client": "workspace:*",

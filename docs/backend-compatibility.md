@@ -23,3 +23,14 @@ Set `ORCHESTRA_ANTIGRAVITY_CLIENT_ID` to your own registered Google OAuth client
 An explicitly supplied non-default client may try public-client PKCE without a secret. The token endpoint determines whether that registration accepts it; Orchestra neither inserts a fallback secret nor silently retries another application. The old default registration still requires a secret. Client ID alone is not proof of Antigravity API entitlement: consent/scopes and the resulting account/API permissions can still be rejected by Google. Switching OAuth clients requires reconnecting accounts; old refresh tokens are bound to the client that issued them. Real sign-in and API entitlement with a user's own registered client remain unverified until that user tries the flow.
 
 Explicit focused/selected backgrounds on shared HoverAction buttons now survive pointer hover. Their text was paired with that authored background; replacing only the background caused invisible modal confirm/cancel labels. DialogSelect footer actions likewise retain their actual focused or disabled background. Rendered regression checks cover primary/secondary/destructive and base/hover/focus/selected/pressed/disabled for every registered theme/mode, with real mouse entry, in addition to the palette state audit and the actual clear-all confirmation modal.
+
+#### Local gitignored file instead of environment variables
+
+In the directory from which the server is launched, run `node script/init-oauth-client.mjs` (from the Orchestra repository) to create `.orchestra/credentials.env` exclusively with mode0600 (directory0700). Existing files are never overwritten. Edit it locally:
+
+```dotenv
+ORCHESTRA_ANTIGRAVITY_CLIENT_ID=your-own-client-id
+ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET=your-own-client-secret
+```
+
+Omit or leave the second line empty only for your own public client. The server reads only these two names, without shell expansion; process environment variables override the file. Restart after editing. Both native and plugin paths read the same file. The file is explicitly gitignored; CI rejects any diff that includes this private filename even if force-added, before scanning added lines for other secrets. Symlink files/directories and oversized/non-regular files are refused. File permissions remain the local operator's responsibility when creating it manually, especially Windows ACLs. No historical credential is restored. Local server-process configuration does not travel with a portable project template.

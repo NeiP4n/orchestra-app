@@ -41,6 +41,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@orchestra/util": "workspace:*",
     "@ai-sdk/google": "^3.0.73",
     "@openauthjs/openauth": "catalog:",
     "@orchestra/client": "workspace:*",

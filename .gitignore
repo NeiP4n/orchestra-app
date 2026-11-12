@@ -70,3 +70,6 @@ tsconfig.tsbuildinfo
 .zed/
 
 .playwright-mcp/
+
+# Local OAuth app configuration, never exported or committed
+.orchestra/credentials.env

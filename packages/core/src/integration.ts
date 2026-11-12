@@ -1,3 +1,4 @@
+import { oauthClientEnvironment } from "@orchestra/util/oauth-client-file"
 import { customAntigravityClient } from "./plugin/provider/google-antigravity-env.js"
 export * as Integration from "./integration.js"
 
@@ -431,7 +432,7 @@ const layer = Layer.effect(
         id: entry.ref.id,
         name: entry.ref.name,
         ...(entry.ref.metadata === undefined ? {} : { metadata: entry.ref.metadata }),
-        methods: entry.methods.map(method => method.type === "oauth" && (entry.ref.id === "google-antigravity" || (entry.ref.id === "google" && method.id === "antigravity")) && !customAntigravityClient() && !process.env.ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET?.trim()
+        methods: entry.methods.map(method => method.type === "oauth" && (entry.ref.id === "google-antigravity" || (entry.ref.id === "google" && method.id === "antigravity")) && !customAntigravityClient() && !oauthClientEnvironment().ORCHESTRA_ANTIGRAVITY_CLIENT_SECRET?.trim()
           ? {...method,unavailableReason:"antigravity-client-secret" as const} : method),
         connections: connections.map((connection) => {
           const status = statuses.get(statusKey(entry.ref.id, connection))
