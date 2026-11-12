@@ -1,5 +1,11 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "MCP tools": "MCP",
+  "Shell": "Shell",
+  "Search tools": "Search tools",
+  "Vault": "Vault",
+  "Install {count}": "Install {count}",
+  "Tab tabs · ↑↓ select · Enter · Esc": "Tab tabs · ↑↓ select · Enter · Esc",
   "Save template": "Save template",
   "Export": "Export",
   "Template file (.orchestra-template)": "Template file path",
@@ -195,6 +201,12 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "MCP tools": "MCP",
+  "Shell": "Терминал",
+  "Search tools": "Поиск программ",
+  "Vault": "Сейф",
+  "Install {count}": "Установить {count}",
+  "Tab tabs · ↑↓ select · Enter · Esc": "Tab вкладки · ↑↓ выбор · Enter · Esc",
   "Save template": "Сохранить шаблон",
   "Export": "Экспорт",
   "Template file (.orchestra-template)": "Путь к файлу",

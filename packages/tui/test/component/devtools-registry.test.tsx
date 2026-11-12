@@ -642,3 +642,20 @@ test("MCP installation survives panel restart and OFF stays installed with expli
     await Bun.write("/tmp/mcp-restart-ru-spans.json", JSON.stringify(third.captureSpans()))
   } finally { third.renderer.destroy() }
 })
+
+for (const width of [48, 80]) test(`compact registry keeps tools and controls visible at ${width}`, async () => {
+  await using tmp = await tmpdir()
+  const app = await render({ probe, terminalProbe: () => true, manager: registryManager, directory: tmp.path }, { width, height: 26 })
+  try {
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Registry")
+    expect(frame).toContain("Search")
+    expect(frame).toContain("Install")
+    expect(frame).toContain("Tab tabs")
+    expect(frame).toContain("Templates")
+    expect(frame).not.toContain("Command-line programs the AI")
+    const tool = app.renderer.root.findDescendantById("registry-tool-rg")!
+    expect(tool.x + tool.width).toBeLessThanOrEqual(width)
+    if (process.env.CAPTURE_REGISTRY_COMPACT) await Bun.write(`${process.env.CAPTURE_REGISTRY_COMPACT}-${width}.json`, JSON.stringify(app.captureSpans()))
+  } finally { app.renderer.destroy() }
+})
