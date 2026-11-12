@@ -174,9 +174,9 @@ export const Plugin = {
           kind: "directory",
         }),
       )
-      yield* plots.guard({ sessionID: context.sessionID, files: ShellInPlacePaths.targets(invocation.command, invocation.shell, target.absolute) })
       const caller = yield* sessions.get(context.sessionID)
       yield* Plot.guardShell(plots, { sessionID: context.sessionID, directories: [caller.location.directory, target.absolute, ...directories.map(item => item.absolute)] })
+      yield* plots.guard({ sessionID: context.sessionID, files: ShellInPlacePaths.targets(invocation.command, invocation.shell, target.absolute) })
       yield* access.authorizeExternal([target, ...directories], context)
       if (parsed.commands.length > 0)
         yield* permission.assert({
