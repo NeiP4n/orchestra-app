@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -59,10 +60,10 @@ function MultiplayerModeSelector(props: {
         <text
           fg={
             props.value === "host"
-              ? theme.text.action.primary.selected
+              ? modalButtonForeground(theme,"primary","selected")
               : hovered() === "host"
-                ? theme.text.action.primary.hovered
-                : theme.text.action.primary.base
+                ? modalButtonForeground(theme,"primary","hovered")
+                : modalButtonForeground(theme,"primary","base")
           }
           attributes={props.value === "host" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         >
@@ -80,10 +81,10 @@ function MultiplayerModeSelector(props: {
         <text
           fg={
             props.value === "mesh"
-              ? theme.text.action.primary.selected
+              ? modalButtonForeground(theme,"primary","selected")
               : hovered() === "mesh"
-                ? theme.text.action.primary.hovered
-                : theme.text.action.primary.base
+                ? modalButtonForeground(theme,"primary","hovered")
+                : modalButtonForeground(theme,"primary","base")
           }
           attributes={props.value === "mesh" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         >
@@ -1146,7 +1147,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
                 <box flexGrow={1} minWidth={0}>
                   <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
                     {mesh.name}
-                    <span style={{ fg: theme.text.action.primary.base }}>{` · ${t("Mesh")}`}</span>
+                    <span style={{ fg: modalButtonForeground(theme,"primary","base") }}>{` · ${t("Mesh")}`}</span>
                   </text>
                   <text fg={theme.text.muted} wrapMode="none" truncate>
                     {`${mesh.memberCount} ${t("devices")} · ${mesh.status} · ${mesh.host}`}

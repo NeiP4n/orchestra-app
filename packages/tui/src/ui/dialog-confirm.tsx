@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "./hover"
 import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
@@ -82,7 +83,7 @@ export function DialogConfirm(props: DialogConfirmProps) {
                 dialog.clear()
               }}
             >
-              <text fg={key === store.active ? theme.text.action.primary.focused : theme.text.muted}>
+              <text fg={key === store.active ? modalButtonForeground(theme,"primary","focused") : theme.text.muted}>
                 {Locale.titlecase(props.label?.[key] ?? key)}
               </text>
             </HoverAction>

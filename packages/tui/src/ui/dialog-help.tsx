@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "./hover"
 import { openUrl } from "@orchestra/util/open"
 import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
@@ -49,7 +50,7 @@ export function DialogHelp() {
           background={theme.background.action.primary.focused}
           onClick={() => dialog.clear()}
         >
-          <text fg={theme.text.action.primary.focused}>ok</text>
+          <text fg={modalButtonForeground(theme,"primary","focused")}>ok</text>
         </HoverAction>
       </box>
     </box>

@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { useDialog } from "../ui/dialog"
 import { DialogSelect } from "../ui/dialog-select"
 import { createMemo, createSignal } from "solid-js"
@@ -46,7 +47,7 @@ export function DialogStash(props: { onSelect: (entry: StashEntry) => void }) {
             ? `Press ${shortcuts.get("stash.delete")} again to confirm`
             : getStashPreview(entry.prompt.text),
           bg: isDeleting ? theme.background.action.destructive.focused : undefined,
-          fg: isDeleting ? theme.text.action.destructive.focused : undefined,
+          fg: isDeleting ? modalButtonForeground(theme,"destructive","focused") : undefined,
           value: index,
           description: getRelativeTime(entry.timestamp),
           footer: lineCount > 1 ? `~${lineCount} lines` : undefined,

@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { ScrollBoxRenderable, TextareaRenderable, TextAttributes } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -222,7 +223,7 @@ function manageConnections(
                 footerColor: connection.status ? theme.text.feedback.warning.base : undefined,
                 category: "Connected accounts",
                 bg: confirming ? theme.background.action.destructive.focused : undefined,
-                fg: confirming ? theme.text.action.destructive.focused : undefined,
+                fg: confirming ? modalButtonForeground(theme,"destructive","focused") : undefined,
                 onSelect: () => {
                   if (connection.status?.url) return void openUrl(connection.status.url).catch(toast.error)
                   if (connection.status)

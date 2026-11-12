@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "./hover"
 import { createHoverFeedback } from "./hover-feedback"
 import { CliRenderEvents, InputRenderable, RGBA, ScrollBoxRenderable, TextAttributes } from "@opentui/core"
 import { Keymap, type KeymapCommand } from "../context/keymap"
@@ -719,9 +720,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         <text
           fg={
             disabled()
-              ? theme.text.action.primary.disabled
+              ? modalButtonForeground(theme,"primary","disabled")
               : active()
-                ? theme.text.action.primary.focused
+                ? modalButtonForeground(theme,"primary","focused")
                 : theme.text.base
           }
           attributes={active() ? TextAttributes.BOLD : undefined}
@@ -737,9 +738,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           <text
             fg={
               disabled()
-                ? theme.text.action.primary.disabled
+                ? modalButtonForeground(theme,"primary","disabled")
                 : active()
-                  ? theme.text.action.primary.focused
+                  ? modalButtonForeground(theme,"primary","focused")
                   : theme.text.muted
             }
             wrapMode="none"
@@ -845,7 +846,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                       paddingLeft={1}
                       paddingRight={1}
                     >
-                      <text fg={theme.text.action.primary.focused} attributes={TextAttributes.BOLD}>
+                      <text fg={modalButtonForeground(theme,"primary","focused")} attributes={TextAttributes.BOLD}>
                         {t("Retry")}
                       </text>
                     </box>
@@ -1060,7 +1061,7 @@ function Option(props: {
 }) {
   const theme = useTheme().surface("dialog")
   const text = createMemo(() => {
-    if (props.active && !props.muted) return props.activeColor ?? theme.text.action.primary.focused
+    if (props.active && !props.muted) return props.activeColor ?? modalButtonForeground(theme,"primary","focused")
     if (props.muted && (props.active || props.current)) return theme.text.muted
     if (props.current) return theme.text.formfield.selected
     return theme.text.base

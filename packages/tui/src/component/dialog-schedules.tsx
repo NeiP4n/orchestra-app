@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { ScheduleView } from "@orchestra/core/schedule-view"
 import { ScheduleRequests } from "@orchestra/core/schedule-requests"
@@ -226,13 +227,13 @@ export function DialogSchedules(props: { sessionID: string }) {
                     </Show>
                   </scrollbox>
                   <HoverAction onClick={toggleChecked}>
-                    <text fg={theme.text.action.primary.base} wrapMode="word">
+                    <text fg={modalButtonForeground(theme,"primary","base")} wrapMode="word">
                       [c {isChecked(item()) ? "✓" : " "}] Инструкция, расписание, лимиты и учётные данные проверены
                     </text>
                   </HoverAction>
                   <Show when={item().review?.browser}>
                     <HoverAction onClick={toggleBrowser}>
-                      <text fg={theme.text.action.primary.base} wrapMode="word">
+                      <text fg={modalButtonForeground(theme,"primary","base")} wrapMode="word">
                         [b {isChecked(item()) && checked()[item().id]?.browser ? "✓" : " "}] Новый браузер привязан;
                         вход и нужная страница/чат проверены
                       </text>
@@ -244,7 +245,7 @@ export function DialogSchedules(props: { sessionID: string }) {
                 </Show>
                 <box flexDirection="row" gap={2} flexWrap="wrap">
                   <HoverAction onClick={() => command(item().enabled ? "pause" : "resume")}>
-                    <text fg={theme.text.action.primary.base}>[p {item().enabled ? "Пауза" : "Включить"}]</text>
+                    <text fg={modalButtonForeground(theme,"primary","base")}>[p {item().enabled ? "Пауза" : "Включить"}]</text>
                   </HoverAction>
                   <HoverAction onClick={remove}>
                     <text fg={theme.text.feedback.error.base}>
@@ -252,7 +253,7 @@ export function DialogSchedules(props: { sessionID: string }) {
                     </text>
                   </HoverAction>
                   <HoverAction onClick={() => command("export")}>
-                    <text fg={theme.text.action.primary.base}>[e Шаблон]</text>
+                    <text fg={modalButtonForeground(theme,"primary","base")}>[e Шаблон]</text>
                   </HoverAction>
                   <HoverAction onClick={() => limit()}>
                     <text fg={theme.text.muted}>[h Час]</text>
@@ -265,7 +266,7 @@ export function DialogSchedules(props: { sessionID: string }) {
             )}
           </Show>
           <HoverAction onClick={enableChecked}>
-            <text fg={theme.text.action.primary.base}>
+            <text fg={modalButtonForeground(theme,"primary","base")}>
               [a Включить проверенные триггеры ({Object.keys(checked()).length})]
             </text>
           </HoverAction>

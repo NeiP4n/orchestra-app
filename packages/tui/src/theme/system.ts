@@ -24,7 +24,7 @@ export function contrastRatio(foreground: RGBA, background: RGBA) {
 }
 
 /** Keep the authored hue where possible; otherwise move the smallest distance toward black or white. */
-function readableColor(foreground: RGBA, background: RGBA, minimum: number) {
+export function readableColor(foreground: RGBA, background: RGBA, minimum: number) {
   if (contrastRatio(foreground, background) >= minimum) return foreground
 
   const base = {

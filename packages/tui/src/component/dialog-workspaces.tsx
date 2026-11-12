@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { useTerminalDimensions } from "@opentui/solid"
 import { TextAttributes } from "@opentui/core"
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js"
@@ -188,7 +189,7 @@ export function DialogWorkspaces(props: DialogWorkspacesProps) {
         titleView: isRemoving ? (
           <span style={{ fg: theme.text.feedback.error.base }}>Deleting {item.location}</span>
         ) : deleting ? (
-          <span style={{ fg: theme.text.action.destructive.base }}>
+          <span style={{ fg: modalButtonForeground(theme,"destructive","base") }}>
             Press {shortcuts.get("dialog.move_session.delete")} again to confirm
           </span>
         ) : suffix ? (

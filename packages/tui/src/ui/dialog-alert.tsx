@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "./hover"
 import { HoverAction } from "../component/hover-action"
 import { TextAttributes } from "@opentui/core"
 import { Keymap } from "../context/keymap"
@@ -51,7 +52,7 @@ export function DialogAlert(props: DialogAlertProps) {
             dialog.clear()
           }}
         >
-          <text fg={theme.text.action.primary.focused}>ok</text>
+          <text fg={modalButtonForeground(theme,"primary","focused")}>ok</text>
         </HoverAction>
       </box>
     </box>

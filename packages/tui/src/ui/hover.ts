@@ -1,3 +1,5 @@
+import { readableColor } from "../theme/system"
+import type { ComponentTheme } from "../theme/component"
 import { RGBA } from "@opentui/core"
 
 type HoverTheme<T> = {
@@ -175,4 +177,12 @@ export function hoverForeground(theme: HoverTheme<RGBA>, variant: HoverVariant =
   if (theme.text?.base && contrast(theme.text.base, background) >= 4.5) return theme.text.base
   const black = RGBA.fromValues(0, 0, 0, 1), white = RGBA.fromValues(1, 1, 1, 1)
   return contrast(black, background) > contrast(white, background) ? black : white
+}
+
+/** Modal state labels are repaired against their own authored state surface. */
+export function modalButtonForeground(theme: ComponentTheme, variant: "primary" | "secondary" | "destructive", state: "base" | "hovered" | "focused" | "selected" | "pressed" | "disabled") {
+ const foreground=(theme.text.action[variant] as unknown as Record<string,RGBA>)[state]
+ const background=(theme.background.action[variant] as unknown as Record<string,RGBA>)[state]
+ const under=theme.background.base.a < 1 ? terminalSurface(theme.background.base,theme.text.base) : theme.background.base
+ return readableColor(foreground,composite(background,under),state === "disabled" ? 3.05 : 4.55)
 }

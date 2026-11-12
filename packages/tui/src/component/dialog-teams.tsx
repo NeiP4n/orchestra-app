@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import {
   ScrollBoxRenderable,
@@ -1103,7 +1104,7 @@ function TeamForm(props: {
                   onMouseOut={addMemberHover.onMouseOut}
                   onMouseUp={add}
                 >
-                  <text fg={theme.text.action.primary.base}>{t("+ Add member")}</text>
+                  <text fg={modalButtonForeground(theme,"primary","base")}>{t("+ Add member")}</text>
                 </box>
               </scrollbox>
             </box>
@@ -1524,7 +1525,7 @@ function TabLabel(props: { active: boolean; onClick: () => void; children: strin
     >
       <text
         fg={
-          props.active ? theme.text.action.primary.selected : hovered() ? hoverForeground(theme, "secondary") : theme.text.muted
+          props.active ? modalButtonForeground(theme,"primary","selected") : hovered() ? hoverForeground(theme, "secondary") : theme.text.muted
         }
         attributes={props.active || hovered() ? TextAttributes.UNDERLINE : undefined}
         wrapMode="none"

@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { createMemo, createResource, createSignal, onMount, Show, type JSX } from "solid-js"
 import path from "path"
 import type { SessionInfo } from "@orchestra/client"
@@ -171,7 +172,7 @@ export function DialogSessionList() {
         category,
         footer,
         bg: deleting ? theme.background.action.destructive.focused : undefined,
-        fg: deleting ? theme.text.action.destructive.focused : undefined,
+        fg: deleting ? modalButtonForeground(theme,"destructive","focused") : undefined,
         gutter: sessionStatusGutter(
           theme,
           attention,
@@ -347,7 +348,7 @@ export function sessionStatusGutter(
   if (attention) {
     return (color: RGBA) => (
       <text
-        fg={color === theme.text.action.primary.focused ? color : theme.text.feedback.warning.base}
+        fg={color === modalButtonForeground(theme,"primary","focused") ? color : theme.text.feedback.warning.base}
         attributes={TextAttributes.BOLD}
       >
         {attention === "permission" ? "!" : "?"}

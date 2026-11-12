@@ -1,3 +1,4 @@
+import { modalButtonForeground } from "../ui/hover"
 import { ProjectRemovalNotice } from "./project-removal-notice"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
@@ -297,7 +298,7 @@ export function DialogProject(props: {
             <Show when={templatesFailed()}>
               <box flexDirection="row" gap={1} paddingLeft={2}>
                 <text fg={theme.text.feedback.error.base}>{t("Could not load teams")}</text>
-                <text fg={theme.text.action.primary.base} bg={retryHover.background()} onMouseOver={retryHover.onMouseOver} onMouseOut={retryHover.onMouseOut} onMouseUp={loadTemplates}>
+                <text fg={modalButtonForeground(theme,"primary","base")} bg={retryHover.background()} onMouseOver={retryHover.onMouseOver} onMouseOut={retryHover.onMouseOut} onMouseUp={loadTemplates}>
                   {t("Retry")}
                 </text>
               </box>
@@ -312,7 +313,7 @@ export function DialogProject(props: {
                 <box flexGrow={1} />
                 <Show when={props.onEditTeams}>
                   <box backgroundColor={editTeamsHover.background()} onMouseOver={editTeamsHover.onMouseOver} onMouseOut={editTeamsHover.onMouseOut} onMouseUp={editTeams}>
-                    <text fg={theme.text.action.primary.base}>{t("Edit teams and roles…")}</text>
+                    <text fg={modalButtonForeground(theme,"primary","base")}>{t("Edit teams and roles…")}</text>
                   </box>
                 </Show>
               </box>
