@@ -1,4 +1,5 @@
 import { expect } from "bun:test"
+import path from "node:path"
 import { Effect } from "effect"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
@@ -23,14 +24,14 @@ it.live(
           overrides: [
             Global.node.replace(
               Global.layerWith({
-                data: tmp.path + "/data",
-                cache: tmp.path + "/cache",
-                config: tmp.path + "/config",
-                state: tmp.path + "/state",
-                tmp: tmp.path + "/tmp",
-                bin: tmp.path + "/bin",
-                log: tmp.path + "/log",
-                repos: tmp.path + "/repos",
+                data: path.join(tmp.path, "data"),
+                cache: path.join(tmp.path, "cache"),
+                config: path.join(tmp.path, "config"),
+                state: path.join(tmp.path, "state"),
+                tmp: path.join(tmp.path, "tmp"),
+                bin: path.join(tmp.path, "bin"),
+                log: path.join(tmp.path, "log"),
+                repos: path.join(tmp.path, "repos"),
               }),
             ),
           ],
@@ -73,7 +74,7 @@ it.live(
       })
       expect(prepared.status).toBe(200)
       const created = yield* call("/orchestra/project-template/confirm-create", { token: prepared.body.token })
-      expect(created.status).toBe(200)
+      expect({ status: created.status, kind: created.body?.kind }).toEqual({ status: 200, kind: undefined })
       expect(created.body.browsers.browsers).toHaveLength(1)
       expect((yield* call("/orchestra/project-template/finish-create", { token: prepared.body.token })).status).toBe(
         204,
