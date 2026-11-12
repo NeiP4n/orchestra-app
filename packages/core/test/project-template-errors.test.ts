@@ -33,3 +33,25 @@ test("ownership failures have separate safe public reasons without echoing sourc
     expect(result.message).not.toMatch(/ses_|prj_|[A-Za-z]:\\|PRIVATE/)
   }
 })
+
+test("actual v1 and v2 library guards preserve invalid-name rejection and bounded diagnosis", async () => {
+  const { ProjectTemplateLibrary } = await import("../src/project-template-library")
+  const { ProjectTemplateV2Library } = await import("../src/project-template-v2-library")
+  const { templateDiagnosticOf } = await import("../src/project-template-errors")
+  const { mkdtemp, rm, realpath } = await import("node:fs/promises")
+  const { tmpdir } = await import("node:os")
+  const path = await import("node:path")
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "template-name-")))
+  try {
+    for (const library of [ProjectTemplateLibrary.local(root), ProjectTemplateV2Library.local(root)]) {
+      for (const name of ["83_PRIVATE_CANARY", "../PRIVATE_CANARY", "", "Uppercase", "a".repeat(61)]) {
+        const failure = await library.preview(name).then(() => undefined, error => error)
+        expect(templateError(failure).kind).toBe("TEMPLATE_NAME")
+        expect(templateDiagnosticOf(failure)).toEqual({ stage: "template-name", reasonCode: "name-invalid" })
+        expect(JSON.stringify(templateError(failure))).not.toContain("PRIVATE_CANARY")
+      }
+      const missing = await library.preview("template_83c365").then(() => undefined, error => error)
+      expect(templateError(missing).kind).toBe("TEMPLATE_MISSING")
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
