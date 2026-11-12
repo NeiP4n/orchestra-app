@@ -1,3 +1,4 @@
+import { ReconDedup } from "../src/recon-dedup"
 import { beforeEach, describe, expect } from "bun:test"
 import path from "path"
 import { Effect, Exit, Layer, Result } from "effect"
@@ -1112,3 +1113,21 @@ describe("ReadTool", () => {
     }),
   )
 })
+
+it.effect("deduplicates unchanged attached reconnaissance after authorization, but returns edits",()=>Effect.gen(function*(){
+ const sessions=yield* Session.Service
+ const owner=yield* sessions.create({location:location({directory:AbsolutePath.make(process.cwd())})})
+ const registry=yield* Tool.Service
+ const call=()=>executeTool(registry,{sessionID:owner.id,...toolIdentity,call:{type:"tool-call" as const,id:"recon-read",name:"read",input:{path:"README.md"}}})
+ const first=yield* call()
+ expect(first.status).toBe("completed");if(first.status!=="completed")return
+ yield* sessions.setMetadata({sessionID:owner.id,metadata:{[ReconDedup.KEY]:[ReconDedup.digest(first.content)]}})
+ const same=yield* call()
+ expect(same.status).toBe("completed");if(same.status!=="completed")return
+ expect(same.content).toEqual([{type:"text",text:ReconDedup.pointer}])
+ expect(readCalls.length).toBe(2)
+ if(readResult.type==="file")readResult={...readResult,content:"changed"}
+ const changed=yield* call()
+ expect(changed.status).toBe("completed");if(changed.status!=="completed")return
+ expect(changed.content).not.toEqual(same.content)
+}))
