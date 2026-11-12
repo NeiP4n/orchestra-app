@@ -1,5 +1,6 @@
 export * as ProjectTemplateLiveStores from "./project-template-live-stores.js"
 
+import { destinationRoot } from "./project-template-destination-root.js"
 import { unlinkedPath } from "./project-template-path.js"
 
 import { isDeepStrictEqual } from "node:util"
@@ -48,7 +49,7 @@ export interface Dependencies {
     }) => Effect.Effect<Session.Info, unknown>
   }
   store: SessionStore.Interface
-  /** Application-owned root, never a caller-selected source or existing project directory. */
+  /** Validated parent root. Only a server-owned fresh child may be used as project directory. */
   root: string
   installedVersion: string
   timezone: string
@@ -70,6 +71,7 @@ async function realDirectory(directory: string) {
 async function ownedDirectory(receipt: Materialize.Receipt, root: string) {
   if (receipt.directory !== path.join(root, receipt.id))
     throw Error("Import directory is not the reserved fresh destination.")
+  await destinationRoot(root)
   await mkdir(root, { recursive: true, mode: 0o700 })
   await realDirectory(root)
   let created = false

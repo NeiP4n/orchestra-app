@@ -3536,6 +3536,7 @@ export function make(options: ClientOptions) {
                 templateID: input["templateID"],
                 settingsDirectory: input["settingsDirectory"],
                 migrateCore: input["migrateCore"],
+                destinationRoot: input["destinationRoot"],
               },
               successStatus: 200,
               declaredStatuses: [400, 401],

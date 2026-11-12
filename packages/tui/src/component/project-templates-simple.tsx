@@ -40,8 +40,8 @@ export interface ProjectTemplatesAccess {
   list: () => Promise<readonly { id: string; name: string; digest?: string }[]>
   prepareSave: (templateID?: string) => Promise<{ token: string; name: string; details: string; unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]; omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmSave: (token: string, omitUnsafeLinks?: boolean, omitInvalidBrowserBindings?: boolean, acceptUnresolvedRoles?: boolean) => Promise<void>
-  prepareMigration?: (templateID: string) => Promise<{token:string;name:string;details:string;roleChanges?:readonly ProjectTemplateCoreMigration.Change[]}>
-  prepareCreate: (templateID: string) => Promise<{ token: string; name: string; details: string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
+  prepareMigration?: (templateID: string,destinationRoot?:string) => Promise<{token:string;name:string;details:string;directory?:string;roleChanges?:readonly ProjectTemplateCoreMigration.Change[]}>
+  prepareCreate: (templateID: string,destinationRoot?:string) => Promise<{ token: string; name: string; details: string; directory?:string; triggerReview?: readonly ProjectTemplateTriggerReview.Item[] }>
   confirmCreate: (token: string) => Promise<void>
 }
 const processTemplate = (details: string): { skillCount: number; sessions: { title: string; role: string }[]; runtimeRoles: string[] } | undefined => {
@@ -68,7 +68,9 @@ export function ProjectTemplatesSimple(props: {
   const [removing,setRemoving]=createSignal<{id:string;name:string;digest:string}>()
   const [busy, setBusy] = createSignal(false)
   const [details, setDetails] = createSignal(false)
+  let destinationInput: InputRenderable | undefined
   let pathInput: InputRenderable | undefined
+  const [destination,setDestination]=createSignal("")
   const [importPath, setImportPath] = createSignal("")
   const [exportPath, setExportPath] = createSignal("")
   const [message, setMessage] = createSignal("")
@@ -84,6 +86,7 @@ export function ProjectTemplatesSimple(props: {
     unresolvedRoles?: readonly string[]; browserBindings?: readonly ProjectTemplateReader.BrowserBindingIssue[]
     omittedLinks?: readonly ProjectTemplateLinkReview.Issue[]
     triggerReview?: readonly ProjectTemplateTriggerReview.Item[]
+    directory?:string
     roleChanges?: readonly ProjectTemplateCoreMigration.Change[]
   }>()
   const run = async (action: () => Promise<void>, kind?: "save" | "create") => {
@@ -115,7 +118,8 @@ export function ProjectTemplatesSimple(props: {
       if (kind === "create") setFailedTemplate(id)
       if (kind === "save" && !props.canSave) return
       if (kind === "save" && id === undefined) await refresh()
-      const result = kind === "save" ? await props.access.prepareSave(id) : await props.access.prepareCreate(id!)
+      const result = kind === "save" ? await props.access.prepareSave(id) : await props.access.prepareCreate(id!,destination())
+      if(kind === "create" && destination().trim() && !("directory" in result && result.directory)){setReason("Project location is unavailable on this server. Update and restart the background server and TUI.");return}
       setPrepared({ kind, updating: kind === "save" && id !== undefined, ...result })
       setCursor(collisions().length ? "replace-" + collisions()[0]!.id : "confirm")
     }, kind)
@@ -160,7 +164,7 @@ export function ProjectTemplatesSimple(props: {
   }
   const actions = () => removing() ? ["confirm-remove","cancel-remove"] : prepared()
     ? [...collisions().map((row) => "replace-" + row.id), "confirm", "cancel", "details"]
-    : [...(reason() === templateErrorMessages.TEMPLATE_CORE_ROLE && props.access.prepareMigration && failedTemplate() ? ["migrate-core"] : []), ...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : []), ...(props.access.remove && row.digest ? [`remove-${row.id}`] : [])]), ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
+    : [...(reason() === templateErrorMessages.TEMPLATE_CORE_ROLE && props.access.prepareMigration && failedTemplate() ? ["migrate-core"] : []), ...(props.canSave ? ["save"] : []), ...templates().flatMap((row) => [`create-${row.id}`, ...(props.canSave ? [`update-${row.id}`] : []), ...(props.access.exportFile && props.canSave ? [`export-${row.id}`] : []), ...(props.access.remove && row.digest ? [`remove-${row.id}`] : [])]), "destination", ...(props.access.prepareImport ? ["import-path", "import"] : []), ...(exportPath() ? ["copy-path", "open-folder"] : [])]
   const focused = () => actions().includes(cursor()) ? cursor() : actions()[0]
   const cancel = () => {
     setPrepared()
@@ -182,16 +186,18 @@ export function ProjectTemplatesSimple(props: {
     }
     else if (id === "migrate-core" && props.access.prepareMigration && failedTemplate()) void run(async () => {
       let result
-      try { result = await props.access.prepareMigration!(failedTemplate()!) }
+      try { result = await props.access.prepareMigration!(failedTemplate()!,destination()) }
       catch(error) {
         const hint = templateFailureReason(error)
         setReason(hint === templateErrorMessages.TEMPLATE_CORE_ROLE ? "Another built-in/runtime role still differs. Update and restart the background server; custom runtime roles must be restored separately." : hint)
         setMessage("")
         return
       }
+      if(destination().trim() && !result.directory){setReason("Project location is unavailable on this server. Update and restart the background server and TUI.");return}
       if (!result.roleChanges) { setReason("Role comparison is unavailable on this server. Update and restart the background server and TUI."); setMessage(""); return }
       setReason(); setMessage(""); setPrepared({kind:"create",...result}); setCursor("confirm")
     }, "create")
+    else if (id === "destination") destinationInput?.focus()
     else if (id === "import-path") pathInput?.focus()
     else if (id === "copy-path" && exportPath() && props.access.copyPath) void run(async () => {
       await props.access.copyPath?.(exportPath())
@@ -225,11 +231,13 @@ export function ProjectTemplatesSimple(props: {
       setCursor(ids[Math.max(0, Math.min(ids.length - 1, index + delta))])
     },
     activate: () => focused() === "import-path" ? activate("import") : activate(),
-    input: () => focused() === "import-path" && !prepared() ? pathInput : undefined,
+    input: () => !prepared() ? focused() === "destination" ? destinationInput : focused() === "import-path" ? pathInput : undefined : undefined,
   })
   createEffect(() => {
     const id = focused()
     if (!id) return
+    if (id === "destination") destinationInput?.focus()
+    else destinationInput?.blur()
     if (id === "import-path") pathInput?.focus()
     else pathInput?.blur()
     props.scrollIntoView?.(`project-templates.${id}`)
@@ -258,6 +266,10 @@ export function ProjectTemplatesSimple(props: {
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>{tr("Project templates")} · {templates().length}</text>
         <Action id="save" label={tr("Save template")} disabled={!props.canSave || !!prepared()} />
       </box>
+      <Show when={!prepared() && !removing()}>
+        <text fg={theme.text.muted} wrapMode="word">{tr("Project parent folder (optional). Empty keeps the default; a fresh subfolder is created inside it.")}</text>
+        <box id="project-templates.destination" onMouseDown={() => {setCursor("destination");destinationInput?.focus()}}><input ref={node => {destinationInput=node}} value={destination()} onInput={setDestination} placeholder={tr("Default project location")} textColor={theme.text.base} focusedTextColor={theme.text.base} cursorColor={theme.text.base} /></box>
+      </Show>
       <Show when={props.access.prepareImport && !prepared()}>
         <box flexDirection="row" gap={1} alignItems="center">
           <box flexGrow={1} minWidth={10} onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : theme.background.raised.base} paddingLeft={1} paddingRight={1}>
@@ -299,6 +311,7 @@ export function ProjectTemplatesSimple(props: {
                 ? tr("Settings only, without chats, data or secrets.")
                 : tr("Vault will be empty, browsers signed out and schedules paused.")}
             </text>
+            <Show when={current().kind === "create" && current().directory}><text fg={theme.text.base} wrapMode="word">{tr("Project folder: {path}",{path:current().directory!})}</text></Show>
             <Show when={current().roleChanges?.length}>
               <text fg={theme.text.feedback.warning.base} wrapMode="word">{tr("Use this server's built-in roles for the new project only. Project rules, custom roles, instructions and paused schedules stay unchanged. The original template and server rules are not edited.")}</text>
               <For each={current().roleChanges}>{change => <text fg={theme.text.base} wrapMode="word">{`${change.role}: ${change.fields.join(", ")}\nsha256 ${change.fromHash.slice(0,12)} -> ${change.toHash.slice(0,12)}`}</text>}</For>

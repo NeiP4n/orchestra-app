@@ -1,3 +1,4 @@
+import { destinationRoot } from "./project-template-destination-root.js"
 import { ProjectTemplateCoreMigration } from "./project-template-core-migration.js"
 import type { ProjectTemplateV2 as V2 } from "./project-template-v2.js"
 import { templateStage } from "./project-template-errors.js"
@@ -44,6 +45,7 @@ interface Create {
   libraryID: string
   digest: string
   done?: boolean
+  destinationRoot?: string
   sourceDigest?: string
   roleChanges?: ProjectTemplateCoreMigration.Change[]
 }
@@ -54,7 +56,7 @@ interface Deps {
   installedVersion: string
   coreRoles?: (directory: string) => Promise<readonly V2.Role[]>
   processStores?: (projectID: string) => ProjectTemplateV2Reader.Stores
-  live: (settingsDirectory: string) => ReturnType<typeof Live.make>
+  live: (settingsDirectory: string, destinationRoot?: string) => ReturnType<typeof Live.make>
 }
 const json = (v: unknown): KV.Value => JSON.parse(JSON.stringify(v))
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v)
@@ -315,8 +317,9 @@ export function make(deps: Deps) {
         }
         await run(deps.kv.set(PREPARED + token, json({ ...pending, phase: "saved" })))
       }),
-    prepareCreate: async (libraryID: string, settingsDirectory: string, migrateCore = false) => {
+    prepareCreate: async (libraryID: string, settingsDirectory: string, migrateCore = false, destination?: string) => {
       if (!path.isAbsolute(settingsDirectory)) throw Error("A verified model settings directory is required.")
+      const targetRoot = await destinationRoot(destination)
       const source = await library.preview(libraryID)
       const migration = migrateCore && deps.coreRoles ? ProjectTemplateCoreMigration.prepare(source.text, await deps.coreRoles(settingsDirectory)) : undefined
       if (migrateCore && !migration) throw Error("Canonical built-in role is unavailable or ambiguous.")
@@ -325,7 +328,7 @@ export function make(deps: Deps) {
       const key =
         "orchestra/template-create-reservation/" +
         createHash("sha256")
-          .update(JSON.stringify([libraryID, settingsDirectory, preview.digest]))
+          .update(JSON.stringify(targetRoot ? [libraryID, settingsDirectory, preview.digest, targetRoot] : [libraryID, settingsDirectory, preview.digest]))
           .digest("hex")
       return Flock.withLock(key, async () => {
         const previous = await run(deps.kv.get(key))
@@ -335,32 +338,35 @@ export function make(deps: Deps) {
             pending.kind !== "create" ||
             pending.libraryID !== libraryID ||
             pending.settingsDirectory !== settingsDirectory ||
+            pending.destinationRoot !== targetRoot ||
             pending.digest !== preview.digest
           )
             throw Error("Pending import index differs.")
           {
-            const receipt = await deps.live(settingsDirectory).readReceipt(previous)
+            const receipt = await deps.live(settingsDirectory, targetRoot).readReceipt(previous)
             if (!receipt) throw Error("Pending import receipt is missing.")
             if (!pending.done || await run(deps.kv.get("orchestra/project/"+receipt.projectID)) !== undefined) return {
               roleChanges: pending.roleChanges,
               token: receipt.id,
               name: receipt.name,
+              directory: receipt.directory,
               details: receipt.process?.template ?? receipt.template,
               triggerReview: ProjectTemplateTriggerReview.fromText(receipt.template),
             }
           }
         } else if (previous !== undefined) throw Error("Pending import index is damaged.")
-        const receipt = await templateStage("reservation", () => deps.live(settingsDirectory).reserve(preview.text, preview.digest))
+        const receipt = await templateStage("reservation", () => deps.live(settingsDirectory, targetRoot).reserve(preview.text, preview.digest))
         await run(
           deps.kv.atomicUpdate(PREPARED + receipt.id, (current) => {
             if (current !== undefined) throw Error("Create reservation collision.")
-            return json({ kind: "create", settingsDirectory, libraryID, digest: preview.digest, ...(migration ? { sourceDigest: migration.sourceDigest, roleChanges: migration.changes } : {}) } satisfies Create)
+            return json({ kind: "create", settingsDirectory, libraryID, digest: preview.digest, ...(targetRoot ? {destinationRoot:targetRoot} : {}), ...(migration ? { sourceDigest: migration.sourceDigest, roleChanges: migration.changes } : {}) } satisfies Create)
           }),
         )
         await run(deps.kv.set(key, receipt.id))
         return {
           ...(migration ? { roleChanges: migration.changes } : {}),
           token: receipt.id,
+          directory: receipt.directory,
           name: receipt.name,
           details: preview.text,
           triggerReview: ProjectTemplateTriggerReview.review({ ...preview.bundle, version: 1 }),
@@ -370,7 +376,7 @@ export function make(deps: Deps) {
     finishCreate: async (token: string) => {
       const pending = await prepared(token)
       if (pending.kind !== "create") throw Error("Wrong operation kind.")
-      const receipt = await deps.live(pending.settingsDirectory).readReceipt(token)
+      const receipt = await deps.live(pending.settingsDirectory, pending.destinationRoot).readReceipt(token)
       if (!receipt || receipt.phase !== "published" || (receipt.process?.digest ?? receipt.digest) !== pending.digest)
         throw Error("Import has not finished.")
       await run(deps.kv.set(PREPARED + token, json({ ...pending, done: true })))
@@ -378,7 +384,7 @@ export function make(deps: Deps) {
     confirmCreate: async (token: string) => {
       const pending = await prepared(token)
       if (pending.kind !== "create") throw Error("Wrong operation kind.")
-      const live = deps.live(pending.settingsDirectory),
+      const live = deps.live(pending.settingsDirectory, pending.destinationRoot),
         receipt = await live.readReceipt(token)
       if (!receipt || (receipt.process?.digest ?? receipt.digest) !== pending.digest)
         throw Error("Create reservation differs.")

@@ -12,6 +12,7 @@ const TemplateBrowserInput = Schema.Struct({
   mode: Schema.optional(Schema.Literals(["headless", "window", "capture"])),
 })
 const TemplatePrepared = Schema.Struct({
+  directory:Schema.optional(Schema.String),
   roleChanges: Schema.optional(Schema.Array(Schema.Struct({ role: Schema.String, fields: Schema.Array(Schema.String), fromHash: Schema.String, toHash: Schema.String }))), token: Schema.String, name: Schema.String, details: Schema.String, unresolvedRoles: Schema.optional(Schema.Array(Schema.String)), browserBindings: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, reason: Schema.Literals(["missing", "child", "foreign", "unlisted"]) }))), triggerReview: Schema.optional(Schema.Array(Schema.Struct({ schedule: Schema.Number, browser: Schema.optional(Schema.Number), reason: Schema.Literals(["browser-rebind", "browser-links-omitted", "time-review", "unsupported-event"]) }))), omittedLinks: Schema.optional(Schema.Array(Schema.Struct({ browser: Schema.Number, link: Schema.Number, reason: Schema.Literals(["credentials", "query", "fragment", "local", "scheme", "secret", "invalid"]) }))) })
 const TemplateBrowsers = Schema.Struct({
   importID: Schema.String,
@@ -65,7 +66,7 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
   )
   .add(
     HttpApiEndpoint.post("orchestra.projectTemplate.prepareCreate", "/api/orchestra/project-template/prepare-create", {
-      payload: Schema.Struct({ templateID: Schema.String, settingsDirectory: Schema.String, migrateCore: Schema.optional(Schema.Boolean) }),
+      payload: Schema.Struct({ templateID: Schema.String, settingsDirectory: Schema.String, migrateCore: Schema.optional(Schema.Boolean), destinationRoot: Schema.optional(Schema.String) }),
       success: TemplatePrepared,
       error: InvalidRequestError,
     }),

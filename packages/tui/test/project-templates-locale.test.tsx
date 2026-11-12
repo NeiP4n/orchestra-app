@@ -158,3 +158,20 @@ for(const width of [48,80])test(`template removal asks and keeps source files at
   await app.waitForFrame(f=>f.includes("Шаблон убран"));expect(removed).toBe(1)
  }finally{app.renderer.destroy()}
 })
+
+for(const width of [48,80,120,160])test(`template destination keyboard field and reviewed folder at ${width}`,async()=>{
+ let keys:any,received:string|undefined
+ const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave={false} keys={value=>{keys=value}} access={{list:async()=>[{id:"a",name:"Test2"}],prepareSave:async()=>{throw Error("unused")},confirmSave:async()=>{},prepareCreate:async(_,destination)=>{received=destination;return {token:"x",name:"Test2",details:"{}",directory:(destination||"/default")+"/pti_fresh"}},confirmCreate:async()=>{}}}/></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:24})
+ app.renderer.start()
+ const click=async(id:string)=>{const n=app.renderer.root.findDescendantById("project-templates."+id)!;await app.mockMouse.click(n.x+1,n.y);await app.renderOnce()}
+ try{
+  await app.waitForFrame(f=>f.includes("Test2"))
+  await click("create-a");await app.waitForFrame(f=>f.includes("pti_fresh"));expect(received).toBe("")
+  await click("cancel");keys.move(1);keys.activate();expect(keys.input()?.focused).toBe(true)
+  app.mockInput.typeText("/home/user/My Projects");await app.renderOnce()
+  await Bun.write(`/tmp/template-destination-input-${width}.json`,JSON.stringify(app.captureSpans()))
+  await click("create-a");await app.waitForFrame(f=>f.includes("pti_fresh"));expect(received).toBe("/home/user/My Projects")
+  expect(app.captureCharFrame()).toContain("Папка проекта:")
+  await Bun.write(`/tmp/template-destination-review-${width}.json`,JSON.stringify(app.captureSpans()))
+ }finally{app.renderer.destroy()}
+})

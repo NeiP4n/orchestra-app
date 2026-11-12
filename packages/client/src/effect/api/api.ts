@@ -4777,6 +4777,7 @@ export type OrchestraProjectTemplateExportFileOperation<E = never> = (
 
 export type OrchestraProjectTemplatePrepareImportInput = { readonly path: string }
 export type OrchestraProjectTemplatePrepareImportOutput = {
+  readonly directory?: string | undefined
   readonly roleChanges?:
     | ReadonlyArray<{
         readonly role: string
@@ -4838,6 +4839,7 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
   readonly templateID?: string | undefined
 }
 export type OrchestraProjectTemplatePrepareSaveOutput = {
+  readonly directory?: string | undefined
   readonly roleChanges?:
     | ReadonlyArray<{
         readonly role: string
@@ -4893,8 +4895,10 @@ export type OrchestraProjectTemplatePrepareCreateInput = {
   readonly templateID: string
   readonly settingsDirectory: string
   readonly migrateCore?: boolean | undefined
+  readonly destinationRoot?: string | undefined
 }
 export type OrchestraProjectTemplatePrepareCreateOutput = {
+  readonly directory?: string | undefined
   readonly roleChanges?:
     | ReadonlyArray<{
         readonly role: string

@@ -157,7 +157,7 @@ export function DialogProject(props: {
   const save = () => {
     if (busy()) return
     const name = fields.name?.value.trim() ?? ""
-    const directory = fields.directory?.value.trim() ?? ""
+    const directory = fields.directory?.value.trim() || (props.project ? "" : location.current?.directory ?? process.cwd())
     if (!directory) return setError(t("Enter the project's path"))
     const project = props.project
     if (project) {

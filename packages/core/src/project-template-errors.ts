@@ -81,6 +81,9 @@ export const templateErrorMessages = {
 export type TemplateErrorCode = keyof typeof templateErrorMessages
 const exact = new Map<string, TemplateErrorCode>([
   ["A verified model settings directory is required.", "TEMPLATE_PATH"],
+  ["Project directory must not use links.", "TEMPLATE_DESTINATION"],
+  ["Import directory cannot use links.", "TEMPLATE_DESTINATION"],
+  ["Project parent must be a directory.", "TEMPLATE_DESTINATION"],
   ["Choose a regular .orchestra-template file.", "TEMPLATE_PATH"],
   ["Import directory contains foreign files.", "TEMPLATE_DESTINATION"],
   ["Import refuses to replace changed or foreign configuration.", "TEMPLATE_DESTINATION"],

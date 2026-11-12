@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { expect } from "bun:test"
-import { mkdir, readFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, symlink, writeFile, rm } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { onCleanup } from "solid-js"
@@ -173,6 +173,34 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect((await call("/api/orchestra/project-template").pipe(Effect.runPromise)).body.some((r:{id:string})=>r.id===oldEntry.id)).toBe(false)
         expect(JSON.parse(await readFile(oldFile.path,"utf8"))).toEqual(old)
         expect((await call("/api/orchestra/project").pipe(Effect.runPromise)).body.length).toBe(3)
+        // Real custom destination, repeated reservation and no foreign writes.
+        const parent=path.join(tmp.path,"user selected parent","nested")
+        const custom=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source,destinationRoot:' "'+parent+'" '}).pipe(Effect.runPromise)
+        expect(custom.status).toBe(200)
+        expect(path.dirname(custom.body.directory)).toBe(parent)
+        const again=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source,destinationRoot:parent}).pipe(Effect.runPromise)
+        expect(again.body.token).toBe(custom.body.token)
+        expect((await call("/api/orchestra/project-template/confirm-create","POST",{token:custom.body.token}).pipe(Effect.runPromise)).status).toBe(200)
+        expect((await readdir(parent)).filter(n=>n.startsWith("pti_"))).toEqual([path.basename(custom.body.directory)])
+        const linked=path.join(tmp.path,"linked-parent")
+        await symlink(parent,linked,"dir")
+        const rejectedLink=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source,destinationRoot:linked}).pipe(Effect.runPromise)
+        expect(rejectedLink.status).toBe(400);expect(rejectedLink.body.kind).toBe("TEMPLATE_DESTINATION")
+        const invalid=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source,destinationRoot:"relative/path"}).pipe(Effect.runPromise)
+        expect(invalid.status).toBe(400);expect(invalid.body.kind).toBe("TEMPLATE_PATH")
+        const blockedFolder=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source,destinationRoot:path.join(tmp.path,"foreign")}).pipe(Effect.runPromise)
+        await mkdir(blockedFolder.body.directory,{recursive:true});await writeFile(path.join(blockedFolder.body.directory,"user.txt"),"keep")
+        expect((await call("/api/orchestra/project-template/confirm-create","POST",{token:blockedFolder.body.token}).pipe(Effect.runPromise)).status).toBe(400)
+        expect(await readFile(path.join(blockedFolder.body.directory,"user.txt"),"utf8")).toBe("keep")
+        const switched=path.join(tmp.path,"switched"), outside=path.join(tmp.path,"outside")
+        await mkdir(switched);await mkdir(outside)
+        const reserved=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:source,destinationRoot:switched}).pipe(Effect.runPromise)
+        expect(reserved.status).toBe(200)
+        await rm(switched,{recursive:true});await symlink(outside,switched,"dir")
+        expect((await call("/api/orchestra/project-template/confirm-create","POST",{token:reserved.body.token}).pipe(Effect.runPromise)).status).toBe(400)
+        expect(await readdir(outside)).toEqual([])
+
+
 
       })
 }), 30_000)

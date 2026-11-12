@@ -21532,6 +21532,16 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "directory": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "roleChanges": {
                       "anyOf": [
                         {
@@ -21923,6 +21933,16 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "directory": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "roleChanges": {
                       "anyOf": [
                         {
@@ -22342,6 +22362,16 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "directory": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "roleChanges": {
                       "anyOf": [
                         {
@@ -22572,6 +22602,16 @@
                     "anyOf": [
                       {
                         "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "destinationRoot": {
+                    "anyOf": [
+                      {
+                        "type": "string"
                       },
                       {
                         "type": "null"

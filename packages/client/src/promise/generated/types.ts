@@ -14707,6 +14707,7 @@ export type OrchestraProjectTemplateExportFileOutput = { path: string; warning: 
 export type OrchestraProjectTemplatePrepareImportInput = { readonly path: { readonly path: string }["path"] }
 
 export type OrchestraProjectTemplatePrepareImportOutput = {
+  directory?: string | undefined
   roleChanges?: Array<{ role: string; fields: Array<string>; fromHash: string; toHash: string }> | undefined
   token: string
   name: string
@@ -14769,6 +14770,7 @@ export type OrchestraProjectTemplatePrepareSaveInput = {
 }
 
 export type OrchestraProjectTemplatePrepareSaveOutput = {
+  directory?: string | undefined
   roleChanges?: Array<{ role: string; fields: Array<string>; fromHash: string; toHash: string }> | undefined
   token: string
   name: string
@@ -14861,20 +14863,30 @@ export type OrchestraProjectTemplatePrepareCreateInput = {
     readonly templateID: string
     readonly settingsDirectory: string
     readonly migrateCore?: boolean | undefined
+    readonly destinationRoot?: string | undefined
   }["templateID"]
   readonly settingsDirectory: {
     readonly templateID: string
     readonly settingsDirectory: string
     readonly migrateCore?: boolean | undefined
+    readonly destinationRoot?: string | undefined
   }["settingsDirectory"]
   readonly migrateCore?: {
     readonly templateID: string
     readonly settingsDirectory: string
     readonly migrateCore?: boolean | undefined
+    readonly destinationRoot?: string | undefined
   }["migrateCore"]
+  readonly destinationRoot?: {
+    readonly templateID: string
+    readonly settingsDirectory: string
+    readonly migrateCore?: boolean | undefined
+    readonly destinationRoot?: string | undefined
+  }["destinationRoot"]
 }
 
 export type OrchestraProjectTemplatePrepareCreateOutput = {
+  directory?: string | undefined
   roleChanges?: Array<{ role: string; fields: Array<string>; fromHash: string; toHash: string }> | undefined
   token: string
   name: string

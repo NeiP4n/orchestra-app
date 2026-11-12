@@ -1,5 +1,10 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Project location is unavailable on this server. Update and restart the background server and TUI.": "Project location is unavailable on this server. Update and restart the background server and TUI.",
+  "Project parent folder (optional). Empty keeps the default; a fresh subfolder is created inside it.": "Project parent folder (optional). Empty keeps the default; a fresh subfolder is created inside it.",
+  "Default project location": "Default project location",
+  "Project folder: {path}": "Project folder: {path}",
+
   "Remove from list": "Remove from list",
   "Remove this template from the list? Projects and exported files will stay.": "Remove this template from the list? Projects and exported files will stay.",
   "Template removed from the list. Projects and exported files were kept.": "Template removed from the list. Projects and exported files were kept.",
@@ -251,6 +256,11 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Project location is unavailable on this server. Update and restart the background server and TUI.": "Выбор папки недоступен на этом сервере. Обновите и перезапустите фоновый сервер и TUI.",
+  "Project parent folder (optional). Empty keeps the default; a fresh subfolder is created inside it.": "Папка для проектов (необязательно). Пусто - как раньше. Внутри создадим новую подпапку.",
+  "Default project location": "Стандартное место проекта",
+  "Project folder: {path}": "Папка проекта: {path}",
+
   "Remove from list": "Убрать из списка",
   "Remove this template from the list? Projects and exported files will stay.": "Убрать этот шаблон из списка? Проекты и экспортированные файлы останутся.",
   "Template removed from the list. Projects and exported files were kept.": "Шаблон убран из списка. Проекты и экспортированные файлы сохранены.",

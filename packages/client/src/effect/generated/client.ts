@@ -2576,6 +2576,7 @@ const EndpointOrchestraProjectTemplatePrepareCreate =
           templateID: input["templateID"],
           settingsDirectory: input["settingsDirectory"],
           migrateCore: input["migrateCore"],
+          destinationRoot: input["destinationRoot"],
         },
       }).pipe(Effect.mapError(mapClientError)),
     )
