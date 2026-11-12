@@ -8,7 +8,7 @@ import { createTuiResolvedConfig } from "./fixture/tui-runtime"
 import { emptyThemeSource } from "./fixture/fixture"
 import { TestTuiContexts } from "./fixture/tui-environment"
 
-for (const width of [80, 120]) {
+for (const width of [48, 80, 120]) {
   for (const empty of [false, true]) {
     test(`templates show styled actions, hover and selected state at ${width}, empty=${empty}`, async () => {
       const calls: string[] = []
@@ -36,14 +36,14 @@ for (const width of [80, 120]) {
         .find((span) => span.text.includes(text))?.bg.toInts()
       app.renderer.start()
       try {
-        await app.waitForFrame((frame) => frame.includes("Сохранённые шаблоны") && !frame.includes("Подготовка"))
+        await app.waitForFrame((frame) => frame.includes("Шаблоны проектов") && !frame.includes("Подготовка"))
         const frame = app.captureCharFrame()
-        expect(frame).toContain("[ Сохранить проект как шаблон ]")
-        expect(frame).toContain("[ Создать проект из шаблона ]")
+        expect(frame).toContain("[ Сохранить шаблон ]")
+        expect(frame).not.toContain("Путь к файлу шаблона")
         expect(frame).toContain("↑↓ выбор · Enter действие")
         await capture(empty ? "empty" : "selected")
         if (empty) {
-          expect(frame).toContain("Откройте проект")
+          expect(frame).not.toContain("Откройте проект")
           expect(frame).toContain("Шаблонов пока нет")
           keys!.activate()
           keys!.move(1)
@@ -54,15 +54,15 @@ for (const width of [80, 120]) {
           return
         }
         const create = app.renderer.root.findDescendantById("project-templates.create-factory")!
-        const before = background("[ Создать проект из шаблона ]")
+        const before = background("[ Фабрика · Создать ]")
         await app.mockMouse.moveTo(create.x + 3, create.y)
         await app.renderOnce()
-        expect(background("[ Создать проект из шаблона ]")).not.toEqual(before)
+        expect(background("[ Фабрика · Создать ]")).not.toEqual(before)
         await capture("hover")
         await app.mockMouse.moveTo(width - 1, 27)
         keys!.move(1)
         await app.renderOnce()
-        expect(app.captureCharFrame()).toContain("› [ Создать проект из шаблона ]")
+        expect(app.captureCharFrame()).toContain("› [ Фабрика · Создать ]")
         await capture("keyboard")
         keys!.activate()
         await app.waitForFrame((f) => f.includes("Создать «Фабрика»?"))
@@ -77,3 +77,21 @@ for (const width of [80, 120]) {
     })
   }
 }
+
+
+test("compact no-project import and single-line library at 48 columns", async () => {
+  const app = await testRender(() => (
+    <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}>
+      <ProjectTemplatesSimple canSave={false} access={{list:async () => [{id:"test",name:"Test2"}],prepareSave:async()=>{throw Error("disabled")},confirmSave:async()=>{},prepareCreate:async()=>({token:"t",name:"Test2",details:"Reviewed"}),confirmCreate:async()=>{},prepareImport:async()=>({token:"i",name:"Friend",details:"Reviewed"}),confirmImport:async()=>{}}}/>
+    </ThemeProvider></ConfigProvider></TestTuiContexts>
+  ),{width:48,height:16})
+  app.renderer.start()
+  try {
+    await app.waitForFrame(f => f.includes("Test2"))
+    const frame = app.captureCharFrame()
+    expect(frame).not.toContain("Откройте проект")
+    expect(frame).not.toContain("Вставьте полный путь")
+    expect(frame.split("\n").some(line => line.includes("Test2") && line.includes("Создать"))).toBe(true)
+    if(process.env.CAPTURE_TEMPLATE_STYLE) await Bun.write(`${process.env.CAPTURE_TEMPLATE_STYLE}-import.json`,JSON.stringify(app.captureSpans()))
+  } finally {app.renderer.destroy()}
+})

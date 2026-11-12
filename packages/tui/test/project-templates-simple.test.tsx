@@ -225,7 +225,7 @@ test("file export shows exact project-root path and git warning",async()=>{
  const app=await testRender(()=><TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple access={access} canSave /></ThemeProvider></ConfigProvider></TestTuiContexts>,{width:100,height:30})
  app.renderer.start()
  try{
-  await app.waitForFrame(f=>f.includes("Экспорт в файл"))
+  await app.waitForFrame(f=>f.includes("Экспорт"))
   const box=app.renderer.root.findDescendantById("project-templates.export-demo")!
   await app.mockMouse.click(box.x+1,box.y)
   await app.waitForFrame(f=>f.includes("C:/Projects/Test2/Test2.orchestra-template"))
@@ -263,7 +263,7 @@ test("import path receives keyboard focus and terminal paste, and clicking resto
   ), { width: 100, height: 24 })
   app.renderer.start()
   try {
-    await app.waitForFrame(frame => frame.includes("Вставьте полный путь"))
+    await app.waitForFrame(frame => frame.includes("Путь к файлу"))
     app.mockInput.pressArrow("down")
     await app.renderOnce()
     expect(app.renderer.currentFocusedEditor?.id).toBe("project-templates.import-path")
