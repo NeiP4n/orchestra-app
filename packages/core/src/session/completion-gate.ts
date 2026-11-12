@@ -135,6 +135,11 @@ export const conversational = (text: string) => {
   return words.length > 0 && words.length <= 8 && !PAGE_VERB.test(text)
 }
 
+export const claimsFullCompletion = (text: string) => text.split(/\r?\n/).some(line =>
+  !/^\s*>/.test(line) &&
+  !/\bnot\b|\bincomplete\b|не (?:выполн|готов|заверш|полностью|в полном)|не.*в полном объ[её]ме|частично/iu.test(line) &&
+  /в полном объ[её]ме|полностью (?:готов|выполн|заверш)|all (?:done|complete)|completed? in full|fully (?:done|complete|implemented)/iu.test(line))
+
 /** Ordered task-local history, with successful untruncated reads after each cut wake. */
 export function unreadReportWorkers(turn: ReadonlyArray<SessionMessage.Info>): string[] {
   return turn.flatMap((message, index) => {
@@ -201,7 +206,7 @@ export function check(
     "The cut preview is not evidence of completion. Do not report the task finished until the missing report is reviewed.",
   ])
   const finalText = last.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n")
-  const fullClaim = /в полном объ[её]ме|полностью (?:готов|выполн|заверш)|all (?:done|complete)|completed? in full|fully (?:done|complete|implemented)/i.test(finalText)
+  const fullClaim = claimsFullCompletion(finalText)
   const unresolved = stages.filter((stage) => stage.status !== "completed" && stage.status !== "cancelled")
   const openBoard = board.type === "ready" ? board.items.filter((item) => item.state !== "DONE") : []
   if (fullClaim && (unresolved.length || openBoard.length)) return reminder([

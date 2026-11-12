@@ -339,3 +339,9 @@ test("final report names completed plan stages 1:1 and rejects full claims with 
  expect(check("[build] Fully complete",[{...stage,status:"running" as any}])).toContain("contradicts open")
  expect(check("[build] Tests passed; remaining work blocked",[],board(1))).toBeUndefined()
 })
+
+test("anti-overclaim does not mistake honest incomplete reports for full completion",()=>{
+ for(const text of ["Not fully implemented", "Не выполнено в полном объёме", "> completed in full", "Не полностью готово"])
+  expect(SessionCompletionGate.claimsFullCompletion(text)).toBe(false)
+ expect(SessionCompletionGate.claimsFullCompletion("Завершено в полном объёме")).toBe(true)
+})
