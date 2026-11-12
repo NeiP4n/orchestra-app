@@ -152,7 +152,7 @@ Before your final message call task_report with the typed outcome (complete, par
 Your final message is delivered to the Orchestrator as your report. Its first line must be exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, no markdown, in English even if the rest is in another language). Then, briefly:
 RESULT: what you delivered (files changed, decision or findings)
 TOOLS: the registry (hub), MCP, web or skill tools you actually called, or "none needed"
-CHECKS: one line per check with the exact command and its result as PASS or FAIL, or NOT RUN and why. A role that changes files and reports DONE without a PASS check is counted as PARTLY DONE.
+CHECKS: one line per check with the exact command and its result as PASS or FAIL, or NOT RUN and why. A role that changes files and reports DONE without a PASS check is counted as PARTLY DONE. Code-task reports must name a commit SHA/branch, or explicitly say local-only (только локально) so the operator knows the edits are not delivered.
 RISKS: open issues, assumptions and blockers
 NOTES: durable facts for the project notes, if any (read-only roles)
 NEXT: what the Orchestrator should do next, if anything

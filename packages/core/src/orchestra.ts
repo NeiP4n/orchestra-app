@@ -1322,7 +1322,7 @@ const layer: Layer.Layer<
                     ? "Reported executed checks, but this task ran no command: the CHECKS were copied from earlier work or never run. Treated as partial until a check is run."
                     : !workerRemoved && evidence.editedAfterRun
                       ? "Reported executed checks, but files were edited after the last command ran: the results describe older code. Treated as partial until the checks are run again."
-                      : !deliveryLocationOf(answer) && taskMessages.some((message) => message.type === "assistant" && message.content.some((part) => part.type === "tool" && part.state.status === "completed" && WRITING.has(part.name)))
+                      : !deliveryLocationOf(answer)
                         ? "Reported DONE after file changes without a commit/branch or an explicit local-only notice. Treated as partial until delivery location is stated."
                         : undefined
               : undefined

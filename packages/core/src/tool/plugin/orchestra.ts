@@ -1,3 +1,4 @@
+import { SessionCompletionGate } from "../../session/completion-gate.js"
 import { ReconDedup } from "../../recon-dedup.js"
 export * as OrchestraTool from "./orchestra.js"
 
@@ -1114,6 +1115,11 @@ export const Plugin = {
           typeof event.input === "object" && event.input !== null
             ? (event.input as { action?: string; text?: string })
             : {}
+        if (event.tool === name && (input.action === "send" || input.action === "create") && input.text?.trim()) {
+          const user = history.findLastIndex(message => message.type === "user")
+          const unread = SessionCompletionGate.unreadReportWorkers(history.slice(user + 1))
+          if (unread.length) return yield* new Tool.Error({ message: `Read truncated worker reports before dispatching the next step: ${unread.join(", ")}. Use sessions action=read for those exact workers and review their complete evidence first.` })
+        }
         const gate = delegationGate(counted, {
           tool: event.tool,
           messageID: String(event.messageID),
