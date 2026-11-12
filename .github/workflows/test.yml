@@ -26,6 +26,7 @@ env:
 
 jobs:
   affected:
+    if: ${{ !((github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev')) }}
     name: affected packages
     runs-on: ubuntu-latest
     outputs:
