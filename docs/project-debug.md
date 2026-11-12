@@ -2,8 +2,11 @@
 
 Off by default. In a local TUI, open a project's chat, then click `Debug OFF` on the bottom bar (or open Tools) and click
 `Project recording: OFF` to turn it on. The visible `REC debug` indicator opens
-the same controls. Click ON again to stop. Remote TUI connections do not change
-files on the TUI machine.
+the same controls. Click ON again to stop. The backend owns the switch and reports its exact path, byte count and last write.
+A real probe record is written when enabling. An older backend or a write failure
+shows `REC error` instead of pretending recording works. Update and restart the
+running backend when using a newly updated TUI. Remote TUI connections do not
+change files on the TUI machine.
 
 Alternatively, launch the local backend with `ORCHESTRA_PROJECT_DEBUG=1`.
 A project's saved OFF setting overrides that environment default.

@@ -2,6 +2,10 @@
 export const registryEn = {
   "REC debug": "REC debug",
   "Debug OFF": "Debug OFF",
+  "REC error": "REC error",
+  "Last write": "Last write",
+  "No events recorded yet": "No events recorded yet",
+  "Recording unavailable. Restart or update the backend; check project permissions.": "Recording unavailable. Restart or update the backend; check project permissions.",
   "Project recording: ON": "Project recording: ON",
   "Project recording: OFF": "Project recording: OFF",
   "Local messages and commands, secrets redacted. Review before sharing.": "Local messages and commands, secrets redacted. Review before sharing.",
@@ -217,6 +221,10 @@ export const registryEn = {
 export const registryRu: Record<keyof typeof registryEn, string> = {
   "REC debug": "REC дебаг",
   "Debug OFF": "Дебаг ВЫКЛ",
+  "REC error": "REC ошибка",
+  "Last write": "Последняя запись",
+  "No events recorded yet": "Событий пока нет",
+  "Recording unavailable. Restart or update the backend; check project permissions.": "Запись недоступна. Перезапустите или обновите сервер, проверьте права проекта.",
   "Project recording: ON": "Запись проекта: ВКЛ",
   "Project recording: OFF": "Запись проекта: ВЫКЛ",
   "Local messages and commands, secrets redacted. Review before sharing.": "Локальные сообщения и команды, секреты скрыты. Проверь перед отправкой.",

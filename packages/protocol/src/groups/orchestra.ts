@@ -25,9 +25,12 @@ const TemplateBrowsers = Schema.Struct({
     }),
   ),
 })
+const ProjectDebugStatus = Schema.Struct({ enabled: Schema.Boolean, path: Schema.String, bytes: Schema.Number, lastWrite: Schema.optional(Schema.Number), error: Schema.optional(Schema.String) })
 const root = "/api/orchestra/project"
 
 export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
+  .add(HttpApiEndpoint.get("orchestra.projectDebug.get", "/api/orchestra/project/:projectID/debug", { params: { projectID: Orchestra.ProjectID }, success: ProjectDebugStatus, error: InvalidRequestError }))
+  .add(HttpApiEndpoint.put("orchestra.projectDebug.set", "/api/orchestra/project/:projectID/debug", { params: { projectID: Orchestra.ProjectID }, payload: Schema.Struct({ enabled: Schema.Boolean }), success: ProjectDebugStatus, error: InvalidRequestError }))
   .add(HttpApiEndpoint.post("orchestra.projectTemplate.exportFile", "/api/orchestra/project-template/export-file", {
     payload: Schema.Struct({ templateID: Schema.String, projectID: Orchestra.ProjectID }),
     success: Schema.Struct({ path: Schema.String, warning: Schema.String }), error: InvalidRequestError,

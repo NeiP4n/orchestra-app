@@ -396,6 +396,10 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectDebugGetInput,
+  OrchestraProjectDebugGetOutput,
+  OrchestraProjectDebugSetInput,
+  OrchestraProjectDebugSetOutput,
   OrchestraProjectTemplateExportFileInput,
   OrchestraProjectTemplateExportFileOutput,
   OrchestraProjectTemplatePrepareImportInput,
@@ -3376,6 +3380,31 @@ export function make(options: ClientOptions) {
       },
     },
     orchestra: {
+      projectDebug: {
+        get: (input: OrchestraProjectDebugGetInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectDebugGetOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/project/${encodeURIComponent(input.projectID)}/debug`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        set: (input: OrchestraProjectDebugSetInput, requestOptions?: RequestOptions) =>
+          request<OrchestraProjectDebugSetOutput>(
+            {
+              method: "PUT",
+              path: `/api/orchestra/project/${encodeURIComponent(input.projectID)}/debug`,
+              body: { enabled: input["enabled"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
       projectTemplate: {
         exportFile: (input: OrchestraProjectTemplateExportFileInput, requestOptions?: RequestOptions) =>
           request<OrchestraProjectTemplateExportFileOutput>(

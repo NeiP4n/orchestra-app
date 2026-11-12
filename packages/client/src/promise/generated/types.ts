@@ -14649,6 +14649,29 @@ export type RoomMeshRpcInput = {
 
 export type RoomMeshRpcOutput = RoomMeshRpcResponse
 
+export type OrchestraProjectDebugGetInput = { readonly projectID: { readonly projectID: string }["projectID"] }
+
+export type OrchestraProjectDebugGetOutput = {
+  enabled: boolean
+  path: string
+  bytes: number
+  lastWrite?: number | undefined
+  error?: string | undefined
+}
+
+export type OrchestraProjectDebugSetInput = {
+  readonly projectID: { readonly projectID: string }["projectID"]
+  readonly enabled: { readonly enabled: boolean }["enabled"]
+}
+
+export type OrchestraProjectDebugSetOutput = {
+  enabled: boolean
+  path: string
+  bytes: number
+  lastWrite?: number | undefined
+  error?: string | undefined
+}
+
 export type OrchestraProjectTemplateExportFileInput = {
   readonly templateID: { readonly templateID: string; readonly projectID: string }["templateID"]
   readonly projectID: { readonly templateID: string; readonly projectID: string }["projectID"]

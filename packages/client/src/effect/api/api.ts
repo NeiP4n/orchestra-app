@@ -4705,6 +4705,30 @@ export interface RoomApi<E = never> {
   }
 }
 
+export type OrchestraProjectDebugGetInput = { readonly projectID: Orchestra.ProjectID }
+export type OrchestraProjectDebugGetOutput = {
+  readonly enabled: boolean
+  readonly path: string
+  readonly bytes: number
+  readonly lastWrite?: number | undefined
+  readonly error?: string | undefined
+}
+export type OrchestraProjectDebugGetOperation<E = never> = (
+  input: OrchestraProjectDebugGetInput,
+) => Effect.Effect<OrchestraProjectDebugGetOutput, E>
+
+export type OrchestraProjectDebugSetInput = { readonly projectID: Orchestra.ProjectID; readonly enabled: boolean }
+export type OrchestraProjectDebugSetOutput = {
+  readonly enabled: boolean
+  readonly path: string
+  readonly bytes: number
+  readonly lastWrite?: number | undefined
+  readonly error?: string | undefined
+}
+export type OrchestraProjectDebugSetOperation<E = never> = (
+  input: OrchestraProjectDebugSetInput,
+) => Effect.Effect<OrchestraProjectDebugSetOutput, E>
+
 export type OrchestraProjectTemplateExportFileInput = {
   readonly templateID: string
   readonly projectID: Orchestra.ProjectID
@@ -5160,6 +5184,10 @@ export type OrchestraLinkListOperation<E = never> = (
 ) => Effect.Effect<OrchestraLinkListOutput, E>
 
 export interface OrchestraApi<E = never> {
+  readonly projectDebug: {
+    readonly get: OrchestraProjectDebugGetOperation<E>
+    readonly set: OrchestraProjectDebugSetOperation<E>
+  }
   readonly projectTemplate: {
     readonly exportFile: OrchestraProjectTemplateExportFileOperation<E>
     readonly prepareImport: OrchestraProjectTemplatePrepareImportOperation<E>

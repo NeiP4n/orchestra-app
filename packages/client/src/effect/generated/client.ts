@@ -398,6 +398,10 @@ import type {
   RoomMeshFeedOutput,
   RoomMeshRpcInput,
   RoomMeshRpcOutput,
+  OrchestraProjectDebugGetInput,
+  OrchestraProjectDebugGetOutput,
+  OrchestraProjectDebugSetInput,
+  OrchestraProjectDebugSetOutput,
   OrchestraProjectTemplateExportFileInput,
   OrchestraProjectTemplateExportFileOutput,
   OrchestraProjectTemplatePrepareImportInput,
@@ -2469,6 +2473,23 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   },
 })
 
+const EndpointOrchestraProjectDebugGet =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectDebugGetInput) =>
+    preserveEffect<OrchestraProjectDebugGetOutput>()(
+      raw["orchestra.projectDebug.get"]({ params: { projectID: input["projectID"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const EndpointOrchestraProjectDebugSet =
+  (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectDebugSetInput) =>
+    preserveEffect<OrchestraProjectDebugSetOutput>()(
+      raw["orchestra.projectDebug.set"]({
+        params: { projectID: input["projectID"] },
+        payload: { enabled: input["enabled"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
 const EndpointOrchestraProjectTemplateExportFile =
   (raw: RawClient["server.orchestra"]) => (input: OrchestraProjectTemplateExportFileInput) =>
     preserveEffect<OrchestraProjectTemplateExportFileOutput>()(
@@ -2798,6 +2819,7 @@ const EndpointOrchestraLinkList = (raw: RawClient["server.orchestra"]) => (input
   )
 
 const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
+  projectDebug: { get: EndpointOrchestraProjectDebugGet(raw), set: EndpointOrchestraProjectDebugSet(raw) },
   projectTemplate: {
     exportFile: EndpointOrchestraProjectTemplateExportFile(raw),
     prepareImport: EndpointOrchestraProjectTemplatePrepareImport(raw),

@@ -12,6 +12,7 @@ const REDACTED = "[redacted]"
 const sensitive = /(?:key|secret|token|password|passwd|authorization|cookie|credential)/i
 export const logPath = (directory: string) => path.join(directory, ".orchestra", "project-debug.jsonl")
 const settingsPath = (directory: string) => path.join(directory, ".orchestra", "debug-recording.json")
+const errors = new Map<string, string>()
 const locks = new Map<string, Promise<void>>()
 
 /** Redact structured fields, known secret environment values and credential shapes before disk IO. */
@@ -68,6 +69,17 @@ export async function setEnabled(directory: string, value: boolean) {
 
 }
 
+export function failed(directory: string) { errors.set(logPath(directory), "Recording failed. Check the backend log and project path permissions.") }
+export async function status(directory: string) {
+  const file = logPath(directory)
+  const isEnabled = await enabled(directory)
+  await noLink(file)
+  let bytes = 0, lastWrite: number | undefined
+  try { const info = await lstat(file); bytes = info.size; if (bytes) lastWrite = info.mtimeMs }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
+  return { enabled: isEnabled, path: file, bytes, lastWrite, error: errors.get(file) }
+}
+
 export type Record = { timestamp: number; sessionID: string; role: string; eventType: string; data: unknown }
 /** One ordered file for every session in the exact owning project. One bounded backup, no network. */
 export async function record(directory: string, event: Record, maxBytes = MAX_BYTES) {
@@ -84,8 +96,8 @@ export async function record(directory: string, event: Record, maxBytes = MAX_BY
     try { size = (await lstat(file)).size } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
     if (size && size + Buffer.byteLength(line) > maxBytes) await rename(file, file + ".1")
     const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | (constants.O_NOFOLLOW ?? 0), 0o600)
-    try { await handle.chmod(0o600); await handle.writeFile(line) } finally { await handle.close() }
+    try { await handle.chmod(0o600); await handle.writeFile(line); errors.delete(file) } finally { await handle.close() }
   })
   locks.set(file, next)
-  try { await next } finally { if (locks.get(file) === next) locks.delete(file) }
+  try { await next } catch (error) { failed(directory); throw error } finally { if (locks.get(file) === next) locks.delete(file) }
 }

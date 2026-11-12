@@ -205,6 +205,8 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (/^\/api\/room\/[^/]+\/feed$/.test(url.pathname)) return json({ events: [] })
     if (url.pathname === "/api/note" && request.method === "GET")
       return json({ location: { directory, project: { id: "proj_test", directory: worktree } }, data: [] })
+    if (request.method === "GET" && /^\/api\/orchestra\/project\/[^/]+\/debug$/.test(url.pathname))
+      return json({ enabled: false, path: `${worktree}/.orchestra/project-debug.jsonl`, bytes: 0 })
     // A project with no template import has no browser definitions.
     if (request.method === "GET" && /^\/api\/orchestra\/project-template\/[^/]+\/browsers$/.test(url.pathname))
       return json(null)

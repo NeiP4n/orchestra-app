@@ -284,6 +284,27 @@ it.live("project debug captures live worker events in the owning project file", 
   }).pipe(Effect.scoped),
 )
 
+it.live("project debug captures an existing Orchestrator session enabled mid-chat", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("orchestra-debug-mid-chat-")))
+    const orchestra = yield* Orchestra.Service
+    const sessions = yield* Session.Service
+    const project = yield* orchestra.create({ name: "Debug main", directory: tmp.path })
+    const main = yield* orchestra.main(project.id)
+    yield* sessions.prompt({ sessionID: main.id, text: "before toggle", resume: false })
+    yield* Effect.sleep("30 millis")
+    yield* Effect.promise(() => ProjectDebug.setEnabled(tmp.path, true))
+    yield* sessions.prompt({ sessionID: main.id, text: "after toggle", resume: false })
+    const text = yield* Effect.tryPromise(() => readFile(ProjectDebug.logPath(tmp.path), "utf8")).pipe(
+      Effect.filterOrFail(text => text.includes("after toggle")),
+      Effect.retry(Schedule.spaced("20 millis")), Effect.timeout("3 seconds"),
+    )
+    expect(text).toContain("after toggle")
+    expect(text).not.toContain("before toggle")
+    expect(text).toContain(main.id)
+  }).pipe(Effect.scoped),
+)
+
 describe("Orchestra sandbox project", () => {
   it.live("works in a new worktree of the repository and leaves the source checkout untouched", () =>
     Effect.gen(function* () {
