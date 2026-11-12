@@ -265,6 +265,14 @@ export const Plugin = {
                   },
                 }
               })),
+              Effect.catchIf(
+                (error): error is ReadToolFileSystem.OffsetOutOfRangeError => error instanceof ReadToolFileSystem.OffsetOutOfRangeError,
+                (error) => Effect.succeed({
+                  output: new ReadToolFileSystem.TextPage({ type: "text-page", content: "", mime: "text/plain", offset: Math.max(1,error.offset), truncated: false }),
+                  content: [{ type: "text" as const, text: `${error.message}. No lines returned. Read an offset from 1 to ${Math.max(1,error.lines)} or inspect a different file.` }],
+                  metadata: { truncated: false },
+                }),
+              ),
               Effect.mapError((error) => {
                 if (error instanceof ToolFailure) return error
                 const cause = error instanceof Error ? `: ${error.message}` : error ? `: ${String(error)}` : ""

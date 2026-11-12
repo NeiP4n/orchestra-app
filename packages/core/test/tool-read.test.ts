@@ -585,10 +585,6 @@ describe("ReadTool", () => {
       const registry = yield* Tool.Service
       for (const [error, message] of [
         [
-          new ReadToolFileSystem.OffsetOutOfRangeError({ offset: 10, lines: 3 }),
-          "Offset 10 is out of range for this file (3 lines)",
-        ],
-        [
           new ReadToolFileSystem.PathKindError({ resource: "socket", expected: "a file" }),
           "Path is not a file: socket",
         ],
@@ -1132,4 +1128,13 @@ it.effect("deduplicates unchanged attached reconnaissance after authorization, b
  const changed=yield* call()
  expect(changed.status).toBe("completed");if(changed.status!=="completed")return
  expect(changed.content).not.toEqual(same.content)
+}))
+
+it.effect("out-of-range reads are soft successful feedback with the real file length",()=>Effect.gen(function*(){
+ const registry=yield* Tool.Service
+ readFailure=new ReadToolFileSystem.OffsetOutOfRangeError({offset:173,lines:171})
+ const result=yield* executeTool(registry,{sessionID,...toolIdentity,call:{type:"tool-call",id:"outside-read",name:"read",input:{path:"target",offset:173}}})
+ expect(result.status).toBe("completed");if(result.status!=="completed")return
+ expect(result.content).toEqual([{type:"text",text:"Offset 173 is out of range for this file (171 lines). No lines returned. Read an offset from 1 to 171 or inspect a different file."}])
+ expect(result.output).toMatchObject({type:"text-page",content:"",truncated:false})
 }))
