@@ -57,6 +57,7 @@ for (const missingModel of [false, true])
       () => undefined,
       (error) => error,
     )
+    expect(templateError(failure).kind).toBe(missingModel ? "TEMPLATE_MODEL" : "TEMPLATE_CORE_ROLE")
     expect(templateDiagnosticOf(failure)).toEqual(
       missingModel
         ? { stage: "session-models", reasonCode: "model-unavailable" }

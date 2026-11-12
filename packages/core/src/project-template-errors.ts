@@ -71,10 +71,19 @@ export const templateErrorMessages = {
   TEMPLATE_PLAYBOOK_ROLE: "The project playbook recommends an unavailable role. Restore the role or review the recommendation. No process settings were removed.",
   TEMPLATE_SKILL_ROLE: "A skill is assigned to an unavailable role. Restore that role or review the skill assignment. No assignment was removed.",
   TEMPLATE_UNRESOLVED_ROLES: "This template preserves unavailable role references. Restore the original source roles and update the template before creating a project. No permissions were invented or removed.",
+  TEMPLATE_MODEL: "A model required by this template is unavailable. Connect its provider or restore that model, then retry.",
+  TEMPLATE_CORE_ROLE: "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.",
+  TEMPLATE_PATH: "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.",
+  TEMPLATE_DESTINATION: "The reserved destination contains files or changed configuration. Nothing was overwritten. Review the destination before retrying.",
+  TEMPLATE_BACKEND: "Template creation is unavailable on this server. Update and restart the background server and TUI.",
   TEMPLATE_FAILED: "Could not finish the template operation. Review changes and retry the same operation.",
 } as const
 export type TemplateErrorCode = keyof typeof templateErrorMessages
 const exact = new Map<string, TemplateErrorCode>([
+  ["A verified model settings directory is required.", "TEMPLATE_PATH"],
+  ["Choose a regular .orchestra-template file.", "TEMPLATE_PATH"],
+  ["Import directory contains foreign files.", "TEMPLATE_DESTINATION"],
+  ["Import refuses to replace changed or foreign configuration.", "TEMPLATE_DESTINATION"],
   ["Unresolved source role definitions must be restored before creating a project.", "TEMPLATE_UNRESOLVED_ROLES"],
   ["Unresolved source role definitions require review before saving.", "TEMPLATE_UNRESOLVED_ROLES"],
   ["Browser chat no longer exists.", "TEMPLATE_BROWSER_CHAT_MISSING"],
@@ -103,7 +112,7 @@ const exact = new Map<string, TemplateErrorCode>([
 ])
 export function templateError(error: unknown): { kind: TemplateErrorCode; message: string } {
   if (error instanceof TemplateStageError) {
-    const roleCodes = { "name-invalid":"TEMPLATE_NAME", "session-role-missing":"TEMPLATE_SESSION_ROLE", "rule-role-missing":"TEMPLATE_RULE_ROLE", "playbook-role-missing":"TEMPLATE_PLAYBOOK_ROLE", "skill-role-missing":"TEMPLATE_SKILL_ROLE" } as const
+    const roleCodes = { "model-unavailable":"TEMPLATE_MODEL", "core-role-different":"TEMPLATE_CORE_ROLE", "name-invalid":"TEMPLATE_NAME", "session-role-missing":"TEMPLATE_SESSION_ROLE", "rule-role-missing":"TEMPLATE_RULE_ROLE", "playbook-role-missing":"TEMPLATE_PLAYBOOK_ROLE", "skill-role-missing":"TEMPLATE_SKILL_ROLE" } as const
     if (error.reasonCode in roleCodes) {
       const kind = roleCodes[error.reasonCode as keyof typeof roleCodes]
       return {kind,message:templateErrorMessages[kind]}
@@ -125,4 +134,11 @@ export function templateErrorKey(error: unknown): string | undefined {
   const kind = (error as Error & { kind?: unknown }).kind
   if (typeof kind !== "string" || !Object.hasOwn(templateErrorMessages, kind)) return
   return templateErrorMessages[kind as TemplateErrorCode]
+}
+
+/** Unknown exceptions stay private. 404 is a route/capability hint, not a claim about version. */
+export function templateFailureReason(error: unknown): string {
+  if (error instanceof Error && /UnexpectedStatus:\s*404/.test(error.message)) return templateErrorMessages.TEMPLATE_BACKEND
+  const known = templateErrorKey(error)
+  return known && known !== templateErrorMessages.TEMPLATE_FAILED ? known : "Template operation failed (TEMPLATE_FAILED). Check the background server log for the cause."
 }

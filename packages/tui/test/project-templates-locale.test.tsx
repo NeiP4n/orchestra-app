@@ -48,7 +48,7 @@ for (const language of ["en", "ru"] as const) test(`template labels, confirmatio
     await click("cancel")
     fail = true
     await click("save")
-    await app.waitForFrame((f) => f.includes(text("Template was not saved.")))
+    await app.waitForFrame((f) => f.includes(text("Template storage is not writable. Check application data folder permissions.").split(".")[0]))
     if (process.env.CAPTURE_TEMPLATE_ERRORS) await Bun.write(`${process.env.CAPTURE_TEMPLATE_ERRORS}-${language}.json`, JSON.stringify(app.captureSpans()))
     expect(app.captureCharFrame()).not.toContain("private diagnostic")
     expect(app.captureCharFrame()).not.toContain(text("Could not finish. Nothing was replaced. Try again."))
@@ -110,4 +110,20 @@ for (const width of [80,120]) test(`stale browser chat requires visible review a
     await app.waitForFrame(f=>f.includes("Проект сохранён как шаблон"))
     expect(calls).toEqual([["binding-review",false,true]])
   }finally{app.renderer.destroy()}
+})
+
+for (const width of [48,80,120]) test(`create shows one actual safe cause without repeated generic failure at ${width}`, async () => {
+ const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig({language:"ru"})}><ThemeProvider mode="dark" source={emptyThemeSource}><ProjectTemplatesSimple canSave={false} access={{list:async()=>[{id:"demo",name:"Test2"}],prepareSave:async()=>{throw Error("unused")},confirmSave:async()=>{},prepareCreate:async()=>{throw Object.assign(Error("PRIVATE_CANARY"),{_tag:"InvalidRequestError",kind:"TEMPLATE_MODEL"})},confirmCreate:async()=>{}}}/></ThemeProvider></ConfigProvider></TestTuiContexts>,{width,height:18})
+ app.renderer.start()
+ try {
+  await app.waitForFrame(f=>f.includes("Test2"))
+  const node=app.renderer.root.findDescendantById("project-templates.create-demo")!
+  await app.mockMouse.click(node.x+2,node.y)
+  await app.waitForFrame(f=>f.includes("модель недоступна"))
+  const frame=app.captureCharFrame()
+  expect(frame).not.toContain("Не получилось завершить")
+  expect(frame).not.toContain("PRIVATE_CANARY")
+  expect(frame.match(/модель недоступна/g)).toHaveLength(1)
+  await Bun.write(`/tmp/template-actual-cause-${width}.json`,JSON.stringify(app.captureSpans()))
+ } finally {app.renderer.destroy()}
 })

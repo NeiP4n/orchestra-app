@@ -199,16 +199,26 @@ export function make(deps: Deps) {
       if (!record(pending) || pending.kind !== "file-import" || typeof pending.file !== "string" || typeof pending.digest !== "string" || typeof pending.text !== "string") throw Error("Unknown import.")
       const current = await ProjectTemplateTransfer.read(pending.file)
       if (current.digest !== pending.digest) throw Error("Template changed after preview.")
+      return Flock.withLock("template-content-" + current.digest, async () => {
+      const duplicate = (await library.list()).find(row => row.state === "ready" && row.digest === current.digest)
+      if (duplicate) return { id: duplicate.name, name: current.bundle.name }
       const id = (current.bundle.version === 2 ? "process:" : "") + "template_" + token.slice(4)
       let exists = false
       try { const saved = await library.preview(id); if(saved.digest !== current.digest) throw Error("Existing template differs."); exists = true } catch(error) { if((error as NodeJS.ErrnoException).code !== "ENOENT")throw error }
       if (!exists) await library.saveSerialized(pending.text, id, pending.digest)
       return { id, name: current.bundle.name }
+      })
     }),
-    list: async () =>
-      (await library.list())
-        .filter((row) => row.state === "ready")
-        .map((row) => ({ id: row.name, name: row.title ?? row.name })),
+    list: async () => {
+      const seen = new Set<string>()
+      return (await library.list()).filter(row => {
+        if (row.state !== "ready") return false
+        const key = row.digest ?? row.name
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      }).map(row => ({ id: row.name, name: row.title ?? row.name }))
+    },
     prepareSave: async (projectID: string, browsers: readonly BrowserInput[], templateID?: string) => {
       const prior = templateID === undefined ? undefined : await library.preview(templateID)
       // Updating an existing v1 entry stays v1. Format upgrades are a separate explicit choice.

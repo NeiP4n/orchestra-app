@@ -7,6 +7,7 @@ import { onCleanup } from "solid-js"
 import { Global } from "@orchestra/util/global"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
+import { ProjectTemplateTransfer } from "../../core/src/project-template-transfer"
 import { ServerFetch } from "../../server/src/fetch"
 import { Keymap } from "../src/context/keymap"
 import { ProjectsProvider } from "../src/context/projects"
@@ -122,5 +123,24 @@ it.live("real mounted Templates saves and creates a project with auto chat, Brow
         expect(dedicated.chat).not.toBe(browser.id)
         const importedDedicated = (await call("/api/session/" + dedicated.chat).pipe(Effect.runPromise)).body.data
         expect(importedDedicated.agent).toBe("team-browser-agent")
+        // Reimport the exact exported file twice through the real API, not a UI adapter.
+        const exported = (await call("/api/orchestra/project-template/export-file", "POST", {templateID:templates[0].id,projectID:project.id}).pipe(Effect.runPromise)).body
+        for (let n=0;n<2;n++) {
+          const pending=(await call("/api/orchestra/project-template/prepare-import","POST",{path: ' "'+exported.path+'" '}).pipe(Effect.runPromise)).body
+          expect((await call("/api/orchestra/project-template/confirm-import","POST",{token:pending.token}).pipe(Effect.runPromise)).status).toBe(200)
+        }
+        expect((await call("/api/orchestra/project-template").pipe(Effect.runPromise)).body).toHaveLength(1)
+        const copied=JSON.parse(await readFile(exported.path,"utf8"))
+        copied.sessions[0].model={provider:"missing-fixture-provider",id:"unavailable-fixture",variant:null}
+        const other=await ProjectTemplateTransfer.write(source,JSON.stringify(copied))
+        const importPreview=(await call("/api/orchestra/project-template/prepare-import","POST",{path:other.path}).pipe(Effect.runPromise)).body
+        const imported=(await call("/api/orchestra/project-template/confirm-import","POST",{token:importPreview.token}).pipe(Effect.runPromise)).body
+        const rejected=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:imported.id,settingsDirectory:source}).pipe(Effect.runPromise)
+        expect(rejected.status).toBe(400)
+        expect(rejected.body.kind).toBe("TEMPLATE_MODEL")
+        expect(JSON.stringify(rejected.body)).not.toContain("missing-fixture-provider")
+        const winPath=await call("/api/orchestra/project-template/prepare-create","POST",{templateID:templates[0].id,settingsDirectory:"C:\\Users\\Isako\\Desktop\\Test2"}).pipe(Effect.runPromise)
+        if(process.platform!=="win32") { expect(winPath.status).toBe(400); expect(winPath.body.kind).toBe("TEMPLATE_PATH") }
+
       })
 }), 30_000)

@@ -2,7 +2,7 @@ import type { ProjectTemplateReader } from "@orchestra/core/project-template-rea
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
 import type { ProjectTemplateTriggerReview } from "@orchestra/core/project-template-trigger-review"
 import type { ProjectTemplateLinkReview } from "@orchestra/core/project-template-link-review"
-import { templateErrorKey } from "@orchestra/core/project-template-errors"
+import { templateFailureReason } from "@orchestra/core/project-template-errors"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
 import { useTheme } from "../context/theme"
@@ -85,9 +85,9 @@ export function ProjectTemplatesSimple(props: {
     try {
       await action()
     } catch (error) {
-      setReason(templateErrorKey(error))
+      setReason(templateFailureReason(error))
       setPrepared()
-      setMessage(kind === "save" ? "Template was not saved." : kind === "create" ? "Could not finish. Nothing was replaced. Try again." : "Could not refresh the template list.")
+      setMessage("")
     } finally {
       setBusy(false)
     }
@@ -126,10 +126,10 @@ export function ProjectTemplatesSimple(props: {
         else if(current.kind === "import") await props.access.confirmImport!(current.token)
         else await props.access.confirmCreate(current.token)
       } catch (error) {
-        setReason(templateErrorKey(error))
+        setReason(templateFailureReason(error))
         // Keep this exact durable operation, never prepare a second project after partial commit.
         setPrepared(current)
-        setMessage(current.kind === "save" ? "Template was not saved. Retry the same save." : "Could not finish. Confirm the same operation again to continue without creating a second copy.")
+        setMessage("Confirm the same operation again to continue without creating a second copy.")
         return
       }
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
@@ -316,8 +316,8 @@ export function ProjectTemplatesSimple(props: {
       <Show when={busy()}>
         <text fg={theme.text.muted}>{tr("Preparing…")}</text>
       </Show>
-      <Show when={message()}>
-        <text fg={theme.text.base} wrapMode="word">{tr(message())}{reason() ? " " + tr(reason()!) : ""}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
+      <Show when={message() || reason()}>
+        <text fg={theme.text.base} wrapMode="word">{reason() ? tr(reason()!) : ""}{message() ? (reason() ? " " : "") + tr(message()) : ""}{refreshFailed() ? tr(" The list has not refreshed yet.") : ""}</text>
       </Show>
       <text fg={theme.text.muted} wrapMode="word">{tr(props.access.prepareImport ? "↑↓ select · Enter action · Paste path to import" : "↑↓ select · Enter action")}</text>
     </box>

@@ -1,5 +1,13 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "A model required by this template is unavailable. Connect its provider or restore that model, then retry.": "A model required by this template is unavailable. Connect its provider or restore that model, then retry.",
+  "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.": "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.",
+  "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.": "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.",
+  "The reserved destination contains files or changed configuration. Nothing was overwritten. Review the destination before retrying.": "The reserved destination contains files or changed configuration. Nothing was overwritten. Review the destination before retrying.",
+  "Template creation is unavailable on this server. Update and restart the background server and TUI.": "Template creation is unavailable on this server. Update and restart the background server and TUI.",
+  "Template operation failed (TEMPLATE_FAILED). Check the background server log for the cause.": "Template operation failed (TEMPLATE_FAILED). Check the background server log for the cause.",
+  "Confirm the same operation again to continue without creating a second copy.": "Confirm the same operation again to continue without creating a second copy.",
+
   "Cleanup is unavailable on this server. Update and restart the background server and TUI.": "Cleanup is unavailable on this server. Update and restart the background server and TUI.",
   "Remove from Orchestra?": "Remove from Orchestra?",
   "Removes this project and its owned chats from Orchestra. Files in the project folder, .orchestra data and exported templates are kept.": "Removes this project and its owned chats from Orchestra. Files in the project folder, .orchestra data and exported templates are kept.",
@@ -230,6 +238,14 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "A model required by this template is unavailable. Connect its provider or restore that model, then retry.": "Нужная шаблону модель недоступна. Подключите её провайдера или восстановите модель и повторите.",
+  "The template's built-in roles differ from this server. Update Orchestra and save the template again; role safety rules were not replaced.": "Встроенные роли шаблона отличаются от сервера. Обновите Orchestra и сохраните шаблон заново. Правила безопасности не заменены.",
+  "Choose an absolute path on the server computer. Windows paths need a drive letter, for example C:\\Folder.": "Нужен полный путь на компьютере сервера. В Windows укажите диск, например C:\\Folder.",
+  "The reserved destination contains files or changed configuration. Nothing was overwritten. Review the destination before retrying.": "В папке назначения есть файлы или изменённые настройки. Ничего не перезаписано. Проверьте папку перед повтором.",
+  "Template creation is unavailable on this server. Update and restart the background server and TUI.": "Создание из шаблона недоступно на этом сервере. Обновите и перезапустите фоновый сервер и TUI.",
+  "Template operation failed (TEMPLATE_FAILED). Check the background server log for the cause.": "Операция не выполнена (TEMPLATE_FAILED). Нужна диагностика фонового сервера.",
+  "Confirm the same operation again to continue without creating a second copy.": "Повторите это же подтверждение: продолжим без второй копии.",
+
   "Cleanup is unavailable on this server. Update and restart the background server and TUI.": "Очистка недоступна на этом сервере. Обновите и перезапустите фоновый сервер и TUI.",
   "Remove from Orchestra?": "Удалить из Orchestra?",
   "Removes this project and its owned chats from Orchestra. Files in the project folder, .orchestra data and exported templates are kept.": "Удалит проект и его чаты из Orchestra. Файлы в папке проекта, данные .orchestra и экспортированные шаблоны останутся.",
