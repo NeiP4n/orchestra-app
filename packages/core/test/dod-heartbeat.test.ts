@@ -179,3 +179,35 @@ describe("Dod lease heartbeat: session activity renews the lease", () => {
     expect(freed.items.find((entry) => entry.id === "B-1")?.owner).toBeUndefined()
   })
 })
+
+test("stale sweeper frees idle local claims without erasing checked work or active claims",async()=>{
+ await using dir=await tmpdir()
+ await mkdir(path.join(dir.path,".orchestra"),{recursive:true})
+ await Bun.write(path.join(dir.path,".orchestra/dod.yaml"),`task_id: test
+stages: []
+leaves:
+  - id: A
+    what: Idle
+    task_state: IN_PROGRESS
+    owner: Worker
+    owner_id: ses_idle
+    lease_until: "2000-01-01T00:00:00.000Z"
+    steps:
+      - "[x] code"
+      - "[ ] test"
+  - id: B
+    what: Active
+    task_state: IN_PROGRESS
+    owner: Worker
+    owner_id: ses_active
+    lease_until: "2000-01-01T00:00:00.000Z"
+    steps:
+      - "[ ] work"
+`)
+ expect(await Effect.runPromise(Dod.sweepStale({directory:dir.path,active:id=>id==="ses_active"}))).toEqual(["A"])
+ const status=await Effect.runPromise(Dod.read(dir.path))
+ expect(status.items.find(item=>item.id==="A")).toMatchObject({done:1,total:2,state:"IN_PROGRESS"})
+ expect(status.items.find(item=>item.id==="A")?.owner).toBeUndefined()
+ expect(status.items.find(item=>item.id==="B")?.owner).toBe("Worker")
+ expect(await Effect.runPromise(Dod.sweepStale({directory:dir.path,active:()=>true}))).toEqual([])
+})

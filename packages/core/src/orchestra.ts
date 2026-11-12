@@ -1663,7 +1663,11 @@ const layer: Layer.Layer<
               const recent = yield* sessions
                 .messages({ sessionID, limit: 20, order: "desc" })
                 .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
-              if (!recent.some((message) => finalText(message).length > 0)) return
+              if (!recent.some((message) => finalText(message).length > 0)) {
+                if (Date.now() - task.value.sent >= 15 * 60_000)
+                  yield* report(sessionID, "failed", "Stale task reservation expired after 15 minutes with no active worker and no durable final answer. No completion was inferred; inspect and redispatch.")
+                return
+              }
             }
             yield* report(
               sessionID,
@@ -1851,6 +1855,17 @@ const layer: Layer.Layer<
       if (!continuationControl.isEnabled()) return
       yield* recoverPending(undefined, NO_REPORT_AFTER_MS)
       const active = yield* sessions.active
+      // Reuse the minute watchdog, but keep active, queued and paused work out
+      // of DoD reclamation. Expiry frees ownership only, never evidence/steps.
+      const protectedOwners = new Set<string>(active)
+      for (const row of yield* scanAll(TASK)) protectedOwners.add(row.key.slice(TASK.length))
+      for (const project of yield* projects()) {
+        if (project.workEnabled === false || Option.isSome(decodeProjectMovePlan(yield* kv.get(MOVE_PLAN + project.id)))) continue
+        const status = yield* Dod.status(project.directory)
+        if (status.type === "ready") for (const item of status.items)
+          if (item.ownerID && (yield* ProjectWork.held(kv, sessionStore, item.ownerID))) protectedOwners.add(item.ownerID)
+        yield* Dod.sweepStale({ directory: project.directory, active: id => protectedOwners.has(id) }).pipe(Effect.ignore)
+      }
       for (const entry of yield* scanAll(TASK)) {
         const task = decodeTask(entry.value)
         if (Option.isNone(task)) continue

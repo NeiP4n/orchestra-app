@@ -1330,3 +1330,22 @@ function nextID(ids: readonly string[]) {
   const top = Math.max(0, ...numbers.map((match) => Number(match[1])))
   return `L-${String(top + 1).padStart(width, "0")}`
 }
+
+/** Reclaim only expired, idle local session claims; never erase work or mark it DONE. */
+export const sweepStale = Effect.fn("Dod.sweepStale")(function* (input: { directory: string; active: Active }) {
+  const text = yield* load(input.directory)
+  if (text === undefined) return [] as string[]
+  const candidates = (yield* items(text, undefined, input.active)).filter(item =>
+    item.state === "IN_PROGRESS" && item.stale && item.ownerID?.startsWith("ses_") && !item.human && !item.standby)
+  const released: string[] = []
+  for (const candidate of candidates) {
+    let freed = false
+    yield* change(input.directory, candidate.id, undefined, current => {
+      if (current.state !== "IN_PROGRESS" || !current.stale || current.ownerID !== candidate.ownerID || current.human || current.standby) return {}
+      freed = true
+      return free(current)
+    }, undefined, input.active)
+    if (freed) released.push(candidate.id)
+  }
+  return released
+})
