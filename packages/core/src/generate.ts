@@ -43,6 +43,7 @@ export const layer = Layer.effect(
       const resolved = yield* resolver.resolve(input.model).pipe(
         Effect.catchTag(
           [
+            "Model.ConfiguredDefaultUnavailableError",
             "SessionRunnerModel.VariantUnavailableError",
             "SessionRunnerModel.UnsupportedPackageError",
             "SessionRunnerModel.ModelConfigurationError",
