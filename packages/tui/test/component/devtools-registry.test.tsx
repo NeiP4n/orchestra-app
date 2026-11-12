@@ -75,7 +75,7 @@ async function render(
   )
   app.renderer.start()
   // The programs tab carries the search; the AI tools tab, first when offered, has none.
-  await app.waitForFrame((frame) => frame.includes(options.language === "ru" ? "Реестр" : "Registry") && (frame.includes(options.language === "ru" ? "Поиск" : "Search") || frame.includes(options.language === "ru" ? "ИИ-инструменты" : "AI tools")))
+  await app.waitForFrame((frame) => frame.includes(options.language === "ru" ? "Реестр" : "Registry") && (frame.includes(options.language === "ru" ? "Поиск" : "Search") || frame.includes(options.language === "ru" ? "ИИ-инструменты" : "AI tools") || frame.includes("MCP")))
   return app
 }
 
@@ -657,5 +657,21 @@ for (const width of [48, 80]) test(`compact registry keeps tools and controls vi
     const tool = app.renderer.root.findDescendantById("registry-tool-rg")!
     expect(tool.x + tool.width).toBeLessThanOrEqual(width)
     if (process.env.CAPTURE_REGISTRY_COMPACT) await Bun.write(`${process.env.CAPTURE_REGISTRY_COMPACT}-${width}.json`, JSON.stringify(app.captureSpans()))
+  } finally { app.renderer.destroy() }
+})
+
+for (const width of [48, 80]) test(`compact registry tab renders at ${width}`, async () => {
+  await using tmp = await tmpdir()
+  const app = await render({ probe, terminalProbe: () => true, manager: registryManager, directory: tmp.path,
+    aiTools: { installed: () => [], set: async () => {} },
+    plugins: { registered: () => [{ id: "test.plugin", source: "builtin", active: true }], list: () => [], activate: async () => true, deactivate: async () => true },
+  }, { width, height: 26 })
+  try {
+    for (const tab of ["MCP", "Plugins", "Programs", "Shell"]) {
+      await openTab(app, tab)
+      await app.renderOnce()
+      expect(app.captureCharFrame()).toContain("Tab tabs")
+      if (process.env.CAPTURE_REGISTRY_COMPACT) await Bun.write(`${process.env.CAPTURE_REGISTRY_COMPACT}-${width}-${tab}.json`, JSON.stringify(app.captureSpans()))
+    }
   } finally { app.renderer.destroy() }
 })

@@ -336,6 +336,7 @@ export function RegistryPanel(props: {
           <Match when={tab() === "ai" && props.aiTools}>
             {(_) => (
               <AiTools
+                compact={compact()}
                 tools={props.aiTools!}
                 active={tab() === "ai"}
                 pending={busy()}
@@ -355,6 +356,7 @@ export function RegistryPanel(props: {
             <Show when={props.plugins} fallback={<text fg={theme.text.muted}>{t("Plugin management is unavailable.")}</text>}>
               {(access) => (
                 <PluginTools
+                  compact={compact()}
                   plugins={access()}
                   onCount={setPluginCount}
                   keys={(keys) => (pluginKeys = keys)}
@@ -366,7 +368,7 @@ export function RegistryPanel(props: {
 
           <Match when={tab() === "terminal"}>
             <text fg={theme.text.muted} wrapMode="word">
-              {t("The shell the AI runs its commands and hub commands in.")}
+              {t(compact() ? "Shell for AI and hub commands." : "The shell the AI runs its commands and hub commands in.")}
             </text>
             <box flexDirection="row" gap={1} flexWrap="wrap">
               <For each={status().terminals}>
@@ -399,7 +401,7 @@ export function RegistryPanel(props: {
             <Show when={aiTerminal() === "nu"}>
               <text fg={theme.text.muted} wrapMode="word">
                 {t(
-                  "The AI's shell commands and hub commands run in nu. Nushell has no grammar the permission check understands, so each nu command is approved as a whole; each command shows the shell that ran it.",
+                  compact() ? "Nu commands need approval as a whole; each result names its shell." : "The AI's shell commands and hub commands run in nu. Nushell has no grammar the permission check understands, so each nu command is approved as a whole; each command shows the shell that ran it.",
                 )}
               </text>
             </Show>
@@ -583,6 +585,7 @@ export type AiToolsAccess = {
 // global config. Runtime readiness and operator OFF remain separate from installation. Each row takes two
 // lines so the description is read in full instead of being cut in the middle.
 function PluginTools(props: {
+  compact?: boolean
   plugins: RegistryPluginsAccess
   onCount: (count: string) => void
   keys: (keys: PluginToolsKeys) => void
@@ -676,9 +679,9 @@ function PluginTools(props: {
   )
 
   return (
-    <box gap={1}>
+    <box gap={props.compact ? 0 : 1}>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("Plugin toggles are saved to config. Built-ins disabled at startup stay unloaded; restart to release modules already loaded.")}
+        {t(props.compact ? "Saved in config. Restart to unload disabled plugins." : "Plugin toggles are saved to config. Built-ins disabled at startup stay unloaded; restart to release modules already loaded.")}
       </text>
       <box flexDirection="row" gap={1}>
         <text fg={theme.text.muted} flexShrink={0}>{t("Search")}</text>
@@ -693,7 +696,7 @@ function PluginTools(props: {
           }}
           focusedBackgroundColor={theme.background.formfield.focused}
           cursorColor={theme.text.formfield.focused}
-          placeholder={t("plugin name or built-in / external")}
+          placeholder={t(props.compact ? "Plugin name" : "plugin name or built-in / external")}
           placeholderColor={theme.text.muted}
           ref={(input: InputRenderable) => {
             setTimeout(() => {
@@ -751,6 +754,7 @@ function PluginTools(props: {
 }
 
 function AiTools(props: {
+  compact?: boolean
   tools: AiToolsAccess
   active: boolean
   // The panel's own package-manager action, when it is installing a runtime such as uv.
@@ -825,9 +829,9 @@ function AiTools(props: {
   return (
     <box gap={0}>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("MCP servers that give the AI new abilities. Installed ones reach every session, which is told how to use them; Teams → role → Tools narrows them per role.")}
+        {t(props.compact ? "MCP for all chats; role access: Teams → Tools." : "MCP servers that give the AI new abilities. Installed ones reach every session, which is told how to use them; Teams → role → Tools narrows them per role.")}
       </text>
-      <box height={1} />
+      <Show when={!props.compact}><box height={1} /></Show>
       <For each={entries}>
         {(entry, index) => (
           <box
@@ -846,14 +850,17 @@ function AiTools(props: {
               <text
                 fg={index() === cursor() ? theme.text.formfield.focused : theme.text.base}
                 attributes={TextAttributes.BOLD}
-                flexShrink={0}
+                flexShrink={1}
+                minWidth={0}
+                truncate
+                wrapMode="none"
               >
                 {entry.name}
               </text>
               <Show when={entry.runtime}>
                 {(runtime) => <text fg={theme.text.muted} flexShrink={0}>{runtime()}</text>}
               </Show>
-              <Show when={entry.requires}>
+              <Show when={entry.requires && !props.compact ? entry.requires : undefined}>
                 {(keys) => (
                   <text fg={theme.text.feedback.warning.base} flexShrink={0}>
                     {t("needs {keys}", { keys: keys().join(", ") })}
@@ -888,9 +895,10 @@ function AiTools(props: {
                 </Match>
               </Switch>
             </box>
-            <text fg={theme.text.muted} wrapMode="word">
+            <Show when={props.compact && entry.requires ? entry.requires : undefined}>{(keys) => <text fg={theme.text.feedback.warning.base} wrapMode="word">{t("needs {keys}", { keys: keys().join(", ") })}</text>}</Show>
+            <Show when={!props.compact || index() === cursor()}><text fg={theme.text.muted} wrapMode="word">
               {t(entry.description)}
-            </text>
+            </text></Show>
           </box>
         )}
       </For>

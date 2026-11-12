@@ -1,5 +1,11 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Shell for AI and hub commands.": "Shell for AI and hub commands.",
+  "Nu commands need approval as a whole; each result names its shell.": "Nu commands need approval as a whole; each result names its shell.",
+  "Saved in config. Restart to unload disabled plugins.": "Saved in config. Restart to unload disabled plugins.",
+  "Plugin name": "Plugin name",
+  "MCP for all chats; role access: Teams → Tools.": "MCP for all chats; role access: Teams → Tools.",
+
   "MCP tools": "MCP",
   "Shell": "Shell",
   "Search tools": "Search tools",
@@ -201,6 +207,12 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Shell for AI and hub commands.": "Терминал для команд ИИ и hub.",
+  "Nu commands need approval as a whole; each result names its shell.": "Команды nu требуют полного одобрения; в результате указан терминал.",
+  "Saved in config. Restart to unload disabled plugins.": "Сохраняется в конфиге. Перезапуск выгрузит отключённые плагины.",
+  "Plugin name": "Имя плагина",
+  "MCP for all chats; role access: Teams → Tools.": "MCP для всех чатов; доступ ролей: Команды → Инструменты.",
+
   "MCP tools": "MCP",
   "Shell": "Терминал",
   "Search tools": "Поиск программ",
