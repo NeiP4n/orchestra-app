@@ -19,7 +19,7 @@ on:
       - 'packages/core/test/tool-patch.test.ts'
       - '.github/workflows/standing-rule-regression.yml'
   push:
-    branches: [dev]
+    branches: [main, v2, lan-rooms]
     paths:
       - 'packages/core/src/orchestra.ts'
       - 'packages/core/src/rules.ts'

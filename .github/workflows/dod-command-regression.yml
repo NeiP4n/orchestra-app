@@ -9,7 +9,7 @@ on:
       - 'packages/core/test/*dod*.test.ts'
       - '.github/workflows/dod-command-regression.yml'
   push:
-    branches: [dev]
+    branches: [main, v2, lan-rooms]
     paths:
       - 'packages/core/src/dod.ts'
       - 'packages/core/src/tool/plugin/dod.ts'

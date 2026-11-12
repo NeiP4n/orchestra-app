@@ -9,7 +9,7 @@ on:
       - 'packages/core/test/session-runner-fallback.test.ts'
       - '.github/workflows/model-fallback-regression.yml'
   push:
-    branches: [dev]
+    branches: [main, v2, lan-rooms]
     paths:
       - 'packages/core/src/session/runner/error-taxonomy.ts'
       - 'packages/core/src/session/runner/llm.ts'
