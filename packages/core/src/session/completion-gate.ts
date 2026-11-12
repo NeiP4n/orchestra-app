@@ -174,6 +174,23 @@ export function check(
       "End with the first line DONE, PARTLY DONE or NOT DONE and a short plain summary.",
     ])
   }
+  // A truncated wake is not the worker's full evidence. Only a successful read of
+  // that exact worker after that report settles it; reading another worker or a
+  // failed read must not unlock completion, including after the usual nudge cap.
+  const unread = turn.flatMap((message, index) => {
+    if (message.type !== "synthetic" || !message.text.includes("(cut; read the worker session for the rest)")) return []
+    const worker = /<team-report\b[^>]*\bsession="([^"]+)"/.exec(message.text)?.[1]
+    if (!worker) return ["unknown worker (inspect the truncated team-report)"]
+    const read = turn.slice(index + 1).some((later) => later.type === "assistant" && tools(later).some((tool) =>
+      tool.name === "sessions" && tool.state.status === "completed" &&
+      tool.state.input.action === "read" && tool.state.input.sessionID === worker))
+    return read ? [] : [worker]
+  })
+  if (unread.length) return reminder([
+    "Completion check: a truncated worker report has not been read in full.",
+    ...Array.from(new Set(unread), (worker) => `Read sessions action=read sessionID=${worker} before finishing; inspect the complete final report and its evidence.`),
+    "The cut preview is not evidence of completion. Do not report the task finished until the missing report is reviewed.",
+  ])
   // A worker that came back partial, failed or blocked has not finished the task: the Orchestrator sends it on (the
   // same worker with a hint, or another role) before it tells the operator. Limited by the reminder count.
   {

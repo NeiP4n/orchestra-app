@@ -318,3 +318,14 @@ describe("SessionCompletionGate: open worker reports", () => {
     expect(orchestrator(spent)).toBeUndefined()
   })
 })
+
+const cutReport = (worker: string): SessionMessage.Info => ({ type: "synthetic", id: id(), time,
+ text: `<team-report session="${worker}" outcome="complete">DONE … (cut; read the worker session for the rest)</team-report>` })
+test("truncated reports require a successful later read of the exact worker even after nudges", () => {
+ const base = [user("fix"), cutReport("worker_a")]
+ expect(SessionCompletionGate.check([...base,assistant("Done")],empty)).toContain("sessionID=worker_a")
+ expect(SessionCompletionGate.check([...base,nudge(),nudge(),nudge(),assistant("Done")],empty)).toContain("truncated worker")
+ expect(SessionCompletionGate.check([...base,assistant("",[{name:"sessions",input:{action:"read",sessionID:"worker_b"}}]),assistant("Done")],empty)).toContain("sessionID=worker_a")
+ expect(SessionCompletionGate.check([...base,assistant("",[{name:"sessions",input:{action:"read",sessionID:"worker_a"}}]),assistant("Done")],empty)).toBeUndefined()
+ expect(SessionCompletionGate.check([user("fix"),assistant("",[{name:"sessions",input:{action:"read",sessionID:"worker_a"}}]),cutReport("worker_a"),assistant("Done")],empty)).toContain("sessionID=worker_a")
+})
