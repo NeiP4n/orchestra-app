@@ -4,6 +4,7 @@ import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Str
 import { and, eq, inArray, notExists } from "drizzle-orm"
 import { SessionTable } from "./session/sql.js"
 import { ProjectTable } from "./project/sql.js"
+import { DeliveryRecall } from "./delivery-recall.js"
 import { ReportPaths } from "./report-paths.js"
 import { ProjectWork } from "./session/project-work.js"
 import { SessionContinuation } from "./session/continuation.js"
@@ -1312,6 +1313,7 @@ const layer: Layer.Layer<
           const editor = workerRole !== undefined && !workerRole.readOnly
           const checks = checksOf(answer)
           const evidence = evidenceOf(taskMessages)
+          const delivered = !editor || stated !== "complete" || (yield* Effect.tryPromise(() => DeliveryRecall.verify(session?.location.directory ?? "",answer)).pipe(Effect.orElseSucceed(()=>false)))
           const unproven =
             stated === "complete" && editor
               ? checks.failed > 0
@@ -1322,8 +1324,8 @@ const layer: Layer.Layer<
                     ? "Reported executed checks, but this task ran no command: the CHECKS were copied from earlier work or never run. Treated as partial until a check is run."
                     : !workerRemoved && evidence.editedAfterRun
                       ? "Reported executed checks, but files were edited after the last command ran: the results describe older code. Treated as partial until the checks are run again."
-                      : !deliveryLocationOf(answer)
-                        ? "Reported DONE after file changes without a commit/branch or an explicit local-only notice. Treated as partial until delivery location is stated."
+                      : !deliveryLocationOf(answer) || !delivered
+                        ? "Reported DONE after file changes without a verifiable commit/local branch or an explicit local-only notice. Treated as partial until delivery location is stated."
                         : undefined
               : undefined
           const outcome = unproven ? "partial" : stated

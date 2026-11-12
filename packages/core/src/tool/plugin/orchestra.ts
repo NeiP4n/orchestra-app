@@ -1,3 +1,4 @@
+import { DeliveryRecall } from "../../delivery-recall.js"
 import { SessionCompletionGate } from "../../session/completion-gate.js"
 import { ReconDedup } from "../../recon-dedup.js"
 export * as OrchestraTool from "./orchestra.js"
@@ -1831,6 +1832,7 @@ export const Plugin = {
         if (!event.tools[name]) return
         if (!(yield* orchestra.mainOf(event.sessionID))) delete event.tools[name]
       })
+    const deliveryCheckpoints = new Map<string,{ user: string; block: string }>()
     // The main session also gets its team roster with every request. Status is left
     // out: it changes during a turn, and the stable roster keeps the prompt cacheable.
     yield* ctx.session.hook("context", (event) =>
@@ -1839,6 +1841,16 @@ export const Plugin = {
         if (!event.tools[name]) return
         const project = yield* orchestra.mainOf(event.sessionID)
         if (!project) return
+        const checkpointHistory = yield* sessions.messages({sessionID:event.sessionID,limit:60,order:"desc"}).pipe(Effect.orElseSucceed(()=>[] as SessionMessage.Info[]))
+        const user = String(checkpointHistory.find(message=>message.type === "user")?.id ?? "boot")
+        let checkpoint=deliveryCheckpoints.get(String(event.sessionID))
+        if(!checkpoint || checkpoint.user !== user){
+          const state=yield* Effect.promise(()=>DeliveryRecall.inspect(project.directory))
+          checkpoint={user,block:DeliveryRecall.block(state)}
+          if(deliveryCheckpoints.size>128)deliveryCheckpoints.clear()
+          deliveryCheckpoints.set(String(event.sessionID),checkpoint)
+        }
+        event.system.push({type:"text",text:checkpoint.block})
         const rows = yield* team(project).pipe(Effect.orElseSucceed(() => []))
         const roles = yield* orchestra.roles(project.id)
         const playbook = yield* orchestra.playbook(project.id)
