@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js"
 import { useOptionalConfig } from "../config"
 import { translate as baseTranslate } from "./i18n-base"
-import { registryRu } from "./i18n-registry"
+import { registryEn, registryRu } from "./i18n-registry"
 import { ruContext } from "./i18n-context"
 
 export type Language = "en" | "ru"
@@ -728,6 +728,7 @@ function interpolate(template: string, values?: Record<string, string | number>)
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {
   if (language === "ru" && text in ruExtra) return interpolate(ruExtra[text], values)
+  if (language !== "ru" && text in registryEn) return interpolate(registryEn[text as keyof typeof registryEn], values)
   return baseTranslate(language, text, values)
 }
 
