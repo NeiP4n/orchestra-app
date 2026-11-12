@@ -1,5 +1,6 @@
 export * as TeamPlugin from "./team.js"
 
+import { Config } from "../config.js"
 import { RuleEnforce } from "../rule-enforce.js"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
@@ -245,8 +246,15 @@ export const Plugin = define({
         // A load failure is never silent: an agent that starts without its rules is worse than one
         // that does not start, so the failure is handed to the model as an explicit stop.
         RuleEnforce.loading(String(event.sessionID))
+        const configuration = yield* Effect.serviceOption(Config.Service)
+        const configEntries = Option.isSome(configuration) ? yield* configuration.value.entries() : []
+        let lessonsEnabled = true
+        for (const entry of configEntries) {
+          if (entry.type === "document" && entry.info.experimental?.rule_lessons !== undefined)
+            lessonsEnabled = entry.info.experimental.rule_lessons
+        }
         const rules = yield* Rules.scopesOf({ sessionID: event.sessionID, sessions, orchestra, federation }).pipe(
-          Effect.flatMap((scopes) => Rules.loadCurrent(kv, scopes, String(event.sessionID))),
+          Effect.flatMap((scopes) => Rules.loadCurrent(kv, scopes, String(event.sessionID), lessonsEnabled)),
           // The same rules feed the hard check before tool calls and the end-of-turn judge.
           Effect.map((loaded) => {
             return loaded.block

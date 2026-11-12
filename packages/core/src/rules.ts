@@ -1,5 +1,6 @@
 export * as Rules from "./rules.js"
 
+import { RuleLessons } from "./rule-lessons.js"
 import { RuleEnforce } from "./rule-enforce.js"
 
 import { Cause, Effect, Option, Schema } from "effect"
@@ -515,8 +516,13 @@ export const block = (kv: KV.Interface, scopes: Scopes) => load(kv, scopes).pipe
 
 
 /** Shared request-time load used by the context hook, including scheduled turns. */
-export const loadCurrent = (kv: KV.Interface, scopes: Scopes, sessionID: string) =>
+export const loadCurrent = (kv: KV.Interface, scopes: Scopes, sessionID: string, lessonsEnabled = true) =>
   Effect.suspend(() => {
     RuleEnforce.loading(sessionID)
-    return load(kv, scopes).pipe(Effect.tap((loaded) => Effect.sync(() => RuleEnforce.remember(sessionID, loaded.entries))))
+    return load(kv, scopes).pipe(Effect.flatMap(loaded => Effect.gen(function* () {
+      RuleEnforce.remember(sessionID, loaded.entries)
+      const lessons = yield* RuleLessons.refresh(kv, scopes.project, sessionID, loaded.entries, lessonsEnabled)
+        .pipe(Effect.catchCause(cause => Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.succeed("")))
+      return { ...loaded, block: [loaded.block, lessons].filter(Boolean).join("\n\n") }
+    })))
   })

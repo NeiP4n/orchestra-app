@@ -3,7 +3,12 @@ name: standing-rule-regression
 on:
   pull_request:
     paths:
+      - 'packages/core/src/orchestra.ts'
       - 'packages/core/src/rules.ts'
+      - 'packages/core/src/rule-lessons.ts'
+      - 'packages/core/src/plugin/team.ts'
+      - 'packages/schema/src/config/experimental.ts'
+      - 'packages/core/test/rule-lessons.test.ts'
       - 'packages/core/src/rule-enforce.ts'
       - 'packages/core/src/permission.ts'
       - 'packages/core/src/tool/plugin/patch.ts'
@@ -15,7 +20,12 @@ on:
   push:
     branches: [dev]
     paths:
+      - 'packages/core/src/orchestra.ts'
       - 'packages/core/src/rules.ts'
+      - 'packages/core/src/rule-lessons.ts'
+      - 'packages/core/src/plugin/team.ts'
+      - 'packages/schema/src/config/experimental.ts'
+      - 'packages/core/test/rule-lessons.test.ts'
       - 'packages/core/src/rule-enforce.ts'
       - 'packages/core/src/permission.ts'
       - 'packages/core/src/tool/plugin/patch.ts'
@@ -51,6 +61,6 @@ jobs:
           git config --global user.email "orchestra-bot@users.noreply.github.com"
           git config --global user.name "orchestra-bot"
       - name: Real final permission evaluator and rule lifecycle
-        run: bun test packages/core/test/rule-enforce.test.ts packages/core/test/rules.test.ts packages/core/test/permission.test.ts
+        run: bun test packages/core/test/rule-lessons.test.ts packages/core/test/rule-enforce.test.ts packages/core/test/rules.test.ts packages/core/test/rules-project-reach.test.ts packages/core/test/permission.test.ts packages/core/test/orchestra-worker-policy-e2e.test.ts
       - name: Real patch refuses before reading or writing
         run: bun test packages/core/test/tool-patch.test.ts --test-name-pattern 'standing path' 
