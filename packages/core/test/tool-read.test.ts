@@ -1,3 +1,4 @@
+import { tmpdir } from "./fixture/tmpdir"
 import { ReconDedup } from "../src/recon-dedup"
 import { beforeEach, describe, expect } from "bun:test"
 import path from "path"
@@ -1116,7 +1117,8 @@ describe("ReadTool", () => {
 
 it.effect("deduplicates unchanged attached reconnaissance after authorization, but returns edits",()=>Effect.gen(function*(){
  const sessions=yield* Session.Service
- const owner=yield* sessions.create({location:location({directory:AbsolutePath.make(process.cwd())})})
+ const temp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("read-recon-")))
+ const owner=yield* sessions.create({location:location({directory:AbsolutePath.make(temp.path)})})
  const registry=yield* Tool.Service
  const call=()=>executeTool(registry,{sessionID:owner.id,...toolIdentity,call:{type:"tool-call" as const,id:"recon-read",name:"read",input:{path:"README.md"}}})
  const first=yield* call()

@@ -3177,3 +3177,17 @@ it.live("project work switch persists independently and migrates legacy projects
  expect((yield* orchestra.projects()).find(p=>p.id==="prj_legacy_work")?.workEnabled).toBe(true)
  expect(yield* kv.get("orchestra/project/prj_legacy_work")).toMatchObject({workEnabled:true})
 }))
+
+it.live("stale idle legacy task with no answer expires without inventing success",()=>Effect.gen(function*(){
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("orchestra-stale-empty-")))
+ const orchestra=yield* Orchestra.Service
+ const kv=yield* KV.Service
+ const project=yield* orchestra.create({name:"Stale empty",directory:tmp.path,template:"bugfix"})
+ const worker=yield* orchestra.createMember({project,title:"Idle",agent:Orchestra.role("developer")})
+ yield* kv.set("orchestra/task/"+worker.id,{main:project.main!,projectID:project.id,sent:Date.now()-16*60_000})
+ yield* orchestra.recoverPendingTasks()
+ yield* untilNoPending(worker.id)
+ const found=yield* reports(project.main!)
+ expect(found.join("\n")).toContain("Stale task reservation expired")
+ expect(found.join("\n")).toContain('outcome="failed"')
+}).pipe(Effect.scoped))
