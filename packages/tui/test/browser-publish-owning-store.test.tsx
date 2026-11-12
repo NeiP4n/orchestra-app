@@ -24,6 +24,7 @@ test("live browser chat delete on home publishes empty disk without a mounted Se
     },
     view: () => <ProjectsProvider><NotesProvider><Probe/></NotesProvider></ProjectsProvider>,
   })
+  expect(app.route.data.type).toBe("home")
   function Probe(){notes=useNotes();return <box/>}
   await notes.importBrowserDefinitions({importID:"pti_projection",projectID:"prj_projection",createdAt:1,browsers:[{id:"brw_projection",name:"Browser 1",chat:"ses_projection",mode:"window"}]})
   const disk = () => JSON.parse(readFileSync(BrowserRuntime.sessionsFilePath(), "utf8"))
@@ -62,6 +63,7 @@ test("owning provider does not erase the previous disk roster while projects are
     },
     view: () => <ProjectsProvider><NotesProvider><box/></NotesProvider></ProjectsProvider>,
   })
+  expect(app.route.data.type).toBe("home")
   expect(JSON.parse(readFileSync(BrowserRuntime.sessionsFilePath(),"utf8"))[0].id).toBe("brw_previous")
   resolve()
   await waitUntil(() => readFileSync(BrowserRuntime.sessionsFilePath(),"utf8") === "[]")
