@@ -2849,6 +2849,7 @@ export type ConfigEntry =
         experimental?: {
           portable_shell_scanner?: boolean
           context_governor?: boolean
+          rule_lessons?: boolean
           subagent_depth?: number
           neural_functional_effects?: boolean
           policies?: Array<{
@@ -6341,24 +6342,35 @@ export type ProviderGetOutput = { location: LocationPublicRef; data: ProviderInf
 export type ProviderDiscoverInput = {
   readonly baseURL: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
   }["baseURL"]
+  readonly timeoutMs?: {
+    readonly baseURL: string
+    readonly timeoutMs?: number | undefined
+    readonly apiKey?: string | undefined
+    readonly headers?: { readonly [x: string]: string } | undefined
+    readonly providerID?: string | undefined
+  }["timeoutMs"]
   readonly apiKey?: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
   }["apiKey"]
   readonly headers?: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined
   }["headers"]
   readonly providerID?: {
     readonly baseURL: string
+    readonly timeoutMs?: number | undefined
     readonly apiKey?: string | undefined
     readonly headers?: { readonly [x: string]: string } | undefined
     readonly providerID?: string | undefined

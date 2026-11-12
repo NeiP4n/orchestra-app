@@ -6021,6 +6021,18 @@
                   "baseURL": {
                     "type": "string"
                   },
+                  "timeoutMs": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 120000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "apiKey": {
                     "anyOf": [
                       {
