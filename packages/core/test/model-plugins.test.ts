@@ -1,16 +1,17 @@
+import { PluginTestLayer } from "./plugin/fixture"
 import { expect } from "bun:test"
 import { Context, Effect, Fiber, Layer, Scope, Stream } from "effect"
 import { Bus } from "@orchestra/core/bus"
 import { Credential } from "@orchestra/core/credential"
 import { Integration } from "@orchestra/core/integration"
 import { Location } from "@orchestra/core/location"
+import { ModelResolver } from "@orchestra/core/model-resolver"
 import { Model } from "@orchestra/core/model"
 import { Plugin } from "@orchestra/core/plugin"
 import { Provider } from "@orchestra/core/provider"
 import { State } from "@orchestra/core/state"
 import { fromPromise } from "@orchestra/plugin/promise/adapter"
 import { testEffect } from "./lib/effect"
-import { PluginTestLayer } from "./plugin/fixture"
 
 const it = testEffect(PluginTestLayer)
 
@@ -501,6 +502,47 @@ it.effect("fresh model selection prefers anonymous Kilo while an explicit select
       }).pipe(Effect.asVoid),
     }])
     expect(yield* models.default()).toBeUndefined()
+    yield* plugins.activate([])
+  }),
+)
+
+
+it.effect("unavailable explicit default fails closed, while connection alone and recovered inventory keep normal selection", () =>
+  Effect.gen(function* () {
+    const plugins = yield* Plugin.Service
+    const models = yield* Model.Service
+    const kilo = Provider.ID.make("kilo-free"), klinch = Provider.ID.make("klinch")
+    const free = Model.ID.make("kilo-auto/free"), requested = Model.ID.make("gpt-5.4-mini")
+    let inventory: Model.Info[] = []
+    const source: Plugin.Generation = {
+      id:"empty-klinch-and-free",revision:"1",
+      effect: ctx => ctx.provider.transform(editor => {
+        editor.add({info:{...Provider.Info.empty(kilo),activation:"enabled"},models:[Model.Info.default(kilo,free)]})
+        editor.add({info:{...Provider.Info.empty(klinch),activation:"enabled"},models:inventory})
+      }).pipe(Effect.asVoid),
+    }
+    const explicit: Plugin.Generation = {
+      id:"explicit-klinch-default",revision:"1",
+      effect: ctx => ctx.model.transform(editor => editor.default.set(klinch,requested)).pipe(Effect.asVoid),
+    }
+    yield* plugins.activate([source])
+    expect(yield* models.default()).toMatchObject({providerID:kilo,id:free})
+    yield* plugins.activate([source,explicit])
+    const failure = yield* models.default().pipe(Effect.flip)
+    expect(failure).toBeInstanceOf(Model.ConfiguredDefaultUnavailableError)
+    expect(failure.providerID).toBe(klinch)
+    expect(failure.message).toContain("Check the provider connection and model discovery")
+    expect(failure.message).toContain("No other provider was selected")
+    // The real resolver must propagate this failure before loading any package or
+    // trying its available-model fallback. No network request can be constructed.
+    const resolution = yield* Effect.gen(function* () {
+      const resolver = yield* ModelResolver.Service
+      return yield* resolver.resolve().pipe(Effect.flip)
+    }).pipe(Effect.provide(ModelResolver.layer))
+    expect(resolution).toBeInstanceOf(Model.ConfiguredDefaultUnavailableError)
+    inventory = [Model.Info.default(klinch,requested)]
+    yield* plugins.activate([{...source,revision:"2"},explicit])
+    expect(yield* models.default()).toMatchObject({providerID:klinch,id:requested})
     yield* plugins.activate([])
   }),
 )

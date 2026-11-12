@@ -215,3 +215,17 @@ testEffect(Layer.empty).effect(
       })
     }),
 )
+
+testEffect(Layer.empty).effect("stateless generation surfaces unavailable configured default without another provider request", () =>
+  Effect.gen(function* () {
+    const modelFailure = new Model.ConfiguredDefaultUnavailableError({providerID:Provider.ID.make("klinch"),modelID:ID.make("gpt-5.4-mini")})
+    const unavailable = Layer.mock(ModelResolver.Service, {resolve: () => Effect.fail(modelFailure)})
+    const failure = yield* Effect.gen(function* () {
+      const generate = yield* Generate.Service
+      return yield* generate.text({prompt:"must not leave this process"}).pipe(Effect.flip)
+    }).pipe(Effect.provide(Generate.layer.pipe(Layer.provide(Layer.merge(unavailable,client)))))
+    expect(failure).toBeInstanceOf(Generate.UnavailableError)
+    expect(failure.message).toContain("Configured default model unavailable: klinch/gpt-5.4-mini")
+    expect(failure.message).toContain("No other provider was selected")
+  }),
+)
