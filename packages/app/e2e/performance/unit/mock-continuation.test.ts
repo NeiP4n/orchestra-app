@@ -3,6 +3,7 @@ import { createMockServerHandler } from "../../utils/mock-server"
 
 test("continuation API mock defaults ON, persists OFF and emits state update", async () => {
   const events: unknown[] = []
+
   const server = createMockServerHandler(
     { provider: {}, directory: "/project", project: {}, sessions: [], pageMessages: () => ({ items: [] }) },
     (batch) => events.push(...batch),
@@ -13,6 +14,7 @@ test("continuation API mock defaults ON, persists OFF and emits state update", a
     const first = await server.handler(new Request(url))
     expect(first.status).toBe(200)
     expect(await first.json()).toEqual({ enabled: true })
+
     const changed = await server.handler(
       new Request(url, {
         method: "PUT",
@@ -20,6 +22,7 @@ test("continuation API mock defaults ON, persists OFF and emits state update", a
         body: JSON.stringify({ enabled: false }),
       }),
     )
+
     expect(changed.status).toBe(200)
     expect(await changed.json()).toEqual({ enabled: false })
     expect(await (await server.handler(new Request(url))).json()).toEqual({ enabled: false })
