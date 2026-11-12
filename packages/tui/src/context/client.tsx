@@ -1,7 +1,7 @@
 import type { OrchestraClient, OrchestraEvent } from "@orchestra/client"
 import { createClientConnection, createPersistentPtyClient, createPtyClient } from "@orchestra/client/solid"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
-import { onCleanup } from "solid-js"
+import { createResource, onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useLog } from "./log"
 
@@ -24,6 +24,9 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     let persistentPty = url ? createPersistentPtyClient(api, { url }) : undefined
     let pty = url ? createPtyClient(api, { url }) : undefined
 
+    const [backendInfo, { refetch: refreshBackendInfo }] = createResource(async () => {
+      try { return await api.server.info() } catch { return undefined }
+    })
     const connection = createClientConnection(api, {
       reconnect: service
         ? async (signal) => {
@@ -32,6 +35,7 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
             if (next.url) url = next.url
             if (url) persistentPty = createPersistentPtyClient(api, { url })
             if (url) pty = createPtyClient(api, { url })
+            void refreshBackendInfo()
             return api
           }
         : undefined,
@@ -46,6 +50,11 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     })
 
     return {
+      backendInfo,
+      supports(feature: "projectDebug" | "orphanCleanup") {
+        const info = backendInfo.latest
+        return info ? info.capabilities?.[feature] === true : undefined
+      },
       get isLocal() {
         if (!url) return true
         try { return ["127.0.0.1", "localhost", "[::1]"].includes(new URL(url).hostname) } catch { return false }

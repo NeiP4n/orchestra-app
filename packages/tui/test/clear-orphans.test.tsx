@@ -45,3 +45,18 @@ test("cancel and remote view never delete", async () => {
     } finally { app.renderer.destroy() }
   }
 })
+
+test("an old server capability blocks cleanup before the first mutation", async () => {
+  let calls = 0
+  const notices: string[] = []
+  const app = await testRender(() => <TestTuiContexts><ConfigProvider config={createTuiResolvedConfig()}><ThemeProvider mode="dark" source={emptyThemeSource}><ClearOrphansAction local supported={() => false} api={{ prepare: async () => { calls++; throw new Error("must not call") }, confirm: async () => { calls++; throw new Error("must not call") } }} confirm={async () => true} notify={o => notices.push(o.message)} /></ThemeProvider></ConfigProvider></TestTuiContexts>, { width: 48, height: 10 })
+  app.renderer.start()
+  try {
+    await app.waitForFrame(f => f.includes("Clear orphans"))
+    const node = app.renderer.root.findDescendantById("project-tree.clear-orphans.action")!
+    await app.mockMouse.click(node.x, node.y)
+    await app.waitFor(() => notices.length > 0)
+    expect(notices[0]).toContain("Update and restart")
+    expect(calls).toBe(0)
+  } finally { app.renderer.destroy() }
+})

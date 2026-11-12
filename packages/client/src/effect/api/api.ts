@@ -70,7 +70,13 @@ export type ServerInfoOutput = {
   readonly pid: number
   readonly urls: ReadonlyArray<string>
   readonly paths: { readonly tmp: string }
-  readonly capabilities?: { readonly persistentPty?: boolean | undefined } | undefined
+  readonly capabilities?:
+    | {
+        readonly persistentPty?: boolean | undefined
+        readonly projectDebug?: boolean | undefined
+        readonly orphanCleanup?: boolean | undefined
+      }
+    | undefined
 }
 export type ServerInfoOperation<E = never> = () => Effect.Effect<ServerInfoOutput, E>
 

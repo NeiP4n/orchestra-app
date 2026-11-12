@@ -2,7 +2,7 @@ import { createSignal } from "solid-js"
 import { useTheme } from "../context/theme"
 import { hoverBackground } from "../ui/hover"
 import { useT } from "../util/i18n"
-import { errorMessage } from "../util/error"
+import { cleanupErrorMessage } from "../util/backend-compatibility"
 import { listEverySession, removeEverySession, type SessionCleanupApi } from "../util/clear-sessions"
 
 type ConfirmOptions = {
@@ -71,7 +71,7 @@ export function ClearSessionsAction(props: {
       })
     } catch (error) {
       props.notify({
-        message: t("Failed to clear sessions: {error}", { error: errorMessage(error) }),
+        message: t("Failed to clear sessions: {error}", { error: cleanupErrorMessage(error, t) }),
         variant: "error",
         duration: 6000,
       })

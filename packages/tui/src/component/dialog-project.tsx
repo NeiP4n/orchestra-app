@@ -1,3 +1,4 @@
+import { ProjectRemovalNotice } from "./project-removal-notice"
 import { createHoverFeedback } from "../ui/hover-feedback"
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { createSignal, For, onMount, Show } from "solid-js"
@@ -361,13 +362,14 @@ export function DialogProject(props: {
           </text>
         )}
       </Show>
+      <Show when={props.project}><ProjectRemovalNotice /></Show>
       <box flexDirection="row" gap={1}>
         <Button variant="primary" disabled={busy()} onClick={save}>
           {t(props.project ? "Save" : "Create")}
         </Button>
         <Show when={props.project}>
           <Button disabled={busy()} onLeave={() => setArmed(false)} onClick={remove}>
-            {t(armed() ? "Remove? Sessions stay" : "Remove project")}
+            {t(armed() ? "Remove from Orchestra?" : "Remove project")}
           </Button>
         </Show>
         <box flexGrow={1} />

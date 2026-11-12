@@ -2,7 +2,7 @@ import { createSignal, Show } from "solid-js"
 import { useTheme } from "../context/theme"
 import { useT } from "../util/i18n"
 import { hoverBackground } from "../ui/hover"
-import { errorMessage } from "../util/error"
+import { cleanupErrorMessage } from "../util/backend-compatibility"
 
 type CleanupApi = {
   prepare: (input: { currentSessionID?: string }) => Promise<{ token: string; count: number; definition: string }>
@@ -10,6 +10,7 @@ type CleanupApi = {
 }
 export function ClearOrphansAction(props: {
   local: boolean
+  supported?: () => boolean | undefined
   api: CleanupApi
   currentSessionID?: string
   confirm: (options: { title: string; message: string; label: { confirm: string; cancel: string } }) => Promise<boolean | undefined>
@@ -22,6 +23,7 @@ export function ClearOrphansAction(props: {
     if (busy() || !props.local) return
     setBusy(true)
     try {
+      if (props.supported?.() === false) { props.notify({ message: t("Cleanup is unavailable on this server. Update and restart the background server and TUI."), variant: "error", duration: 8000 }); return }
       const preview = await props.api.prepare({ currentSessionID: props.currentSessionID })
       if (!preview.count) { props.notify({ message: t("No orphan sessions found"), variant: "info" }); return }
       const yes = await props.confirm({ title: t("Clear orphan sessions"), message: t("Delete {count} idle orphan sessions whose parent no longer exists? Project, group, root, browser, archived and active chats are preserved. This cannot be undone.", { count: preview.count }), label: { confirm: t("Delete"), cancel: t("Cancel") } })
@@ -29,7 +31,7 @@ export function ClearOrphansAction(props: {
       const result = await props.api.confirm({ token: preview.token })
       for (const id of result.deleted) await props.afterRemove?.({ id })
       props.notify({ message: t("Deleted {removed} orphan sessions; skipped {skipped}.", result), variant: result.skipped ? "warning" : "success", duration: 6000 })
-    } catch (error) { props.notify({ message: t("Failed to clear sessions: {error}", { error: errorMessage(error) }), variant: "error", duration: 6000 }) }
+    } catch (error) { props.notify({ message: t("Failed to clear sessions: {error}", { error: cleanupErrorMessage(error, t) }), variant: "error", duration: 6000 }) }
     finally { setBusy(false) }
   }
   return <Show when={props.local}><box id="project-tree.clear-orphans" flexShrink={0} paddingLeft={1} paddingRight={1}>

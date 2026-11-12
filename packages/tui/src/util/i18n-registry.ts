@@ -1,5 +1,9 @@
 /** English source keys and Russian values are checked for key/placeholder parity. */
 export const registryEn = {
+  "Cleanup is unavailable on this server. Update and restart the background server and TUI.": "Cleanup is unavailable on this server. Update and restart the background server and TUI.",
+  "Remove from Orchestra?": "Remove from Orchestra?",
+  "Removes this project and its owned chats from Orchestra. Files in the project folder, .orchestra data and exported templates are kept.": "Removes this project and its owned chats from Orchestra. Files in the project folder, .orchestra data and exported templates are kept.",
+
   "Clear orphans": "Clear orphans",
   "Clear orphan sessions": "Clear orphan sessions",
   "No orphan sessions found": "No orphan sessions found",
@@ -226,6 +230,10 @@ export const registryEn = {
   "tab next tab · ↑↓ select · enter action · esc close": "tab next tab · ↑↓ select · enter action · esc close"
 } as const
 export const registryRu: Record<keyof typeof registryEn, string> = {
+  "Cleanup is unavailable on this server. Update and restart the background server and TUI.": "Очистка недоступна на этом сервере. Обновите и перезапустите фоновый сервер и TUI.",
+  "Remove from Orchestra?": "Удалить из Orchestra?",
+  "Removes this project and its owned chats from Orchestra. Files in the project folder, .orchestra data and exported templates are kept.": "Удалит проект и его чаты из Orchestra. Файлы в папке проекта, данные .orchestra и экспортированные шаблоны останутся.",
+
   "Clear orphans": "Очистить сироты",
   "Clear orphan sessions": "Очистить сессии-сироты",
   "No orphan sessions found": "Сессий-сирот не найдено",

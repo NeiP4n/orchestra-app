@@ -1714,6 +1714,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           </box>
         </Show>
         </box>
+        <Show when={client.isLocal && client.backendInfo.latest && client.supports("orphanCleanup") === false}>
+          <box paddingLeft={1} paddingRight={1}><text fg={theme.text.feedback.warning.base} wrapMode="word">{`${t("Cleanup is unavailable on this server. Update and restart the background server and TUI.")} (${client.backendInfo.latest?.version})`}</text></box>
+        </Show>
         <ClearSessionsAction
           api={client.api.session}
           beforeRemove={beforeRemoveChat}
@@ -1723,7 +1726,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined}
           leaveCurrentSession={() => route.navigate({ type: "home" })}
         />
-        <ClearOrphansAction local={client.isLocal} api={client.api.session.orphans} currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined} confirm={confirmClear} notify={options => toast.show(options)} afterRemove={afterRemoveChat} />
+        <ClearOrphansAction local={client.isLocal} supported={() => client.supports("orphanCleanup")} api={client.api.session.orphans} currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined} confirm={confirmClear} notify={options => toast.show(options)} afterRemove={afterRemoveChat} />
       </box>
     </Show>
   )

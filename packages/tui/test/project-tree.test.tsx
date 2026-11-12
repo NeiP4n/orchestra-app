@@ -57,6 +57,7 @@ function render(
   listed = worker,
   layout: "compact" | "full" = "full",
   options: {
+    oldBackend?: boolean
     width?: number
     missingBrowserChat?: boolean
     sidebar?: "auto" | "hide"
@@ -82,6 +83,7 @@ function render(
       layout,
     },
     fetch: async (url, request) => {
+      if (options.oldBackend && url.pathname === "/api/info") return json({ version: "old-test", pid: 1, urls: [], paths: { tmp: "/tmp" } })
       // The left panel polls Mesh status next to the group list; an unmocked route would
       // otherwise reject and leak into whichever test renders the panel next.
       if (url.pathname === "/api/room/mesh")
@@ -870,4 +872,23 @@ test("actual Browser 2 delete control removes a dead chat binding without a Sess
  expect(saved.closed[project.id][0]).toMatchObject({id:"brw_second",name:"Browser 2"})
  expect(calls.some(call=>call.method==="DELETE"&&call.path==="/api/session/ses_deleted")).toBe(false)
  expect(setup.captureCharFrame()).not.toContain("Session not found")
+})
+
+for (const width of [140]) test(`old backend cleanup warning is visible before clicking at ${width}`, async () => {
+  await using state = await tmpdir()
+  await using setup = await render(state.path, [], [project], worker, "full", { width, oldBackend: true })
+  await setup.waitForFrame(f => f.includes("Cleanup is") && f.includes("unavailable"))
+  await Bun.write(`/tmp/old-backend-${width}.json`, JSON.stringify(setup.captureSpans()))
+})
+
+for (const width of [140]) test(`project removal explicitly keeps files but deletes owned chats at ${width}`, async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project], worker, "full", { width })
+  const gear = await hoverGear(setup)
+  await setup.mockMouse.click(gear.x, gear.y)
+  await setup.waitForFrame(f => f.includes("exported templates") && f.includes("are kept"))
+  expect(setup.captureCharFrame()).not.toContain("Sessions stay")
+  await Bun.write(`/tmp/project-removal-${width}.json`, JSON.stringify(setup.captureSpans()))
+  expect(calls.some(c => c.method === "DELETE")).toBe(false)
 })

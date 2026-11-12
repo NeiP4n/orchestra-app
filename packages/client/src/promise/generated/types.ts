@@ -7,7 +7,9 @@ export type ServerInfo = {
   pid: number
   urls: Array<string>
   paths: { tmp: string }
-  capabilities?: { persistentPty?: boolean | undefined } | undefined
+  capabilities?:
+    | { persistentPty?: boolean | undefined; projectDebug?: boolean | undefined; orphanCleanup?: boolean | undefined }
+    | undefined
 }
 
 export type PairingCode = { code: string; expires_in: number }
