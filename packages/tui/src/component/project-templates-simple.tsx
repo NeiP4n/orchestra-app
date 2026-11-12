@@ -249,7 +249,7 @@ export function ProjectTemplatesSimple(props: {
       disabled={busy() || action.disabled}
       paddingLeft={1}
       paddingRight={1}
-      background={!action.disabled && focused() === action.id ? selectionBackground(theme) : theme.background.raised.base}
+      background={!action.disabled && focused() === action.id ? selectionBackground(theme) : undefined}
       onClick={() => activate(action.id)}
     >
       <text
@@ -272,7 +272,7 @@ export function ProjectTemplatesSimple(props: {
       </Show>
       <Show when={props.access.prepareImport && !prepared()}>
         <box flexDirection="row" gap={1} alignItems="center">
-          <box flexGrow={1} minWidth={10} onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : theme.background.raised.base} paddingLeft={1} paddingRight={1}>
+          <box flexGrow={1} minWidth={10} onMouseDown={() => { setCursor("import-path"); pathInput?.focus() }} backgroundColor={focused() === "import-path" ? selectionBackground(theme) : undefined} paddingLeft={1} paddingRight={1}>
             <input id="project-templates.import-path" ref={(value: InputRenderable) => { pathInput = value }} focused={focused() === "import-path"} value={importPath()} placeholder={tr("Template file (.orchestra-template)")} onInput={setImportPath} textColor={theme.text.base} focusedTextColor={theme.text.base} cursorColor={theme.text.base} />
           </box>
           <Action id="import" label={tr("Import")} disabled={!importPath().trim()} />

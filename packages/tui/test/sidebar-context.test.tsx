@@ -129,7 +129,12 @@ async function mount(options?: {
     for (let index = 0; index < 60; index++) {
       await setup.renderOnce()
       const text = setup.captureCharFrame()
-      if (ready(text)) return text.split("\n")
+      if (ready(text)) {
+        // onSizeChange publishes the measured sidebar width after the first paint.
+        // Read the settled layout, not the pre-measurement narrow fallback frame.
+        await setup.renderOnce()
+        return setup.captureCharFrame().split("\n")
+      }
       await Bun.sleep(20)
     }
     throw new Error(setup.captureCharFrame())

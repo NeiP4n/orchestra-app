@@ -12,6 +12,13 @@ import { resolveThemeDocument } from "@orchestra/theme/tui"
 import { createComponentTheme, type ComponentTheme } from "../theme/component"
 import { describeOS, describeTerminal } from "../util/system"
 
+/** Error UI must survive an absent, not-ready or partial theme provider. */
+export function errorTheme(candidate: ComponentTheme | undefined, mode: "dark" | "light" = "dark"): ComponentTheme {
+  if (candidate?.background?.action?.primary?.focused && candidate.text?.base && candidate.text?.muted && candidate.text?.feedback?.error && candidate.border?.base) return candidate
+  const resolved = resolveThemeDocument(getOrchestraTheme(), mode)
+  return createComponentTheme(() => resolved)
+}
+
 export function ErrorComponent(props: { error: Error; reset: () => void; mode?: "dark" | "light" }) {
   const term = useTerminalDimensions()
   const exit = useExit()
@@ -21,7 +28,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
 
   let theme: ComponentTheme
   try {
-    theme = useTheme()
+    theme = errorTheme(useTheme(), props.mode)
   } catch {
     const doc = getOrchestraTheme()
     const resolved = resolveThemeDocument(doc, props.mode ?? "dark")
@@ -129,7 +136,7 @@ export function ErrorComponent(props: { error: Error; reset: () => void; mode?: 
         <box flexDirection="row" flexWrap="wrap" justifyContent="center" gap={2} rowGap={1} flexShrink={0}>
           <For each={actions}>
             {(action, index) => {
-              const hover = createHoverFeedback()
+              const hover = createHoverFeedback("primary", () => true, theme)
               const isSelected = () => selected() === index()
               const copyColor = () =>
                 action.copy
