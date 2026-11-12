@@ -4,6 +4,7 @@ import { Context, DateTime, Duration, Effect, Layer, Option, PubSub, Schema, Str
 import { and, eq, inArray, notExists } from "drizzle-orm"
 import { SessionTable } from "./session/sql.js"
 import { ProjectTable } from "./project/sql.js"
+import { ReportPaths } from "./report-paths.js"
 import { ProjectWork } from "./session/project-work.js"
 import { SessionContinuation } from "./session/continuation.js"
 import { SessionHold } from "./session/hold.js"
@@ -1307,7 +1308,8 @@ const layer: Layer.Layer<
                 : typedOutcomeOf(taskMessages) ?? outcomeOf(answer)
           // DONE from a role that changes files is evidence only with a check it actually ran and
           // none that failed; otherwise the task stays open as partial, whatever the worker says.
-          const editor = (yield* roles(task.value.projectID)).some((role) => role.agent === session?.agent && !role.readOnly)
+          const workerRole = (yield* roles(task.value.projectID)).find((role) => role.agent === session?.agent)
+          const editor = workerRole !== undefined && !workerRole.readOnly
           const checks = checksOf(answer)
           const evidence = evidenceOf(taskMessages)
           const unproven =
@@ -1342,7 +1344,11 @@ const layer: Layer.Layer<
           // What the transcript shows the worker did, written by the system: the Orchestrator reads it next to
           // the worker's own CHECKS, so a report needs no longer list commands and cannot misstate them.
           const note = workerRemoved ? "" : transcriptNote(taskMessages)
-          const body = note ? `${cut}\n\n${note}` : cut
+          const pathNote = workerRole?.readOnly
+            ? yield* Effect.tryPromise(() => ReportPaths.inspect(session?.location.directory ?? "", answer)).pipe(
+                Effect.map(ReportPaths.note), Effect.orElseSucceed(() => "System path check unavailable: verify report paths before dispatching edits."))
+            : ""
+          const body = [cut, note, pathNote].filter(Boolean).join("\n\n")
           const title = session?.title ?? `Deleted worker ${sessionID}`
           const reportID = task.value.reportID ?? SessionMessage.ID.create()
           const wasPrepared = task.value.reportPrepared === true
