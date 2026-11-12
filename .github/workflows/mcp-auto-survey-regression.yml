@@ -1,6 +1,7 @@
 name: mcp-auto-survey-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/tool/plugin/mcp-manager.ts'
       - 'packages/core/src/mcp/survey.ts'
@@ -9,6 +10,8 @@ on:
       - 'packages/core/test/mcp-assignment.test.ts'
       - '.github/workflows/mcp-auto-survey-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

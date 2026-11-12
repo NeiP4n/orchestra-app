@@ -1,6 +1,7 @@
 name: service-recovery-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - "packages/client/src/effect/service.ts"
       - "packages/client/src/promise/service.ts"
@@ -10,6 +11,8 @@ on:
       - "packages/cli/test/service-config-recovery.test.ts"
       - ".github/workflows/service-recovery-regression.yml"
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

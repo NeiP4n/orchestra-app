@@ -1,12 +1,15 @@
 name: explicit-default-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/model.ts'
       - 'packages/core/src/model-resolver.ts'
       - 'packages/core/test/model-plugins.test.ts'
       - '.github/workflows/explicit-default-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

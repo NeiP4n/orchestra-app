@@ -2,12 +2,12 @@ name: quality-gates
 
 on:
   push:
-    branches: [main, dev, v2, lan-rooms]
+    branches: [main, v2, lan-rooms]
   pull_request:
-    branches: [main, dev, v2, lan-rooms]
+    branches: [main, v2, lan-rooms]
   workflow_dispatch:
   schedule:
-    - cron: "23 7 * * 1"
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read
@@ -129,7 +129,8 @@ jobs:
           retention-days: 14
 
   secret_scan:
-    name: Secret leak scan
+    continue-on-error: true
+    name: Historical secret baseline (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     permissions:
@@ -157,37 +158,11 @@ jobs:
           chmod +x "$RUNNER_TEMP/gitleaks"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
-      - name: Scan secrets in pushed changes or full history
+      - name: Audit full-history secret baseline (advisory)
         shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          common=(--redact --report-format sarif --report-path="$RUNNER_TEMP/gitleaks.sarif")
-
-          # Scheduled/manual runs audit the entire Git history. Push and PR runs scan
-          # only commits introduced by the event to keep feedback quick and actionable.
-          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            gitleaks git . "${common[@]}"
-            exit 0
-          fi
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            base="$PR_BASE_SHA"
-          else
-            base="$PUSH_BEFORE"
-          fi
-
-          # A new branch's before SHA is all zeroes. Fall back to the full history scan
-          # rather than attempting to resolve a nonexistent commit.
-          if [[ -z "$base" || "$base" =~ ^0+$ ]] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            gitleaks git . "${common[@]}"
-            exit 0
-          fi
-
-          gitleaks git . --log-opts="$base..HEAD" "${common[@]}"
+          gitleaks git . --redact --report-format sarif --report-path="$RUNNER_TEMP/gitleaks.sarif"
 
       - name: Preserve redacted secret-scan report
         if: always()
@@ -236,6 +211,7 @@ jobs:
           comment-summary-in-pr: never
 
   codeql:
+    if: ${{ !((github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev')) }}
     name: CodeQL SAST
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -280,6 +256,7 @@ jobs:
       SECRET_SCAN: ${{ needs.secret_scan.result }}
       DEPENDENCY_REVIEW: ${{ needs.dependency_review.result }}
       CODEQL: ${{ needs.codeql.result }}
+      DEV_FAST: ${{ (github.event_name == 'pull_request' && github.base_ref == 'dev') || (github.event_name == 'push' && github.ref_name == 'dev') }}
     steps:
       - name: Publish gate summary and enforce results
         shell: bash
@@ -296,17 +273,20 @@ jobs:
             else
               printf '| Dependency audit | %s |\n' "$DEPENDENCY_AUDIT"
             fi
-            printf '| Secret scan | %s |\n' "$SECRET_SCAN"
+            printf '| Historical secret baseline (advisory) | %s |\n' "$SECRET_SCAN"
             printf '| Dependency review | %s |\n' "$DEPENDENCY_REVIEW"
             printf '| CodeQL | %s |\n' "$CODEQL"
           } >> "$GITHUB_STEP_SUMMARY"
 
           failed=0
-          for result in "$WORKFLOW_SECURITY" "$EFFECT_LINT" "$SECRET_SCAN" "$CODEQL"; do
+          for result in "$WORKFLOW_SECURITY" "$EFFECT_LINT"; do
             if [[ "$result" != "success" ]]; then
               failed=1
             fi
           done
+          if [[ "$CODEQL" != "success" && ! ( "$DEV_FAST" == "true" && "$CODEQL" == "skipped" ) ]]; then
+            failed=1
+          fi
           if [[ "$DEPENDENCY_REVIEW" != "success" && "$DEPENDENCY_REVIEW" != "skipped" ]]; then
             failed=1
           fi

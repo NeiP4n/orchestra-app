@@ -1,12 +1,15 @@
 name: project-boundary-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/shell/in-place-paths.ts'
       - 'packages/core/src/tool/plugin/shell.ts'
       - 'packages/core/test/tool-shell.test.ts'
       - '.github/workflows/project-boundary-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

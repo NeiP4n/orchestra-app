@@ -1,11 +1,14 @@
 name: project-journal-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/project-files/format.ts'
       - 'packages/core/test/project-journal-safety.test.ts'
       - '.github/workflows/project-journal-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

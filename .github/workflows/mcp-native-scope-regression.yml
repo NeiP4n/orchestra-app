@@ -1,12 +1,15 @@
 name: mcp-native-scope-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/tool/plugin/orchestra.ts'
       - 'packages/core/src/plugin/agent.ts'
       - 'packages/core/test/orchestrator-limits.test.ts'
       - '.github/workflows/mcp-native-scope-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

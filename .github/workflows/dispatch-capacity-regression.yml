@@ -1,12 +1,15 @@
 name: dispatch-capacity-regression
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/orchestra.ts'
       - 'packages/core/src/autoloop/orchestrator.ts'
       - 'packages/core/test/orchestra-team.test.ts'
       - '.github/workflows/dispatch-capacity-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 permissions:
   contents: read
 jobs:

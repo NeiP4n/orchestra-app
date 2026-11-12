@@ -2,6 +2,7 @@ name: standing-rule-regression
 
 on:
   pull_request:
+    branches-ignore: [dev]
     paths:
       - 'packages/core/src/orchestra.ts'
       - 'packages/core/src/rules.ts'
@@ -18,7 +19,7 @@ on:
       - 'packages/core/test/tool-patch.test.ts'
       - '.github/workflows/standing-rule-regression.yml'
   push:
-    branches: [dev]
+    branches: [main, v2, lan-rooms]
     paths:
       - 'packages/core/src/orchestra.ts'
       - 'packages/core/src/rules.ts'
@@ -35,6 +36,8 @@ on:
       - 'packages/core/test/tool-patch.test.ts'
       - '.github/workflows/standing-rule-regression.yml'
   workflow_dispatch:
+  schedule:
+    - cron: "23 1 * * *"
 
 permissions:
   contents: read
