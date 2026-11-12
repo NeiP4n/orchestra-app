@@ -693,6 +693,7 @@ function mockHandlers(
   const noContent = Effect.succeed(HttpApiSchema.NoContent.make())
   const delay = config.messageDelay === undefined ? Effect.void : Effect.sleep(Duration.millis(config.messageDelay))
   const configEntries = config.configEntries ?? []
+  let continuationEnabled = true
 
   const ptyEnabled = Effect.suspend(() =>
     config.pty ? Effect.void : Effect.fail(new MockNotFound({ message: "PTY is not enabled for this mock server" })),
@@ -962,6 +963,12 @@ function mockHandlers(
           ]),
         orchestraProjectList: () =>
           Effect.succeed(societyProjects(config).map((item) => ({ ...item, created: 0 }))),
+        continuationGet: () => Effect.sync(() => ({enabled:continuationEnabled})),
+        continuationSet: (ctx) => Effect.sync(() => {
+          continuationEnabled = ctx.payload.enabled
+          state.emit([{type:"config.continuation.updated",data:{enabled:continuationEnabled}}])
+          return {enabled:continuationEnabled}
+        }),
         configShells: () => Effect.succeed(config.shells ?? []),
         configUpdate: () => noContent,
         websearchProviders: () => Effect.succeed({ location: location(config), data: [] }),
