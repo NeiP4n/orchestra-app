@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises"
 import fs from "fs/promises"
 import { realpathSync, watch } from "node:fs"
 import os from "os"
@@ -865,6 +866,27 @@ describe("ShellTool", () => {
         expect(yield* Effect.promise(()=>Bun.file(file).exists())).toBe(false)
       }
     })),tmp=>Effect.promise(()=>tmp[Symbol.asyncDispose]()),
+  ))
+
+  it.live("foreign plot blocks in-place writes to a sibling project file before shell launch", () => Effect.acquireUseRelease(
+    Effect.promise(() => tmpdir()), tmp => Effect.gen(function* () {
+      const own = path.join(tmp.path, "own")
+      const foreign = path.join(tmp.path, "foreign")
+      yield* Effect.promise(() => mkdir(own, { recursive: true }))
+      yield* Effect.promise(() => mkdir(foreign, { recursive: true }))
+      yield* withSession(own, registry => Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const plots = yield* Plot.Service
+        const other = yield* sessions.create({ location: { directory: AbsolutePath.make(foreign) }, title: "Other project" })
+        yield* plots.claim({ sessionID: other.id, directory: foreign, paths: ["held.txt"], purpose: "sibling project file" })
+        const file = path.join(foreign, "held.txt")
+        yield* Effect.promise(() => Bun.write(file, "original"))
+        const command = isWindows ? `Set-Content -LiteralPath '${file}' changed` : `sed -i 's/original/changed/g' '${file}'`
+        const result = yield* executeTool(registry, call({ command }))
+        expect(yield* Effect.promise(() => Bun.file(file).text())).toBe("original")
+        expect(JSON.stringify(result)).toContain("Plot paths must stay inside the project directory")
+      }))
+    }), tmp => Effect.promise(() => tmp[Symbol.asyncDispose]()),
   ))
 
   it.live("returns both parallel CodeMode shell results", () =>
