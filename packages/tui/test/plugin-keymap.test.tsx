@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs"
 import { InputRenderable } from "@opentui/core"
 import { beforeEach, expect, test } from "bun:test"
 import { mkdir, symlink } from "node:fs/promises"
@@ -44,19 +45,22 @@ test("setup layers before and after await reach keyboard, palette, and slash acr
   setup.mockInput.pressKey("F9")
   await search(setup, "Setup check")
   await setup.waitForFrame((frame) => frame.includes("No results found"))
-  expect(setup.captureCharFrame()).not.toContain("Setup keymap ran 4")
-  expect(setup.captureCharFrame()).not.toContain("Sync keymap ran 2")
+  expect(plugin.events()).not.toContain("Setup keymap ran 4")
+  expect(plugin.events()).not.toContain("Sync keymap ran 2")
+  expect(plugin.events().filter(event => event.startsWith("Setup keymap ran"))).toEqual(["Setup keymap ran 1", "Setup keymap ran 2", "Setup keymap ran 3"])
   setup.mockInput.pressEscape()
 
   await openPlugin(setup)
   await setup.waitForFrame((frame) => frame.includes("inactive"))
+  const generations = plugin.events().filter(event => event === "Fixture ready generation 1").length
   setup.mockInput.pressEnter()
-  await setup.waitForFrame((frame) => frame.includes("Fixture ready generation 1"))
+  await setup.waitFor(() => plugin.events().filter(event => event === "Fixture ready generation 1").length === generations + 1)
   setup.mockInput.pressEscape()
   setup.mockInput.pressKey("g", { ctrl: true })
   await setup.waitForFrame((frame) => frame.includes("Setup keymap ran 1"))
   setup.mockInput.pressKey("F9")
   await setup.waitForFrame((frame) => frame.includes("Sync keymap ran 1"))
+  expect(plugin.events().filter(event => event.startsWith("Sync keymap ran"))).toEqual(["Sync keymap ran 1", "Sync keymap ran 1"])
 })
 
 test("a component layer ends when its component unmounts while the plugin stays active", async () => {
@@ -68,17 +72,17 @@ test("a component layer ends when its component unmounts while the plugin stays 
   setup.mockInput.pressKey("F8")
   await setup.waitForFrame((frame) => frame.includes("Fixture dialog"))
   setup.mockInput.pressKey("F11")
-  await setup.waitForFrame((frame) => frame.includes("Dialog keymap ran 1"))
+  await setup.waitFor(() => plugin.events().includes("Dialog keymap ran 1"))
   setup.mockInput.pressEscape()
   await setup.waitForFrame((frame) => !frame.includes("Fixture dialog"))
 
   setup.mockInput.pressKey("g", { ctrl: true })
-  await setup.waitForFrame((frame) => frame.includes("Setup keymap ran 1"))
+  await setup.waitFor(() => plugin.events().includes("Setup keymap ran 1"))
   setup.mockInput.pressKey("F11")
   await Bun.sleep(100)
   await setup.renderOnce()
-  expect(setup.captureCharFrame()).toContain("Setup keymap ran 1")
-  expect(setup.captureCharFrame()).not.toContain("Dialog keymap ran 2")
+  expect(plugin.events()).toContain("Setup keymap ran 1")
+  expect(plugin.events()).not.toContain("Dialog keymap ran 2")
 })
 
 test("a component layer ends with its activation on reload while the component stays mounted", async () => {
@@ -90,18 +94,18 @@ test("a component layer ends with its activation on reload while the component s
   setup.mockInput.pressKey("F8")
   await setup.waitForFrame((frame) => frame.includes("Fixture dialog"))
   setup.mockInput.pressKey("F11")
-  await setup.waitForFrame((frame) => frame.includes("Dialog keymap ran 1"))
+  await setup.waitFor(() => plugin.events().includes("Dialog keymap ran 1"))
 
   await Bun.write(plugin.entry, (await Bun.file(plugin.entry).text()).replace("generation 1", "generation 2"))
-  await setup.waitForFrame((frame) => frame.includes("Fixture ready generation 2"))
+  await setup.waitFor(() => plugin.events().includes("Fixture ready generation 2"))
   setup.mockInput.pressKey("g", { ctrl: true })
-  await setup.waitForFrame((frame) => frame.includes("Setup keymap ran 1"))
+  await setup.waitFor(() => plugin.events().includes("Setup keymap ran 1"))
   setup.mockInput.pressKey("F11")
   await Bun.sleep(100)
   await setup.renderOnce()
-  expect(setup.captureCharFrame()).toContain("Setup keymap ran 1")
+  expect(plugin.events()).toContain("Setup keymap ran 1")
   expect(setup.captureCharFrame()).toContain("Fixture dialog")
-  expect(setup.captureCharFrame()).not.toContain("Dialog keymap ran 2")
+  expect(plugin.events()).not.toContain("Dialog keymap ran 2")
 })
 
 test("failed setup reports batched layer errors and disposes earlier and later setup layers", async () => {
@@ -110,7 +114,7 @@ test("failed setup reports batched layer errors and disposes earlier and later s
     config: { animations: false, plugins: [{ package: plugin.directory, options: { fail: true } }] },
   })
   await setup.ready
-  await setup.waitForFrame((frame) => frame.includes("ctrl+p commands"))
+  await setup.waitForFrame((frame) => frame.includes("plugin failed /plugins"))
 
   await openPlugin(setup)
   await setup.waitForFrame((frame) => frame.includes("view error"))
@@ -124,8 +128,8 @@ test("failed setup reports batched layer errors and disposes earlier and later s
   setup.mockInput.pressKey("F10")
   await Bun.sleep(100)
   await setup.renderOnce()
-  expect(setup.captureCharFrame()).not.toContain("Sync keymap ran")
-  expect(setup.captureCharFrame()).not.toContain("Late keymap ran")
+  expect(plugin.events().some(event => event.startsWith("Sync keymap ran"))).toBe(false)
+  expect(plugin.events()).not.toContain("Late keymap ran")
 })
 
 async function copyPlugin() {
@@ -135,7 +139,9 @@ async function copyPlugin() {
   await mkdir(directory)
   await symlink(path.join(import.meta.dir, "../node_modules"), path.join(directory, "node_modules"))
   await Bun.write(entry, Bun.file(path.join(import.meta.dir, "fixture/plugin/setup-keymap/tui.tsx")))
-  return { directory, entry, [Symbol.asyncDispose]: root[Symbol.asyncDispose] }
+  return { directory, entry,
+    events: () => existsSync(path.join(directory, "events.jsonl")) ? readFileSync(path.join(directory, "events.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line) as string) : [],
+    [Symbol.asyncDispose]: root[Symbol.asyncDispose] }
 }
 
 async function search(setup: Fixture, query: string) {

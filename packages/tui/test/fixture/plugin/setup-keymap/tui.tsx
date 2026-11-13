@@ -1,7 +1,14 @@
+import { appendFileSync } from "node:fs"
 import { Plugin } from "@orchestra/plugin/tui"
 import { batch, createSignal } from "solid-js"
 
 const generation = "generation 1"
+
+// A test-owned receipt proves calls while the modal intentionally hides app toasts.
+function announce(context: Plugin.Context, message: string) {
+  appendFileSync(new URL("./events.jsonl", import.meta.url), JSON.stringify(message) + "\n")
+  context.ui.toast.show({ message })
+}
 
 export default Plugin.define({
   id: "fixture.setup-keymap",
@@ -14,7 +21,7 @@ export default Plugin.define({
           id: "fixture.sync",
           title: "Sync setup check",
           bind: "f9",
-          run: () => context.ui.toast.show({ message: `Sync keymap ran ${++syncs}` }),
+          run: () => announce(context, `Sync keymap ran ${++syncs}`),
         },
       ],
     }))
@@ -28,7 +35,7 @@ export default Plugin.define({
                 id: "fixture.late",
                 title: "Late setup check",
                 bind: "f10",
-                run: () => context.ui.toast.show({ message: "Late keymap ran" }),
+                run: () => announce(context, "Late keymap ran"),
               },
             ],
           })),
@@ -47,7 +54,7 @@ export default Plugin.define({
           bind: "ctrl+g",
           run() {
             setRuns((count) => count + 1)
-            context.ui.toast.show({ message: `Setup keymap ran ${runs()}` })
+            announce(context, `Setup keymap ran ${runs()}`)
           },
         },
         {
@@ -58,7 +65,7 @@ export default Plugin.define({
         },
       ],
     }))
-    context.ui.toast.show({ message: `Fixture ready ${generation}` })
+    announce(context, `Fixture ready ${generation}`)
   },
 })
 
@@ -66,7 +73,7 @@ function FixtureDialog(props: { context: Plugin.Context }) {
   let presses = 0
   props.context.keymap.layer(() => ({
     mode: "global",
-    commands: [{ bind: "f11", run: () => props.context.ui.toast.show({ message: `Dialog keymap ran ${++presses}` }) }],
+    commands: [{ bind: "f11", run: () => announce(props.context, `Dialog keymap ran ${++presses}`) }],
   }))
   return <text>Fixture dialog</text>
 }
