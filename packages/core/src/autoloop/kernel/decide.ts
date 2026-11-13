@@ -1176,11 +1176,11 @@ function heldRun(draft: Draft, id: number, token: string, states: string[]): Run
   return run!
 }
 
-function claimBlocker(draft: Draft, worker: string): string {
+function claimBlocker(draft: Draft, worker: string, target?: number): string {
   if (!canClaim(draft.autonomy)) return `autonomy=${draft.autonomy}: worker execution is disabled by policy`
   const agents = agentsOf(draft, worker)
   const queued = rowsOf(draft.view, "runs").map(row => row.data as RunRow).filter(run => run.state === "queued")
-  const mine = queued.filter(run => agents.includes(ruleNamed(draft, run.rule)?.to ?? ""))
+  const mine = queued.filter(run => (target === undefined || run.id === target) && agents.includes(ruleNamed(draft, run.rule)?.to ?? ""))
   if (!mine.length) return `no queued run routes to worker ${worker}; queued=${queued.length}, assigned agents=${agents.join(",") || "none"}`
   const claimed = rowsOf(draft.view,"runs").map(row=>row.data as RunRow).filter(run=>run.state === "claimed")
   return mine.map(run => {
@@ -1195,7 +1195,7 @@ function claimBlocker(draft: Draft, worker: string): string {
   }).join("; ")
 }
 
-function claimNext(draft: Draft, worker: string, claim: string) {
+function claimNext(draft: Draft, worker: string, claim: string, target?: number) {
   // In `observe` (and `off`) nothing executes: runs queue as proposals
   // and wait for the mode to allow claiming. A repeat claim returns
   // nothing too — no run was ever claimed in this mode, so there is no
@@ -1218,7 +1218,7 @@ function claimNext(draft: Draft, worker: string, claim: string) {
 
   // The same claim again means the answer got lost: it gets back the run it already has.
   const held = claimed.find((run) => run.claim === claim && workerOfRun(draft.rules, run.agent) === worker)
-  const run = held ?? runs.find(claimable)
+  const run = held ?? runs.find(run => (target === undefined || run.id === target) && claimable(run))
   if (run === undefined) return null
   if (held === undefined) {
     assignQueued(draft, run)
@@ -2170,10 +2170,11 @@ const HANDLERS: Record<string, (draft: Draft, ...args: Array<unknown>) => unknow
     put(draft, "seen", `channel:${String(name)}`, { kind: "channel", name: String(name), seen_at: draft.at })
   },
 
-  claimNext: (draft, worker, claim, diagnostic) => {
+  claimNext: (draft, worker, claim, diagnostic, targetRun) => {
     const who = needStr(worker, "claimNext.worker")
-    const job = claimNext(draft, who, needStr(claim, "claimNext.claim"))
-    return diagnostic === true ? { job, blocker: job ? undefined : claimBlocker(draft, who) } : job
+    const target = targetRun === undefined ? undefined : needNum(targetRun, "claimNext.targetRun")
+    const job = claimNext(draft, who, needStr(claim, "claimNext.claim"), target)
+    return diagnostic === true ? { job, blocker: job ? undefined : claimBlocker(draft, who, target) } : job
   },
 
   started(draft, id, token, given) {

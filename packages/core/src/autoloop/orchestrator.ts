@@ -253,6 +253,7 @@ export function createRun(
   cycle: Cycle,
   task: DispatchTask,
   explain = false,
+  deferRetry = false,
 ): Effect.Effect<{ run: number; token: string } | null, Autoloop.ServiceFailure> {
   return Effect.gen(function* () {
     // The dispatch rule has to exist before the event is ingested: ingest
@@ -284,13 +285,21 @@ export function createRun(
         },
       ],
     })) as { event: number; duplicate: boolean; routed: string[]; dropped: boolean }
+    const snapshot = yield* cycle.getView()
+    const target = (Object.values(snapshot["run_events"] ?? {}) as Array<{run_id:number;event_id:number}>)
+      .find(link => link.event_id === ingested.event)?.run_id
+    if (target === undefined && !ingested.dropped)
+      return yield* new AutoloopServiceFailure({code:"conflict",message:"The dispatch event has no run mapping. The task was NOT sent. Preserve the journal and inspect routing; never claim a different task."})
     const claimed = (yield* cycle.execute({
       type: "claimNext",
-      args: [WORKER, `dispatch:${task.messageID}`, true],
+      args: [WORKER, `dispatch:${task.messageID}`, true, target],
     })) as { job: Job | null; blocker?: string }
     const job = claimed.job
     if (job === null) {
-      if (explain) return yield* new AutoloopServiceFailure({ code: "conflict", message: `${ingested.dropped ? "Autonomy off: event was recorded but not routed" : claimed.blocker ?? "Claim returned no diagnostic"}. The task was NOT sent; do not bypass policy or do the worker's work in the Orchestrator.` })
+      // Only a real journal retry delay may defer. Policy/capacity/no-route
+      // errors keep their explicit refusal, never become permission to run.
+      if (deferRetry && !ingested.dropped && target !== undefined && claimed.blocker?.includes("not due until")) return null
+      if (explain) return yield* new AutoloopServiceFailure({ code: "conflict", message: `${ingested.dropped ? "Autonomy off: event was recorded but not routed" : claimed.blocker ?? "Claim returned no diagnostic"}. The task was NOT sent; report this exact blocker and re-delegate only when it clears. Do not bypass policy or do the worker's work in the Orchestrator.` })
       if (ingested.dropped === true) {
         // `off` mode: the event is recorded and nothing is routed — the
         // task is not sent, and that is the mode working, not a failure.
@@ -381,12 +390,12 @@ export function heartbeatRun(cycle: Cycle, run: number): Effect.Effect<void, Aut
  * call means a second call claims the next run, never the same one twice.
  * Returns null when nothing is due.
  */
-export function claimDueRun(cycle: Cycle, now = Date.now()): Effect.Effect<Job | null, Autoloop.ServiceFailure> {
+export function claimDueRun(cycle: Cycle, now = Date.now(), targetRun?: number): Effect.Effect<Job | null, Autoloop.ServiceFailure> {
   return Effect.gen(function* () {
     const job = (yield* cycle.execute(
       {
         type: "claimNext",
-        args: [WORKER, `reclaim:${randomUUID()}`],
+        args: [WORKER, `reclaim:${randomUUID()}`, false, targetRun],
       },
       now,
     )) as Job | null

@@ -1589,7 +1589,7 @@ export const Plugin = {
                   yield* dispatch(session.id, limit && mcpBriefLine(limit) ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
-                    output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the session service. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
+                    output: `Task accepted for dispatch. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the dispatch service (queued automatically if a provider retry is not due yet). Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
                   }
                 }
                 case "create": {

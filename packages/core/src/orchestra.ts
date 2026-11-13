@@ -257,6 +257,9 @@ const PROJECT = "orchestra/project/"
 const ACCESS = "orchestra/access/"
 const CATEGORY = "orchestra/category/"
 const STAGE = "orchestra/stage/"
+const DEFERRED_DISPATCH = "orchestra/deferred-dispatch/"
+const DeferredDispatch = Schema.Struct({main:SessionID,projectID:ProjectID,sent:Schema.Number,messageID:SessionMessage.ID,text:Schema.String})
+const decodeDeferredDispatch = Schema.decodeUnknownOption(DeferredDispatch)
 const TASK = "orchestra/task/"
 // A worker holding an execution claim is skipped by task recovery: the claim promises
 // the run will settle or be resumed. That promise expires when the session is not
@@ -1856,6 +1859,7 @@ const layer: Layer.Layer<
     const watchReports = Effect.gen(function* () {
       if (!continuationControl.isEnabled()) return
       yield* recoverPending(undefined, NO_REPORT_AFTER_MS)
+      yield* reclaimDueRuns()
       const active = yield* sessions.active
       // Reuse the minute watchdog, but keep active, queued and paused work out
       // of DoD reclamation. Expiry frees ownership only, never evidence/steps.
@@ -2526,7 +2530,8 @@ const layer: Layer.Layer<
         const sessionID = Option.getOrUndefined(
           decodeSessionID(session ?? resume ?? event?.subject ?? ""),
         )
-        const text = event?.summary?.trim()
+        const deferred = sessionID ? Option.getOrUndefined(decodeDeferredDispatch(yield* kv.get(DEFERRED_DISPATCH + sessionID))) : undefined
+        const text = deferred && events.some(item => item.key === deferred.messageID) ? deferred.text : event?.summary?.trim()
         const detail = event?.detail ?? ""
         const projectID = detail.startsWith("project:") ? detail.slice("project:".length) : undefined
         if (sessionID === undefined || text === undefined || text === "" || projectID === undefined) return undefined
@@ -2590,6 +2595,7 @@ const layer: Layer.Layer<
                   Effect.logWarning("autoloop: повтор задачи не отправлен", { run: job.run, error: String(error) }),
                 ),
               )
+            yield* kv.remove(DEFERRED_DISPATCH + target.sessionID)
             yield* AutoloopOrchestrator.heartbeatRun(autoloop, job.run).pipe(Effect.ignore)
           }),
         )
@@ -2620,7 +2626,7 @@ const layer: Layer.Layer<
           }
         }
         if (target === undefined) return
-        const job = yield* AutoloopOrchestrator.claimDueRun(autoloop).pipe(
+        const job = yield* AutoloopOrchestrator.claimDueRun(autoloop, now, target.run.id).pipe(
           Effect.catch((error) =>
             Effect.logWarning("autoloop: не удалось взять задачу на повтор", { error: error.message }).pipe(
               Effect.as(null),
@@ -3240,6 +3246,8 @@ const layer: Layer.Layer<
             yield* dispatchLocks.withLock(input.sessionID)(
               Effect.gen(function* () {
                 const key = TASK + input.sessionID
+                const deferred = Option.getOrUndefined(decodeDeferredDispatch(yield* kv.get(DEFERRED_DISPATCH + input.sessionID)))
+                if (deferred) return yield* new DispatchError({message:"This worker already has a dispatch waiting for its provider retry time. It is durable and will be requeued automatically; do not resend it."})
                 const existing = decodeTask(yield* kv.get(key))
                 if (Option.isSome(existing))
                   return yield* new DispatchError({
@@ -3263,17 +3271,18 @@ const layer: Layer.Layer<
                   projectID: project.id,
                   text: input.text,
                   messageID,
-                }, true).pipe(
+                }, true, true).pipe(
                   Effect.tapError(() => kv.remove(key)),
                   Effect.mapError(
                     (error) => new DispatchError({ message: `Autoloop could not take the task: ${error.message}` }),
                   ),
                 )
                 if (cycle === null) {
+                  // The journal owns a not-due retry. Preserve the full brief,
+                  // not its clipped event summary, across restart and requeue.
+                  yield* kv.set(DEFERRED_DISPATCH + input.sessionID, {main,projectID:project.id,sent:Date.now(),messageID,text:input.text})
                   yield* kv.remove(key)
-                  return yield* new DispatchError({
-                    message: "Autoloop returned no dispatch claim or diagnostic. The task was NOT sent. Inspect the cycle journal; do not bypass the dispatch gate.",
-                  })
+                  return
                 }
                 yield* kv.set(
                   key,
@@ -3342,7 +3351,9 @@ const layer: Layer.Layer<
         )
       }),
       pending: Effect.fn("Orchestra.pending")(function* (sessionID) {
-        return Option.getOrUndefined(Option.map(decodeTask(yield* kv.get(TASK + sessionID)), (task) => task.sent))
+        const task = Option.getOrUndefined(decodeTask(yield* kv.get(TASK + sessionID)))
+        if (task) return task.sent
+        return Option.getOrUndefined(Option.map(decodeDeferredDispatch(yield* kv.get(DEFERRED_DISPATCH + sessionID)), value=>value.sent))
       }),
       recoverPendingTasks: Effect.fn("Orchestra.recoverPendingTasks")(function* () {
         if (!continuationControl.isEnabled()) return

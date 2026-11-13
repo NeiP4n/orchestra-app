@@ -426,3 +426,25 @@ for(const autonomy of ["observe","off"] as const)it.live(`diagnostic dispatch na
  expect(error.message).toContain(autonomy === "off" ? "Autonomy off" : "autonomy=observe")
  expect(error.message).toContain("NOT sent")
 }))
+it.live("fresh dispatch claims its own event instead of stealing a due failed run",()=>Effect.gen(function*(){
+ const svc=yield* Autoloop.Service
+ const first=yield* dispatch(svc)
+ yield* finishRun(svc,{...first,receipt:failedReceipt})
+ const future=Date.now()+6*MINUTE
+ const advanced: typeof svc={...svc,execute:(command)=>svc.execute(command,future)}
+ const second=yield* createRun(advanced,{...task,sessionID:"worker-2",messageID:"msg-2"})
+ expect(second?.run).not.toBe(first.run)
+ expect(yield* readRun(svc,second!.run)).toMatchObject({session:"worker-2"})
+ const retry=yield* claimDueRun(svc,future,first.run)
+ expect(retry?.run).toBe(first.run)
+}))
+it.live("not-due same-worker retry is deferred while its durable event stays queued",()=>Effect.gen(function*(){
+ const svc=yield* Autoloop.Service
+ const first=yield* dispatch(svc)
+ yield* finishRun(svc,{...first,receipt:failedReceipt})
+ const deferred=yield* createRun(svc,{...task,messageID:"msg-followup"},true,true)
+ expect(deferred).toBeNull()
+ expect(yield* readRun(svc,first.run)).toMatchObject({state:"queued"})
+ const retry=yield* claimDueRun(svc,Date.now()+6*MINUTE,first.run)
+ expect(retry?.events.some(event=>event.key==="msg-followup")).toBe(true)
+}))

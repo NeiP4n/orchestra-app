@@ -16,7 +16,7 @@ import { makeGlobalNode } from "@orchestra/util/effect/app-node"
 import { Database } from "@orchestra/core/database/database"
 import { Bus } from "@orchestra/core/bus"
 import { Autoloop } from "@orchestra/core/autoloop/service"
-import { createRun, orchestraRules } from "@orchestra/core/autoloop/orchestrator"
+import { createRun, finishRun, orchestraRules } from "@orchestra/core/autoloop/orchestrator"
 import type { RunRow } from "@orchestra/core/autoloop/kernel/decide"
 import { Skill } from "@orchestra/core/skill"
 import { Model } from "@orchestra/core/model"
@@ -3193,4 +3193,22 @@ it.live("stale idle legacy task with no answer expires without inventing success
  const found=yield* reports(project.main!)
  expect(found.join("\n")).toContain("Stale task reservation expired")
  expect(found.join("\n")).toContain('outcome="failed"')
+}).pipe(Effect.scoped))
+
+it.live("a due failed run is not stolen by a fresh dispatch to another worker",()=>Effect.gen(function*(){
+ const orchestra=yield* Orchestra.Service
+ const cycle=yield* Autoloop.Service
+ const kv=yield* KV.Service
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("orchestra-failed-dispatch-")))
+ const project=yield* orchestra.create({name:"Retry lanes",directory:tmp.path})
+ const worker=yield* orchestra.createMember({project,title:"Fresh worker",agent:Orchestra.role("tester")})
+ const first=yield* createRun(cycle,{projectID:project.id,sessionID:"old-worker",messageID:"old-task",text:"Prior failure"})
+ const backdated={...cycle,execute:(command:Parameters<typeof cycle.execute>[0])=>cycle.execute(command,Date.now()-6*60_000)}
+ yield* finishRun(backdated,{...first!,receipt:{outcome:"failed",error:"provider unavailable"}})
+ yield* orchestra.dispatch({project,sessionID:worker.id,text:"Fresh worker task"})
+ const row=(yield* cycle.getView())["runs"]?.[String(first!.run)] as {state:string;session:string}
+ expect(row.state).toBe("queued")
+ expect(row.session).toBe("old-worker")
+ const marker=yield* kv.get("orchestra/task/"+worker.id) as unknown as {autoloopRun:number}|undefined
+ if(marker)expect(marker.autoloopRun).not.toBe(first!.run)
 }).pipe(Effect.scoped))
