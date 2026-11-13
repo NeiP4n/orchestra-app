@@ -4,21 +4,23 @@ import {
   resolveThemeDocument,
   selectThemeMode,
   themeModes,
-  type HueScale,
-  type ResolvedTheme,
 } from "@orchestra/theme/tui"
-import { DEFAULT_THEMES, getOrchestraTheme, resolveTheme as resolveV1 } from "../../../src/theme"
+import { DEFAULT_THEMES, resolveTheme as resolveV1 } from "../../../src/theme"
 import draculaSource from "../../../src/theme/assets/dracula.json" with { type: "json" }
 import type { ThemeV1Json } from "@orchestra/theme/tui/v1"
+import { contrastRatio } from "../../../src/theme/system"
 
 const opencodeV1 = draculaSource as ThemeV1Json
-const opencodeLight = resolveThemeDocument(getOrchestraTheme(), "light")
-const opencodeLightHues = allHues(opencodeLight)
 
 test("migrates resolved V1 modes into V2 tokens", () => {
-  const migrated = migrateV1(opencodeV1)
+  // Mapping assertions use readable authored text. Accessibility repair is
+  // covered separately; Dracula's pale dark-mode purple is unreadable on white.
+  const source = structuredClone(opencodeV1)
+  source.theme.primary = { light: "#6d28d9", dark: "#bd93f9" }
+  source.theme.textMuted = { light: "#4b5563", dark: "#6272a4" }
+  const migrated = migrateV1(source)
   if (!migrated.light || !migrated.dark) throw new Error("Expected both modes")
-  const legacy = resolveV1(opencodeV1, "light")
+  const legacy = resolveV1(source, "light")
   const resolved = resolveThemeDocument(migrated, "light")
 
   expect(migrated.base.categorical?.length).toBeGreaterThan(0)
@@ -55,6 +57,20 @@ test("migrates resolved V1 modes into V2 tokens", () => {
   expect(resolved.surface("dialog").background.base.toInts()).toEqual(legacy.backgroundPanel.toInts())
   expect(resolved.surface("dialog").background.action.primary.base.toInts()).toEqual([0, 0, 0, 0])
   expect(resolved.surface("dialog").text.action.primary.base.toInts()).toEqual(legacy.text.toInts())
+})
+
+test("migration retains authored hue values while repairing unreadable legacy action text", () => {
+  const before = structuredClone(opencodeV1)
+  const migrated = migrateV1(opencodeV1)
+  const legacy = resolveV1(opencodeV1, "light")
+  const resolved = resolveThemeDocument(migrated, "light")
+  expect(migrated.base.text?.formfield?.$selected).toBe("$hue.interactive.200")
+  expect(resolved.hue.interactive[200].toInts()).toEqual(legacy.primary.toInts())
+  expect(resolved.text.formfield.selected.toInts()).not.toEqual(legacy.primary.toInts())
+  expect(contrastRatio(resolved.text.formfield.selected, resolved.background.formfield.selected)).toBeGreaterThanOrEqual(4.5)
+  expect(contrastRatio(resolved.text.formfield.focused, resolved.background.formfield.focused)).toBeGreaterThanOrEqual(4.5)
+  expect(contrastRatio(resolved.text.action.secondary.base, resolved.background.base)).toBeGreaterThanOrEqual(4.5)
+  expect(opencodeV1).toEqual(before)
 })
 
 test("references generated hues from matching token colors", () => {
@@ -148,10 +164,10 @@ test("orders categorical hues by V1 semantic color mapping", () => {
 
 test("gives accent and primary ownership of their inferred hues", () => {
   const source = structuredClone(opencodeV1)
-  source.theme.success = hex(opencodeLightHues.orange[700])
-  source.theme.accent = hex(opencodeLightHues.orange[600])
-  source.theme.info = hex(opencodeLightHues.blue[700])
-  source.theme.primary = hex(opencodeLightHues.blue[600])
+  source.theme.success = "#c2410c"
+  source.theme.accent = "#fdba74"
+  source.theme.info = "#1d4ed8"
+  source.theme.primary = "#93c5fd"
 
   const migrated = migrateV1(source)
   if (!migrated.light) throw new Error("Expected light mode")
@@ -164,7 +180,7 @@ test("gives accent and primary ownership of their inferred hues", () => {
   expect(migrated.light.hue?.accent).toBe("$hue.orange")
   expect(migrated.light.hue?.interactive).toBe("$hue.blue")
 
-  source.theme.primary = hex(opencodeLightHues.orange[500])
+  source.theme.primary = "#c2410c"
   const collisionMode = migrateV1(source).light
   const collision = collisionMode?.hue?.orange
   if (typeof collision !== "object") throw new Error("Expected concrete orange scale")
@@ -284,10 +300,6 @@ test("keeps both modes when a shared background has different contrast", () => {
 
   expect(themeModes(migrated)).toEqual(["light", "dark"])
 })
-
-function allHues(theme: ResolvedTheme) {
-  return theme.hue as typeof theme.hue & Readonly<Record<string, HueScale>>
-}
 
 function hex(color: { toInts(): [number, number, number, number] }) {
   const [r, g, b, a] = color.toInts()

@@ -15,16 +15,19 @@ import { getOrchestraTheme, parseTheme, type ThemeDocumentSource } from "../../.
 const opencodeLight = selectTheme(getOrchestraTheme(), "light")
 const opencodeDark = selectTheme(getOrchestraTheme(), "dark")
 const chromaticHues = ["gray", "red", "orange", "green", "cyan", "blue", "purple"] as const
-const light: ThemeDefinition = {
-  ...opencodeLight,
-  categorical: ["blue", "purple"],
-  hue: { ...opencodeLight.hue, accent: "$hue.blue", interactive: "$hue.blue", neutral: "$hue.gray" },
+// Resolver fixtures own their token relationships. The bundled theme is a visual
+// design, not a promise that blue stays concrete or dialogs follow raised.high.
+function fixture(base: ThemeDefinition): ThemeDefinition {
+  return {
+    ...base,
+    categorical: ["blue", "purple"],
+    hue: { ...base.hue, blue: base.hue.cyan, accent: "$hue.blue", interactive: "$hue.blue", neutral: "$hue.gray" },
+    background: { ...base.background, raised: { base: "$hue.neutral.800", high: "$hue.neutral.600", max: "$hue.neutral.500" } },
+    "@dialog": { background: { base: "$background.raised.base", action: { primary: { $hovered: "$background.raised.high" } } } },
+  }
 }
-const dark: ThemeDefinition = {
-  ...opencodeDark,
-  categorical: ["blue", "purple"],
-  hue: { ...opencodeDark.hue, accent: "$hue.blue", interactive: "$hue.blue", neutral: "$hue.gray" },
-}
+const light = fixture(opencodeLight)
+const dark = fixture(opencodeDark)
 
 test("orders light hues dark-to-light and dark hues light-to-dark", () => {
   const lightTheme = resolveTheme(light)
