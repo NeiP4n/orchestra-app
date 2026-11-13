@@ -71,8 +71,8 @@ test("each command block names the shell that ran it", async () => {
     const plain = lines.findIndex((line) => line.includes("echo plain"))
     const hub = lines.findIndex((line) => line.includes("rg x"))
     // on the command's own line, at its right edge
-    expect(lines[plain].trimEnd()).toEndWith("zsh")
-    expect(lines[hub].trimEnd()).toEndWith("HUB:search.content · nu")
+    expect(lines[plain].split("│")[0].trimEnd()).toEndWith("zsh")
+    expect(lines[hub].split("│")[0].trimEnd()).toEndWith("HUB:search.content · nu")
   } finally {
     setup.renderer.destroy()
     await task

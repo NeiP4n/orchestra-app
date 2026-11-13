@@ -4,6 +4,7 @@ import { PromptRefProvider } from "../src/context/prompt"
 import { ProjectsProvider } from "../src/context/projects"
 import { SocietyRoster } from "../src/routes/session/society"
 import { agent, renderLocal, session } from "./fixture/local"
+import { setActiveLanguage } from "../src/util/i18n"
 import { directory, json } from "./fixture/tui-client"
 
 const chat = { ...session("ses_society", undefined, "orchestrator"), metadata: { "orchestra:group-supervisor": { groupName: "Games", leader: "prj_a", mode: "council" } } }
@@ -16,8 +17,13 @@ const projects = ["prj_a", "prj_b", "prj_c"].map((id, index) => ({
 
 // The roster is JSX the compiler cannot check for stray text: a comment typed among its children is drawn as text
 // outside any <text> and crashes the whole interface. Rendering it with members is the only thing that catches that.
-test("the Society roster renders its members on one row without crashing", async () => {
+for (const language of ["en", "ru"] as const) test(`the Society roster uses its own ${language} locale and renders one row`, async () => {
+  // Non-component strings can use the last app language; mounted components
+  // must instead follow their own ConfigProvider even when it differs.
+  setActiveLanguage(language === "en" ? "ru" : "en")
+  try {
   await using setup = await renderLocal({
+    language,
     agents: [agent("orchestrator")],
     sessions: [chat as never],
     fetch: (url) => {
@@ -43,5 +49,9 @@ test("the Society roster renders its members on one row without crashing", async
   // Every member's call sign is on that one row, and nothing from a comment leaked onto the screen.
   expect(row.match(/[●○◉?]\w+/g)?.length).toBe(3)
   expect(frame).not.toContain("One row, no wrapping")
-  expect(frame).toContain("rules")
+  expect(frame).toContain(language === "ru" ? "правил" : "rules")
+  if (process.env.CAPTURE_SOCIETY) await Bun.write(`${process.env.CAPTURE_SOCIETY}-${language}.json`, JSON.stringify(setup.captureSpans()))
+  } finally {
+    setActiveLanguage("en")
+  }
 })

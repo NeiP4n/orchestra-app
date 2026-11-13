@@ -54,7 +54,9 @@ for (const { theme, language, width, unavailable } of cases) test(`project recor
   await app.waitForFrame(frame => frame.includes(toggleOff))
   expect(await ProjectDebug.enabled(directory)).toBe(false)
   await click(toggleOff)
-  await app.waitForFrame(frame => frame.includes(rec))
+  // The recording modal covers the bar. Check the backend and modal before
+  // closing it, then check the restored bar's indicator and contrast.
+  await app.waitForFrame(frame => frame.includes(toggleOn))
   expect(await ProjectDebug.enabled(directory)).toBe(true)
   await app.mockInput.pressKey("ESCAPE")
   await app.waitForFrame(frame => frame.includes(rec) && !frame.includes(toggleOn))

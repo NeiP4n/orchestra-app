@@ -1,5 +1,5 @@
 import { createHoverFeedback } from "../../ui/hover-feedback"
-import { tr } from "../../util/i18n"
+import { useT } from "../../util/i18n"
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { TextAttributes, type RGBA } from "@opentui/core"
 import { Federation } from "@orchestra/schema/federation"
@@ -31,6 +31,7 @@ export function callsignColor(theme: ThemeLike, callsign: string | undefined): R
 
 // What the Council receives once every invited Orchestrator answered: one card per member.
 export function CouncilResultsCard(props: { results: Federation.CouncilResults }) {
+  const t = useT()
   const theme = useTheme()
   const { currentSyntax: syntax } = useThemes()
   const count = () => props.results.proposals.length
@@ -38,13 +39,13 @@ export function CouncilResultsCard(props: { results: Federation.CouncilResults }
     <box flexDirection="column" gap={1} paddingLeft={2} paddingTop={1} paddingBottom={1} flexShrink={0}>
       <box flexDirection="row" gap={1}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none">
-          {tr("Council")}
+          {t("Council")}
         </text>
         <text fg={theme.text.base} wrapMode="none" truncate>
           {props.results.subject ?? props.results.group}
         </text>
         <text fg={theme.text.muted} wrapMode="none">
-          {count() === 1 ? tr("{count} answer", { count: count() }) : tr("{count} answers", { count: count() })}
+          {count() === 1 ? t("{count} answer", { count: count() }) : t("{count} answers", { count: count() })}
         </text>
       </box>
       <For each={props.results.proposals}>
@@ -140,6 +141,7 @@ export function ReplyOptions(props: { options: ReadonlyArray<Federation.ReplyOpt
 
 // Above the prompt of a Society chat: every member with its call sign. A click puts @Name into the prompt.
 export function SocietyRoster(props: { sessionID: string }) {
+  const t = useT()
   const theme = useTheme()
   const rulesHover = createHoverFeedback()
   const allHover = createHoverFeedback()
@@ -237,7 +239,7 @@ export function SocietyRoster(props: { sessionID: string }) {
             fg={holdHover() ? hoverForeground(theme, "secondary") : theme.text.action.secondary.base}
             attributes={held() ? TextAttributes.BOLD : undefined}
           >
-            {held() ? `⏸ ${tr("Resume")}` : `⏸ ${tr("Hold")}`}
+            {held() ? `⏸ ${t("Resume")}` : `⏸ ${t("Hold")}`}
           </text>
         </box>
         <For each={members()}>
@@ -273,7 +275,7 @@ export function SocietyRoster(props: { sessionID: string }) {
           }}
         >
           <text fg={theme.text.muted} wrapMode="none">
-            {tr("rules")}
+            {t("rules")}
           </text>
         </box>
         <Show when={total() > 0}>
