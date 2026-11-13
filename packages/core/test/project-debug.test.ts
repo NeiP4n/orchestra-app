@@ -138,16 +138,17 @@ await ProjectDebug.setEnabled(directory, true)
 const event = { timestamp: 1, sessionID: 'race', role: 'user', eventType: 'test', data: 'safe' }
 await ProjectDebug.record(directory, event)
 await fs.writeFile(outside, 'untouched', { mode: 0o644 })
+const beforeMode = (await fs.stat(outside)).mode
 armed = true
 let rejected = false
 try { await ProjectDebug.record(directory, event) } catch { rejected = true }
-console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8'), mode: (await fs.stat(outside)).mode & 0o777 }))
+console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8'), sameMode: (await fs.stat(outside)).mode === beforeMode }))
 `)
   const child = Bun.spawn([process.execPath, script, directory, path.resolve(import.meta.dir, "../src/session/project-debug.ts")], { stdout: "pipe", stderr: "pipe" })
   const output = await new Response(child.stdout).text()
   const error = await new Response(child.stderr).text()
   expect(await child.exited, error).toBe(0)
-  expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", mode: 0o644 })
+  expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", sameMode: true })
 }))
 
 for (const target of ["debug-recording.json", ".gitignore"]) test(`rejects a raced hard link before replacing ${target}`, () => fixture(async directory => {
@@ -167,14 +168,15 @@ const { ProjectDebug } = await import(process.argv[3])
 await ProjectDebug.setEnabled(directory, true)
 if (process.argv[4] === '.gitignore') await fs.writeFile(target, 'existing\\n')
 await fs.writeFile(outside, 'untouched', { mode: 0o644 })
+const beforeMode = (await fs.stat(outside)).mode
 armed = true
 let rejected = false
 try { await ProjectDebug.setEnabled(directory, false) } catch { rejected = true }
-console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8'), mode: (await fs.stat(outside)).mode & 0o777 }))
+console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8'), sameMode: (await fs.stat(outside)).mode === beforeMode }))
 `)
   const child = Bun.spawn([process.execPath, script, directory, path.resolve(import.meta.dir, "../src/session/project-debug.ts"), target], { stdout: "pipe", stderr: "pipe" })
   const output = await new Response(child.stdout).text()
   const error = await new Response(child.stderr).text()
   expect(await child.exited, error).toBe(0)
-  expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", mode: 0o644 })
+  expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", sameMode: true })
 }))
