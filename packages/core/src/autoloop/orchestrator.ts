@@ -239,15 +239,11 @@ export interface DispatchTask {
 }
 
 /**
- * Create the run for one dispatch: ingest the event, claim the run the
- * cycle hands back, record the worker session on it, and mark the worker
- * seen so a long task is not mistaken for a worker gone quiet. Returns
- * null when the cycle hands back no run — the rule is missing, or
- * `MAX_CONCURRENT_RUNS` runs are already claimed. The run the claim hands
- * back is the cycle's oldest claimable one, which is normally the run this
- * event just queued; after a crash mid-dispatch it can be an orphaned run
- * from an earlier dispatch, and the journal's `run_events` still say which
- * event each run belongs to.
+ * Ingest one dispatch and claim only its mapped run. Never take an older
+ * unrelated run from the global queue. A journal retry that is not due may
+ * return null when deferRetry is enabled; the caller must persist its full
+ * brief and arrange recovery. Policy, capacity and routing failures remain
+ * explicit refusals when explain is enabled.
  */
 export function createRun(
   cycle: Cycle,

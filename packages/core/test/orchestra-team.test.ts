@@ -3212,3 +3212,79 @@ it.live("a due failed run is not stolen by a fresh dispatch to another worker",(
  const marker=yield* kv.get("orchestra/task/"+worker.id) as unknown as {autoloopRun:number}|undefined
  if(marker)expect(marker.autoloopRun).not.toBe(first!.run)
 }).pipe(Effect.scoped))
+
+it.live("deferred same-worker dispatch survives recovery with full untruncated brief",()=>Effect.gen(function*(){
+ const orchestra=yield* Orchestra.Service,cycle=yield* Autoloop.Service,kv=yield* KV.Service,sessions=yield* Session.Service
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("orchestra-deferred-full-")))
+ const project=yield* orchestra.create({name:"Deferred full brief",directory:tmp.path})
+ const worker=yield* orchestra.createMember({project,title:"Delayed worker",agent:Orchestra.role("tester")})
+ const first=yield* createRun(cycle,{projectID:project.id,sessionID:worker.id,messageID:"prior-deferred",text:"Prior provider failure"})
+ const finishAt=Date.now()-5*60_000+900
+ const backdated={...cycle,execute:(command:Parameters<typeof cycle.execute>[0])=>cycle.execute(command,finishAt)}
+ yield* finishRun(backdated,{...first!,receipt:{outcome:"failed",error:"provider retry"}})
+ const brief="Important full brief\n"+"Long detailed specification. ".repeat(100)+"\nTAIL_MUST_SURVIVE"
+ yield* orchestra.dispatch({project,sessionID:worker.id,text:brief})
+ expect(yield* orchestra.pending(worker.id)).toBeNumber()
+ expect(yield* kv.get("orchestra/task/"+worker.id)).toBeUndefined()
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+worker.id)).toMatchObject({text:brief})
+ const denied=yield* orchestra.dispatch({project,sessionID:worker.id,text:"Duplicate resend"}).pipe(Effect.flip)
+ expect(denied.message).toContain("do not resend")
+ yield* Effect.sleep("1000 millis")
+ yield* orchestra.recoverPendingTasks()
+ const delivered=yield* sessions.context(worker.id)
+ const inbox=yield* sessions.inbox(worker.id)
+ expect([...delivered.filter(item=>item.type==="user").map(item=>item.text),...inbox.filter(item=>item.type==="user").map(item=>item.payload.text)]).toContain(brief)
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+worker.id)).toBeUndefined()
+}).pipe(Effect.scoped))
+
+it.live("project removal clears only its deferred retry briefs",()=>Effect.gen(function*(){
+ const orchestra=yield* Orchestra.Service,kv=yield* KV.Service
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("orchestra-deferred-delete-")))
+ const project=yield* orchestra.create({name:"Delete deferred",directory:tmp.path})
+ const other=yield* orchestra.create({name:"Keep deferred",directory:tmp.path})
+ const worker=yield* orchestra.createMember({project,title:"Delete worker",agent:Orchestra.role("tester")})
+ const foreign=yield* orchestra.createMember({project:other,title:"Keep worker",agent:Orchestra.role("tester")})
+ for(const [p,w] of [[project,worker],[other,foreign]] as const)yield* kv.set("orchestra/deferred-dispatch/"+w.id,{main:p.main!,projectID:p.id,sent:Date.now(),messageID:SessionMessage.ID.create(),text:"Queued full brief"})
+ yield* orchestra.remove(project.id)
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+worker.id)).toBeUndefined()
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+foreign.id)).toMatchObject({projectID:other.id,text:"Queued full brief"})
+}).pipe(Effect.scoped))
+
+it.live("failed deferred admission retains full brief instead of marking it sent",()=>Effect.gen(function*(){
+ const orchestra=yield* Orchestra.Service,cycle=yield* Autoloop.Service,kv=yield* KV.Service,sessions=yield* Session.Service
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("deferred-admission-fail-")))
+ const project=yield* orchestra.create({name:"Deferred send failure",directory:tmp.path})
+ const worker=yield* orchestra.createMember({project,title:"Worker",agent:Orchestra.role("tester")})
+ const first=yield* createRun(cycle,{projectID:project.id,sessionID:worker.id,messageID:"prior-send-fail",text:"Prior task"})
+ const at=Date.now()-5*60_000+800
+ yield* finishRun({...cycle,execute:command=>cycle.execute(command,at)},{...first!,receipt:{outcome:"failed",error:"prior provider failure"}})
+ const text="Full brief "+"x".repeat(2100)
+ yield* orchestra.dispatch({project,sessionID:worker.id,text})
+ const original=sessions.prompt
+ yield* Effect.acquireRelease(Effect.sync(()=>Object.defineProperty(sessions,"prompt",{value:(input:Parameters<typeof sessions.prompt>[0])=>input.sessionID===worker.id?Effect.fail(new Session.PromptConflictError({sessionID:worker.id,messageID:input.id!})):original(input)})),()=>Effect.sync(()=>Object.defineProperty(sessions,"prompt",{value:original})))
+ yield* Effect.sleep("900 millis")
+ yield* orchestra.recoverPendingTasks()
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+worker.id)).toMatchObject({text})
+ expect(yield* kv.get("orchestra/task/"+worker.id)).toBeUndefined()
+ expect((yield* sessions.inbox(worker.id)).filter(item=>item.type==="user")).toHaveLength(0)
+ // A terminal retry is archived and explicitly reported on the next sweep.
+ yield* orchestra.recoverPendingTasks()
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+worker.id)).toBeUndefined()
+ const failed=yield* kv.scan({prefix:"orchestra/deferred-failed/"+worker.id+"/",limit:10})
+ expect(failed.entries).toHaveLength(1)
+ expect(failed.entries[0].value).toMatchObject({text})
+}).pipe(Effect.scoped))
+
+it.live("removed deferred worker is swept without blocking healthy paused work",()=>Effect.gen(function*(){
+ const orchestra=yield* Orchestra.Service,kv=yield* KV.Service,sessions=yield* Session.Service
+ const tmp=yield* Effect.acquireDisposable(Effect.promise(()=>tmpdir("deferred-orphan-")))
+ const project=yield* orchestra.create({name:"Deferred owner",directory:tmp.path})
+ const worker=yield* orchestra.createMember({project,title:"Deleted",agent:Orchestra.role("tester")})
+ const paused=yield* orchestra.createMember({project,title:"Paused",agent:Orchestra.role("tester")})
+ for(const w of [worker,paused])yield* kv.set("orchestra/deferred-dispatch/"+w.id,{main:project.main!,projectID:project.id,sent:Date.now(),messageID:SessionMessage.ID.create(),text:"Retain exact brief"})
+ yield* sessions.remove(worker.id)
+ yield* orchestra.update(project.id,{workEnabled:false})
+ yield* orchestra.recoverPendingTasks()
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+worker.id)).toBeUndefined()
+ expect(yield* kv.get("orchestra/deferred-dispatch/"+paused.id)).toMatchObject({text:"Retain exact brief"})
+}).pipe(Effect.scoped))

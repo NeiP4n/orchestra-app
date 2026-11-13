@@ -2515,6 +2515,37 @@ const layer: Layer.Layer<
           .map((id) => view["events"]?.[String(id)] as EventRow | undefined)
           .filter((event): event is EventRow => event !== undefined)
       }
+      // Paused work is retained. Removed owners and terminal journal runs
+      // cannot ever be dispatched, and must not wedge a worker forever.
+      const cleanupView = yield* autoloop.getView()
+      const runs = Object.values(cleanupView["runs"] ?? {}) as Array<RunRow>
+      for (const entry of yield* scanAll(DEFERRED_DISPATCH)) {
+        const deferred = Option.getOrUndefined(decodeDeferredDispatch(entry.value))
+        if (!deferred) continue
+        const sessionID = SessionID.make(entry.key.slice(DEFERRED_DISPATCH.length))
+        yield* dispatchLocks.withLock(sessionID)(Effect.gen(function* () {
+          const current = Option.getOrUndefined(decodeDeferredDispatch(yield* kv.get(entry.key)))
+          if (!current || current.messageID !== deferred.messageID) return
+          const project = byID.get(current.projectID)
+          const worker = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+          const run = runs.find(run => eventsOf(cleanupView, run.id).some(event => event.key === current.messageID))
+          if (!project || !worker || !(yield* owns(project, worker)) ||
+              (run && ["done", "nothing", "failed", "cancelled"].includes(run.state))) {
+            // Retain failed briefs for inspection even after unblocking dispatch.
+            const archiveKey = "orchestra/deferred-failed/" + sessionID + "/" + current.messageID
+            const archived = yield* kv.get(archiveKey)
+            const noticeID = archived && typeof archived === "object" && "noticeID" in archived && typeof archived.noticeID === "string"
+              ? SessionMessage.ID.make(archived.noticeID) : SessionMessage.ID.create()
+            yield* kv.set(archiveKey, {...current, noticeID, reason: run?.state ?? "owner unavailable"})
+            if (project?.main) yield* sessions.synthetic({
+              sessionID: project.main, id: noticeID, description: "Deferred dispatch could not be delivered",
+              text: `Deferred dispatch ${current.messageID} for worker ${sessionID} could not be delivered (${run?.state ?? "owner unavailable"}). The full brief is retained at ${archiveKey}. Do not report it as completed. Re-delegate only after checking the blocker.\nOriginal full brief:\n${current.text}`,
+            })
+            yield* kv.remove(entry.key)
+            yield* Effect.logWarning("autoloop: removed stale deferred dispatch", { sessionID, reason: !project ? "project removed" : !worker ? "worker removed" : "owner changed or run terminal" })
+          }
+        }))
+      }
       interface ResendTarget {
         readonly sessionID: SessionID
         readonly text: string
@@ -2570,31 +2601,24 @@ const layer: Layer.Layer<
               yield* Effect.logWarning("autoloop: повтор задачи не начался", { run: job.run })
               return
             }
-            yield* sessions
-              .prompt({
-                sessionID: target.sessionID,
-                id: messageID,
-                delivery: "queue",
-                text: target.text,
-                metadata: { orchestra: { project: target.project.id, from: target.main, taskID: messageID } },
+            const sent = yield* sessions.prompt({
+              sessionID: target.sessionID,
+              id: messageID,
+              delivery: "queue",
+              text: target.text,
+              metadata: { orchestra: { project: target.project.id, from: target.main, taskID: messageID } },
+            }).pipe(Effect.exit)
+            if (sent._tag === "Failure") {
+              // Keep the complete deferred brief and retry through journal
+              // backoff. A failed admission is not a delivered/cancelled task.
+              yield* AutoloopOrchestrator.finishRun(autoloop, {
+                run: job.run, token: job.token,
+                receipt: { outcome: "failed", error: "Deferred task admission failed; full brief retained." },
               })
-              .pipe(
-                Effect.tapError(() =>
-                  Effect.gen(function* () {
-                    // The worker never saw the task: end the run as cancelled
-                    // instead of leaving it claimed forever.
-                    yield* AutoloopOrchestrator.cancelRun(autoloop, {
-                      run: job.run,
-                      token: job.token,
-                      reason: "The task could not be sent to the worker.",
-                    })
-                    yield* kv.remove(key)
-                  }),
-                ),
-                Effect.catch((error) =>
-                  Effect.logWarning("autoloop: повтор задачи не отправлен", { run: job.run, error: String(error) }),
-                ),
-              )
+              yield* kv.remove(key)
+              yield* Effect.logWarning("autoloop: deferred admission failed; retained for retry", { run: job.run })
+              return
+            }
             yield* kv.remove(DEFERRED_DISPATCH + target.sessionID)
             yield* AutoloopOrchestrator.heartbeatRun(autoloop, job.run).pipe(Effect.ignore)
           }),
@@ -2895,6 +2919,17 @@ const layer: Layer.Layer<
                     ),
                   { concurrency: 1, discard: true },
                 )
+                // Deferred provider retries have no TASK marker yet. Drop only this
+                // project's durable briefs, under the same worker lock as dispatch.
+                for (const entry of yield* scanAll(DEFERRED_DISPATCH)) {
+                  const deferred = Option.getOrUndefined(decodeDeferredDispatch(entry.value))
+                  if (!deferred || deferred.projectID !== id) continue
+                  const sessionID = SessionID.make(entry.key.slice(DEFERRED_DISPATCH.length))
+                  yield* dispatchLocks.withLock(sessionID)(Effect.gen(function* () {
+                    const current = Option.getOrUndefined(decodeDeferredDispatch(yield* kv.get(entry.key)))
+                    if (current?.projectID === id) yield* kv.remove(entry.key)
+                  }))
+                }
                 // Local Vault slots die with this project. Globals and other projects are not touched.
                 // Fail before deleting the project marker if secure-store cleanup is unavailable.
                 yield* Effect.promise(async () => {
