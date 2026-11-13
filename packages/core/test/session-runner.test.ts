@@ -1,3 +1,4 @@
+import { SafetyConfig } from "@orchestra/core/safety-config"
 import { KV } from "@orchestra/core/kv"
 import fs from "node:fs"
 import os from "node:os"
@@ -6865,7 +6866,11 @@ describe("SessionRunnerLLM", () => {
 
   // The same looping model runs to its own finish while limits are disabled:
   // the opt-out must actually opt out, or it is a trap.
-  scenario("does not stop the same looping model while limits are disabled", function* (s) {
+  scenario("does not stop the same looping model after acknowledged operator disable", function* (s) {
+    const previousState=process.env.ORCHESTRA_STATE_DIR
+    const stateDirectory=fs.mkdtempSync(path.join(os.tmpdir(),"runner-safety-"))
+    process.env.ORCHESTRA_STATE_DIR=stateDirectory
+    SafetyConfig.write({version:1,disabled:true})
     const previousBudget = process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET
     const previousDisable = process.env.ORCHESTRA_DISABLE_LIMITS
     process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET = "1"
@@ -6886,6 +6891,8 @@ describe("SessionRunnerLLM", () => {
       else process.env.ORCHESTRA_DRAIN_TOKEN_BUDGET = previousBudget
       if (previousDisable === undefined) delete process.env.ORCHESTRA_DISABLE_LIMITS
       else process.env.ORCHESTRA_DISABLE_LIMITS = previousDisable
+      if(previousState===undefined)delete process.env.ORCHESTRA_STATE_DIR;else process.env.ORCHESTRA_STATE_DIR=previousState
+      fs.rmSync(stateDirectory,{recursive:true,force:true})
     }
   })
 })

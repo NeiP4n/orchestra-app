@@ -782,7 +782,7 @@ const layer = Layer.effect(
       const spent =
         reason === "wall-clock" ? `${nowMs - budget.startedAtMs} ms` : `${budget.tokensUsed} estimated prompt tokens`
       const tune = reason === "wall-clock" ? "ORCHESTRA_DRAIN_WALL_CLOCK_MS" : "ORCHESTRA_DRAIN_TOKEN_BUDGET"
-      const message = `Session drain stopped: ${kind} budget of ${configured} reached (${spent} spent). The session stopped instead of running on; send a new prompt to resume it with a fresh budget, or raise ${tune}. Limits can be switched off entirely with ORCHESTRA_DISABLE_LIMITS=1, which is not recommended for live runs.`
+      const message = `Session drain stopped: ${kind} budget of ${configured} reached (${spent} spent). The session stopped instead of running on; send a new prompt to resume it with a fresh budget, or raise ${tune}. Only the operator can disable limits through the acknowledged Safety settings control; environment OFF values alone do not disable them.`
       yield* bus.publish(SessionEvent.Synthetic, {
         sessionID,
         text: message,
