@@ -362,7 +362,7 @@ export const Plugin = {
                   return yield* failure(`Missing tools for ${input.id}: ${error.missing.join(", ")}.${fallback}${hint}`)
                 }
                 if (error instanceof Hub.MissingArgumentError)
-                  return yield* failure(`Missing arguments for ${input.id}: ${error.missing.join(", ")}. Supported: ${entryInfo(entry).placeholders.join(", ") || "none"}${["git.status", "git.diff-staged"].includes(entry.id) ? ", limit (optional output lines, 1..10000)" : ""}. ${unknownEntry(input.id)}`)
+                  return yield* failure(`Missing arguments for ${input.id}: ${error.missing.join(", ")}. Supported: ${entryInfo(entry).placeholders.join(", ") || "none"}${["git.status", "git.diff-staged"].includes(entry.id) ? ", limit (optional output lines, 1..10000)" : ""}. Retry this same id with only the supported arguments.`)
                 if (error instanceof Hub.NoBackendError || error instanceof Hub.InvalidArgumentError)
                   return yield* failure(`${error.message}. Use shell as fallback.`)
                 if (error instanceof Error) return yield* failure(error.message)

@@ -357,3 +357,13 @@ test("status and staged diff accept bounded output limit on Bash and PowerShell"
  }
  expect(HubTool.unknownEntry("git.diff_staged").split("Entries that may fit:\n")[1]?.split("\n")[0]).toContain("git.diff-staged")
 })
+
+test("known command with many unknown arguments returns bounded feedback without unrelated ids",()=>{
+ const args=Object.fromEntries(Array.from({length:100},(_,index)=>["wrong"+index+"x".repeat(100),"unused"]))
+ try{Hub.render(Hub.get("git.status")!,"bash",args);throw Error("must reject")}
+ catch(error){
+  expect(error).toBeInstanceOf(Hub.MissingArgumentError)
+  expect((error as Error).message.length).toBeLessThan(400)
+  expect((error as Error).message).toContain("+94 more")
+ }
+})

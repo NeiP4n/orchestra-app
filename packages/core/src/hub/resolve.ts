@@ -202,7 +202,7 @@ function fillChecked(entry: Entry, template: string, args: Record<string, string
   const missing = slots.filter((slot) => !optionalSlot(slot) && !(slotKey(slot) in args))
   if (missing.length > 0) throw new MissingArgumentError(entry.id, missing)
   const unknown = Object.keys(args).filter((key) => !slots.some((slot) => slotKey(slot) === key))
-  if (unknown.length > 0) throw new MissingArgumentError(entry.id, [`unknown: ${unknown.join(", ")}`])
+  if (unknown.length > 0) throw new MissingArgumentError(entry.id, [`unknown: ${unknown.slice(0, 6).map(key => key.slice(0, 40)).join(", ")}${unknown.length > 6 ? ` (+${unknown.length - 6} more)` : ""}`])
   const command = fill(template, args, backend)
   if (limit === undefined) return command
   if (backend === "pwsh") return `${command} | Select-Object -First ${limit}`
