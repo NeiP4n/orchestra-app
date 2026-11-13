@@ -219,7 +219,9 @@ export const scanPortable = Effect.fnUntraced(function* (command: string, shell:
   if (result.kind === "opaque") {
     const shellName = powershell ? "PowerShell" : name
     const hint =
-      powershell && result.reason === "invalid-structure"
+      powershell && result.reason === "unterminated-quote"
+        ? "PowerShell does not escape a quote with backslash. For node -e or python -c containing quotes/backticks, put the script in a single-quoted PowerShell here-string ($code = @' on its own line, body, then '@ at column 1), then pass $code, or save the script to a file. The command was not executed."
+        : powershell && result.reason === "invalid-structure"
         ? "The command may mix PowerShell with POSIX syntax. PowerShell does not support Bash heredocs such as << 'PY'; set environment variables on a separate line, then pipe a PowerShell here-string to python -."
         : "The command was not executed. Do not retry it unchanged. Rewrite it using syntax supported by the selected shell, simplify the command, or save the script to a file and invoke it. The scanner fails closed when it cannot safely determine command permissions."
     return yield* Effect.fail(

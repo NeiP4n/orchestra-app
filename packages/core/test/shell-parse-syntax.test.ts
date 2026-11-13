@@ -112,3 +112,17 @@ describe("native shell syntax compatibility", () => {
     expect(await Effect.runPromise(ShellParse.scanPortable(command, "pwsh", "/workspace"))).toEqual(native)
   })
 })
+
+test("reported UTF-8 python and literal JS here-string parse without loosening invalid quotes",async()=>{
+ const python=`python -c "import sys; sys.stdout.reconfigure(encoding='utf-8'); print('Тест русского текста: Успешно')"`
+ const script=`$code = @'  \nconst fs = require("fs"); const object = {"$schema":"local.json"};\nconsole.log(object);\n'@\nnode -e $code`.replaceAll("\\n","\n")
+ for(const shell of ["pwsh","powershell.exe","C:\\Program Files\\PowerShell\\7\\pwsh.exe"]){
+  const a=await Effect.runPromise(ShellParse.scanPortable(python,shell,"C:/project"))
+  expect(a.commands[0]?.resource).toBe(python)
+  const c=await Effect.runPromise(ShellParse.scanPortable(script,shell,"C:/project"))
+  expect(c.commands.some(item=>item.resource==="node -e $code")).toBe(true)
+ }
+ const invalid=`node -e "const ids = code.split('\\n').filter(l => l.includes('id: \\\"')).map(l => l.trim()); console.log(ids);"`
+ await expect(Effect.runPromise(ShellParse.scanPortable(invalid,"pwsh","C:/project"))).rejects.toThrow("PowerShell does not escape a quote with backslash")
+ await expect(Effect.runPromise(ShellParse.scanPortable('Write-Output "unclosed',"pwsh","C:/project"))).rejects.toThrow("unterminated-quote")
+})
