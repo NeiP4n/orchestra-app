@@ -156,3 +156,19 @@ describe("ShellParse", () => {
     expect(powershell.directories).toEqual(["/workspace/src", "/usr/local/bin"])
   })
 })
+
+for (const portable of [false, true]) {
+  test(`numeric operands remain in permission prefixes and directories (portable=${portable})`, async () => {
+    const result = await Effect.runPromise(ShellParse.scan("cd 123; git 2 status", "/bin/bash", "/workspace", { portable }))
+    expect(result).toEqual({ commands: [{ resource: "git 2 status", save: "git 2 *" }], directories: ["123"] })
+  })
+  test.each([
+    ["cd before\\\nafter", "beforeafter"],
+    ["cd before\\\n'after'", "beforeafter"],
+    ["cd 'before\\\nafter'", "before\\\nafter"],
+    ['cd "before\\\nafter"', "beforeafter"],
+  ])(`static directory continuations preserve literal quoting (portable=${portable}): %s`, async (command, directory) => {
+    const result = await Effect.runPromise(ShellParse.scan(command, "/bin/bash", "/workspace", { portable }))
+    expect(result.directories).toEqual([directory])
+  })
+}

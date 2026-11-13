@@ -479,7 +479,7 @@ describe("ShellTool scanner permissions", () => {
         }),
       ))
 
-    test(`${scanner}: a continued directory operand asks for the wrong path and misses the destination deny`, () =>
+    test(`${scanner}: a continued directory operand respects the actual destination deny before execution`, () =>
       withScanner(portable, (registry, fixture) =>
         Effect.gen(function* () {
           const agents = yield* Agent.Service
@@ -492,37 +492,15 @@ describe("ShellTool scanner permissions", () => {
             }),
           )
           const marker = path.join(fixture.active, "marker")
-          const command = `cd ../out\\\nside && pwd -P && printf reached > '${marker}'`
-          for (const reply of ["reject", "once"] as const) {
-            const result = yield* runPermissionCommand(registry, command, marker, [reply])
-            expect(result.requests).toMatchObject([
-              {
-                action: "external_directory",
-                resources: [
-                  path.join(fixture.active, "..", portable ? "out\\\nside" : "out", "*").replaceAll("\\", "/"),
-                ],
-              },
-            ])
-            if (reply === "reject") {
-              expect(Exit.isFailure(result.exit)).toBe(true)
-              if (Exit.isFailure(result.exit))
-                expect(
-                  result.exit.cause.reasons.some(
-                    (reason) => Cause.isDieReason(reason) && reason.defect instanceof Permission.DeclinedError,
-                  ),
-                ).toBe(true)
-              expect(yield* Effect.promise(() => Bun.file(marker).exists())).toBe(false)
-              continue
-            }
+          for (const operand of ["../out\\\nside", "../out\\\n'side'", '"../out\\\nside"']) {
+            const command = `cd ${operand} && pwd -P && printf reached > '${marker}'`
+            const result = yield* runPermissionCommand(registry, command, marker, [])
+            expect(result.requests).toEqual([])
             expect(result.exit).toMatchObject({
               _tag: "Success",
-              value: {
-                status: "completed",
-                metadata: { exit: 0 },
-                content: [{ type: "text", text: `${fixture.outside}\n` }],
-              },
+              value: { status: "error", error: { message: expect.stringContaining("Permission denied: external_directory") } },
             })
-            expect(yield* Effect.promise(() => Bun.file(marker).text())).toBe("reached")
+            expect(yield* Effect.promise(() => Bun.file(marker).exists())).toBe(false)
           }
         }),
       ))

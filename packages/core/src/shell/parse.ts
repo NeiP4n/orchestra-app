@@ -7,6 +7,7 @@ import path from "path"
 import type { Node } from "web-tree-sitter"
 import { shellParserWasm } from "#shell-parser-wasm"
 import { ShellSelect } from "./select.js"
+import { ShellScan } from "./scan.js"
 import { lazy } from "../util/lazy.js"
 import { Wildcard } from "../util/wildcard.js"
 
@@ -298,19 +299,31 @@ export const scanPortable = Effect.fnUntraced(function* (command: string, shell:
 })
 
 function parts(node: Node) {
-  return Array.from({ length: node.childCount }).flatMap((_, index): Part[] => {
+  const pieces = Array.from({ length: node.childCount }).flatMap((_, index): Array<Part & { start: number; end: number }> => {
     const child = node.child(index)
     if (!child) return []
     if (child.type === "command_elements")
-      return Array.from({ length: child.childCount }).flatMap((_, itemIndex): Part[] => {
+      return Array.from({ length: child.childCount }).flatMap((_, itemIndex): Array<Part & { start: number; end: number }> => {
         const item = child.child(itemIndex)
         if (!item || item.type === "command_argument_sep" || item.type === "redirection") return []
-        return [{ type: item.type, text: item.text }]
+        return [{ type: item.type, text: item.text, start: item.startIndex, end: item.endIndex }]
       })
     if (!["command_name", "command_name_expr", "word", "number", "string", "raw_string", "concatenation"].includes(child.type))
       return []
-    return [{ type: child.type, text: child.text }]
+    return [{ type: child.type, text: child.text, start: child.startIndex, end: child.endIndex }]
   })
+  // tree-sitter splits an unquoted continued word into siblings. A physical
+  // line continuation is not a path separator: authorize the actual joined path.
+  const result: Array<Part & { end: number }> = []
+  for (const piece of pieces) {
+    const previous = result.at(-1)
+    const gap = previous ? node.text.slice(previous.end - node.startIndex, piece.start - node.startIndex) : ""
+    if (previous && /^\\\r?\n$/.test(gap)) {
+      previous.text += gap + piece.text
+      previous.end = piece.end
+    } else result.push({ type: piece.type, text: piece.text, end: piece.end })
+  }
+  return result
 }
 
 function directoryArgs(command: Part[], powershell: boolean, cwd: string, shell: string) {
@@ -348,7 +361,16 @@ function directoryArgs(command: Part[], powershell: boolean, cwd: string, shell:
 function directoryArgument(value: string, powershell: boolean, cwd: string, shell: string) {
   const quote = value[0]
   const text = (quote === '"' || quote === "'") && value.at(-1) === quote ? value.slice(1, -1) : value
-  if (!powershell) return expandKnownDirectory(text)
+  if (!powershell) {
+    if (/\\\r?\n/.test(value) && !/[$`~]/.test(value)) {
+      const parsed = ShellScan.scan(`cd ${value}`, ShellSelect.name(shell) === "zsh" ? "zsh" : "bash")
+      // Decode only a single static operand. Quotes can contain literal newlines
+      // and backslashes, so replacing them with a regex changes the destination.
+      if (parsed.kind !== "scanned" || parsed.commands.length !== 1 || parsed.commands[0]?.words.length !== 2) return
+      return expandKnownDirectory(parsed.commands[0].words[1])
+    }
+    return expandKnownDirectory(text)
+  }
 
   // PowerShell exposes environment variables through $env:NAME and provides these
   // automatic directory variables. Expand only values we can determine without executing code.

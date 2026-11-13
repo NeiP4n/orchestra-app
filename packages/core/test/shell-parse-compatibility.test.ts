@@ -182,13 +182,6 @@ describe("current native and legacy parity gaps", () => {
       },
     },
     {
-      name: "directory line continuations remain unresolved source rather than legacy split operands",
-      shell: "bash",
-      command: "cd before\\\nafter",
-      legacy: { commands: [], directories: ["before", "after"] },
-      native: { commands: [], directories: ["before\\\nafter"] },
-    },
-    {
       name: "native recognizes PowerShell carriage-return separators omitted by the legacy AST",
       shell: "pwsh",
       command: "Get-ChildItem\rRemove-Item victim",
