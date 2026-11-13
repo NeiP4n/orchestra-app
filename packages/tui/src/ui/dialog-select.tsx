@@ -792,11 +792,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
               ref={(r) => {
                 input = r
                 input.traits = { status: "FILTER" }
-                setTimeout(() => {
-                  if (!input) return
-                  if (r.isDestroyed) return
-                  r.focus()
-                }, 1)
+                // The input must own the first keystroke after it is visible.
+                // A timer leaves an empty-focus window on fast first frames.
+                r.focus()
               }}
               placeholder={props.placeholder ?? t("Search")}
               placeholderColor={theme.text.muted}

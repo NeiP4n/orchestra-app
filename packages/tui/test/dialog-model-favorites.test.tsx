@@ -1,5 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
+import { onMount } from "solid-js"
+import { InputRenderable } from "@opentui/core"
 import { DialogHelp } from "../src/ui/dialog-help"
 import { DialogModel } from "../src/component/dialog-model"
 import { model, renderLocal } from "./fixture/local"
@@ -108,4 +110,27 @@ test("filtered model row remains selected and Enter applies it", async () => {
   setup.mockInput.pressEnter()
   await setup.waitFor(() => setup.local.model.current()?.modelID === "beta")
   expect(setup.local.model.current()).toMatchObject({ modelID: "beta" })
+})
+
+test("the picker accepts typing as soon as it mounts, before any focus timer", async () => {
+  await using setup = await renderLocal({ models: [model("alpha"), model("beta")], fetch: serverConfig([]) })
+  let focusedAtMount = false
+  function ImmediateTyping() {
+    onMount(() => {
+      focusedAtMount = setup.renderer.currentFocusedRenderable instanceof InputRenderable
+      setup.mockInput.pressKey("b")
+      setup.mockInput.pressKey("e")
+      setup.mockInput.pressKey("t")
+      setup.mockInput.pressKey("a")
+    })
+    return <DialogModel />
+  }
+  setup.dialog.replace(() => <ImmediateTyping />)
+  await setup.renderOnce()
+  expect(focusedAtMount).toBe(true)
+  await setup.waitForFrame(frame => frame.includes("beta") && !frame.includes("alpha"))
+  if (process.env.CAPTURE_MODEL_IMMEDIATE_FOCUS)
+    await Bun.write(process.env.CAPTURE_MODEL_IMMEDIATE_FOCUS, JSON.stringify(setup.captureSpans()))
+  setup.mockInput.pressEnter()
+  await setup.waitFor(() => setup.local.model.current()?.modelID === "beta")
 })
