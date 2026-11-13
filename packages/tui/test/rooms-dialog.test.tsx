@@ -316,8 +316,19 @@ test("a joined room opens in the main area like a session and stays in the left 
     // a project room lists its sessions under the room; another one opens and takes the prompts
     const listed = await setup.waitForFrame((frame) => frame.includes("Second task") && frame.includes("+ New session"))
     const row = cell(listed, "Second task")
+    let firstFocused: boolean | undefined
+    const firstFrame = () => {
+      const frame = setup.captureCharFrame()
+      if (!frame.includes("Second task") || frame.includes("Role") || !frame.includes("Message the room, enter to send")) return
+      firstFocused = setup.renderer.currentFocusedEditor !== null
+      setup.renderer.off("frame", firstFrame)
+    }
+    setup.renderer.on("frame", firstFrame)
     await setup.mockMouse.click(row.x + 1, row.y)
     await setup.waitForFrame((frame) => frame.includes("Second task") && !frame.includes("Role"))
+    expect(firstFocused).toBe(true)
+    if (process.env.CAPTURE_ROOM_FIRST_FOCUS)
+      await Bun.write(process.env.CAPTURE_ROOM_FIRST_FOCUS, JSON.stringify(setup.captureSpans()))
     await setup.mockInput.typeText("over here")
     setup.mockInput.pressEnter()
     await setup.waitFor(() => prompts.length > 1)

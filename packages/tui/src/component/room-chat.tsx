@@ -205,7 +205,6 @@ function RoomView(props: {
   const { currentSyntax: syntax } = useThemes()
   let input: TextareaRenderable | undefined
 
-  onMount(() => setTimeout(() => input?.focus(), 1))
   // The transcript loads while the room log replays the host's history, and events in between
   // are skipped; once the log is live, reload the transcript so nothing from that gap is missing.
   // The transcript's rows are built from events and rebuilt only when user or idle messages
@@ -603,6 +602,9 @@ function RoomView(props: {
               <textarea
                 ref={(element: TextareaRenderable) => {
                   input = element
+                  // Session switches remount this editor. It must receive input
+                  // in its first visible frame, not after a delayed focus timer.
+                  element.focus()
                 }}
                 width="100%"
                 minHeight={1}
