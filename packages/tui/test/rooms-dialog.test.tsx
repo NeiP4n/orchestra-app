@@ -460,6 +460,8 @@ test("room management separates participants from safety rules and exposes guest
 })
 
 test("Participants under Multiplayer lists guests, steps their role and removes or bans them", async () => {
+  const refreshedMembers = Promise.withResolvers<Response>()
+  let memberReads = 0
   await using state = await tmpdir()
   const calls: { method: string; path: string; body?: unknown }[] = []
   const members = [
@@ -482,7 +484,10 @@ test("Participants under Multiplayer lists guests, steps their role and removes 
           path: url.pathname,
           body: request.method === "PATCH" ? await request.json() : undefined,
         })
-      if (url.pathname === `/api/room/${room.id}/member` && request.method === "GET") return json({ data: members })
+      if (url.pathname === `/api/room/${room.id}/member` && request.method === "GET") {
+        if (++memberReads > 1) return refreshedMembers.promise.then(response => response.clone())
+        return json({ data: members })
+      }
       if (url.pathname === `/api/room/${room.id}/ban`)
         return json({ data: [{ id: "ban_1", name: "Max", created: 0, device: "dev-9" }] })
       if (url.pathname.startsWith(`/api/room/${room.id}/member/`) && request.method === "PATCH")
@@ -508,8 +513,17 @@ test("Participants under Multiplayer lists guests, steps their role and removes 
 
   // removing asks twice
   const sam = lines.findIndex((line) => line.includes("○ Sam"))
-  await setup.mockMouse.click(lines[sam].indexOf("×"), sam)
+  const kickX = lines[sam].indexOf("×")
+  await setup.mockMouse.pressDown(kickX, sam)
+  // A role refresh arrives while another participant's button is held.
+  // It updates data, but must not replace that pressed action's identity.
+  refreshedMembers.resolve(json({ data: members.map(member => ({ ...member, online: true })) }))
+  await setup.waitForFrame(frame => frame.includes("● Sam"))
+  await setup.mockMouse.release(kickX, sam)
   const armed = await setup.waitForFrame((frame) => frame.includes("Kick?"))
+  expect(armed).toContain("2/2 online")
+  if (process.env.CAPTURE_MEMBER_STABLE_PRESS)
+    await Bun.write(process.env.CAPTURE_MEMBER_STABLE_PRESS, JSON.stringify(setup.captureSpans()))
   expect(calls.some((call) => call.method === "DELETE")).toBe(false)
   const sure = cell(armed, "Kick?")
   await setup.mockMouse.click(sure.x + 1, sure.y)

@@ -2014,8 +2014,24 @@ function RoomPeople(props: {
     onCleanup(() => clearInterval(timer))
   })
 
-  const people = () => props.rooms.flatMap((room) => (members()[room.id] ?? []).map((member) => ({ room, member })))
-  const banned = () => props.rooms.flatMap((room) => (bans()[room.id] ?? []).map((ban) => ({ room, ban })))
+  // Keep each action mounted when a poll or role change replaces the server
+  // objects. Otherwise a refresh between pointer down and up loses the press.
+  const people = createMemo<{ room: RoomInfo; member: RoomMemberView }[]>((previous = []) =>
+    props.rooms.flatMap((room) => (members()[room.id] ?? []).map((member) =>
+      previous.find(item => item.room.id === room.id && item.member.id === member.id) ?? {
+        get room() { return props.rooms.find(item => item.id === room.id) ?? room },
+        get member() { return members()[room.id]?.find(item => item.id === member.id) ?? member },
+      },
+    )),
+  )
+  const banned = createMemo<{ room: RoomInfo; ban: RoomBan }[]>((previous = []) =>
+    props.rooms.flatMap((room) => (bans()[room.id] ?? []).map((ban) =>
+      previous.find(item => item.room.id === room.id && item.ban.id === ban.id) ?? {
+        get room() { return props.rooms.find(item => item.id === room.id) ?? room },
+        get ban() { return bans()[room.id]?.find(item => item.id === ban.id) ?? ban },
+      },
+    )),
+  )
   const named = (name: string, room: RoomInfo) => (props.rooms.length > 1 ? `${name} · ${room.name}` : name)
 
   const act = (action: () => Promise<unknown>) =>
