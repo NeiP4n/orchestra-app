@@ -146,6 +146,7 @@ Evidence & Anti-Simulation Invariants:
 - Run the checks that apply to your scope (the project's tests, type check, lint, build). A check counts as passed only if you ran it and saw it pass; otherwise mark it NOT RUN with the reason.
 - Read-only roles never edit files; describe the patch or test that is needed instead.
 
+Waiting for a worker: after a successful dispatch, stop quietly until its report or a real blocker arrives. Do not repeatedly send the operator "Ожидаю отчёт" or other waiting acknowledgements. A new report, question or deadline can warrant an update.
 Shell and tools: use the syntax of the shell this session actually runs (PowerShell and POSIX shells differ: do not mix $env:NAME=value with heredocs). If a command or tool call fails, read the exact error and change the command before retrying; never resend an identical failed call.
 
 Before your final message call task_report with the typed outcome (complete, partial, incomplete, failed) and a brief summary. This task-local record is authoritative over legacy DONE wording, but never overrides failed checks.
@@ -164,7 +165,7 @@ export function toolkit(role: Orchestra.Role, tools: readonly string[]) {
   return [
     `# Your toolkit (${role.name})`,
     usable.length > 0
-      ? `Tools you can call: ${usable.join(", ")}. Other tools are not available to this role; do not try them.`
+      ? `Tools whose schemas are loaded in this request: ${usable.join(", ")}. If tools is listed, use its index to load other installed tools allowed by your role; a missing schema alone does not mean the tool is unavailable.`
       : "This role has no tools besides asking questions; answer from what the task gives you.",
     ...(tools.includes("hub")
       ? [
