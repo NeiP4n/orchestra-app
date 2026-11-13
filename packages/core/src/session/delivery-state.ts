@@ -1,8 +1,11 @@
 export * as SessionDeliveryState from "./delivery-state.js"
+import { Schema } from "effect"
 import type { SessionMessage } from "./message.js"
 
 export const key = (sessionID: string) => `session/delivered/${sessionID}`
-export interface Receipt { readonly user: string; readonly final: string; readonly tail: string }
+export const Receipt = Schema.Struct({ user: Schema.String, final: Schema.String, tail: Schema.String })
+export type Receipt = typeof Receipt.Type
+export const encode = Schema.encodeSync(Receipt)
 // Exact durable history boundary, not a textual DONE guess. A new user, worker
 // result or control message invalidates the receipt and is allowed to run.
 export function receipt(messages: ReadonlyArray<SessionMessage.Info>): Receipt | undefined {

@@ -593,7 +593,7 @@ const layer = Layer.effect(
           if (receipt && !SessionCompletionGate.hasOutstandingTasks(history, yield* DateTime.now)) {
             const taskPage = yield* kv.scan({prefix: "orchestra/task/", limit: 1000})
             if (!taskPage.next && !taskPage.entries.some(row => row.value && typeof row.value === "object" && "main" in row.value && row.value.main === sessionID))
-              yield* kv.set(SessionDeliveryState.key(sessionID), receipt)
+              yield* kv.set(SessionDeliveryState.key(sessionID), SessionDeliveryState.encode(receipt))
           }
         }
         if (completed !== undefined) return completed

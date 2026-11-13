@@ -3441,7 +3441,7 @@ const layer: Layer.Layer<
         yield* SessionActivation.recover({ kv, sessions, store: sessionStore }, { scope: layerScope }).pipe(
           Effect.catchCause((cause) => Effect.logWarning("activation watch recovery failed", { cause })),
         )
-      }),
+      }, Effect.catch((error) => Effect.logWarning("pending task recovery incomplete; next sweep will retry remaining work", { error }))),
       roles,
       scopedRoles,
       projectRoleAllowed,
