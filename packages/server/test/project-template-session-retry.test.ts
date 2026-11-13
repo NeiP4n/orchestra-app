@@ -1,6 +1,6 @@
 import { expect } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdir } from "node:fs/promises"
+import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { Effect, Logger } from "effect"
 import { Global } from "@orchestra/util/global"
@@ -51,6 +51,10 @@ for (const failWrite of [false, true]) it.live(
   expect(JSON.stringify(messages)).not.toContain("PRIVATE_")
   expect(JSON.stringify(messages)).toContain('"stage":"base-sessions"')
   const receipt = JSON.parse((db.query("SELECT value FROM kv WHERE key = ?").get("orchestra/template-import/"+prepared.body.token) as {value:string}).value)
+  // This disk file is only an ownership marker, not the KV checkpoint receipt.
+  // Its intentionally absent phase/plan matches BUG-TPL-32db8830-1 evidence.
+  const marker = yield* Effect.promise(() => readFile(path.join(receipt.directory,".orchestra-template-import.json"),"utf8"))
+  expect(JSON.parse(marker)).toEqual({version:1,id:receipt.id,projectID:receipt.projectID})
   expect(receipt.phase).toBe("process")
   expect((db.query("SELECT count(*) AS n FROM session_v2 WHERE id = ?").get(receipt.plan.mainSessionID) as {n:number}).n).toBe(0)
   expect((yield* call("/api/orchestra/project")).body.map((row:{id:string})=>row.id)).toEqual([original.id])
