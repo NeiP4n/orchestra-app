@@ -1,3 +1,4 @@
+import { SessionDeliveryState } from "../delivery-state.js"
 import { appendFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -159,6 +160,11 @@ const layer = Layer.effect(
         const control = pending.type === "compaction" || pending.type === "move"
         if (promotable === "steer" && pending.delivery === "queue" && !control) return DrainResult.Complete()
       }
+      // A force/auto-resume after process restart must not replay an accepted final.
+      // Pending inbox input always wins, including a new prompt with identical text.
+      if (!(yield* SessionInbox.nextPromotable(db, sessionID, "input")) &&
+          SessionDeliveryState.matches(yield* kv.get(SessionDeliveryState.key(sessionID)), yield* store.context(sessionID)))
+        return DrainResult.Complete()
       yield* plugins.awaitActivation
       yield* settleStaleCompactions(sessionID)
       yield* settleStaleToolCalls(sessionID)
@@ -578,6 +584,16 @@ const layer = Layer.effect(
               })
               return true
             }
+          }
+        }
+        if (completed === false) {
+          const history = yield* store.context(sessionID)
+          const receipt = SessionDeliveryState.receipt(history)
+          // Never seal a waiting turn: the worker owns a future continuation.
+          if (receipt && !SessionCompletionGate.hasOutstandingTasks(history, yield* DateTime.now)) {
+            const taskPage = yield* kv.scan({prefix: "orchestra/task/", limit: 1000})
+            if (!taskPage.next && !taskPage.entries.some(row => row.value && typeof row.value === "object" && "main" in row.value && row.value.main === sessionID))
+              yield* kv.set(SessionDeliveryState.key(sessionID), receipt)
           }
         }
         if (completed !== undefined) return completed

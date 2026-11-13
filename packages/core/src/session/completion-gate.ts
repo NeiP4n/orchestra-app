@@ -447,7 +447,7 @@ function reminder(lines: ReadonlyArray<string>) {
   return `<system-reminder>\n${lines.join("\n")}\n</system-reminder>`
 }
 
-function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>, now?: DateTime.DateTime): boolean {
+export function hasOutstandingTasks(messages: ReadonlyArray<SessionMessage.Info>, now?: DateTime.DateTime): boolean {
   let dispatched = 0
   let reported = 0
   let lastDispatch = 0
