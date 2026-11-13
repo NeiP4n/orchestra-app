@@ -160,14 +160,14 @@ const layer = Layer.effect(
         const control = pending.type === "compaction" || pending.type === "move"
         if (promotable === "steer" && pending.delivery === "queue" && !control) return DrainResult.Complete()
       }
+      yield* plugins.awaitActivation
+      yield* settleStaleCompactions(sessionID)
+      yield* settleStaleToolCalls(sessionID)
       // A force/auto-resume after process restart must not replay an accepted final.
       // Pending inbox input always wins, including a new prompt with identical text.
       if (!(yield* SessionInbox.nextPromotable(db, sessionID, "input")) &&
           SessionDeliveryState.matches(yield* kv.get(SessionDeliveryState.key(sessionID)), yield* store.context(sessionID)))
         return DrainResult.Complete()
-      yield* plugins.awaitActivation
-      yield* settleStaleCompactions(sessionID)
-      yield* settleStaleToolCalls(sessionID)
 
       const advanceToStep = Effect.fn("SessionRunner.advanceToStep")(() =>
         Effect.uninterruptibleMask((restore) =>

@@ -1,3 +1,7 @@
+import fs from "node:fs"
+import os from "node:os"
+import { SessionRequestMeasurement } from "@orchestra/core/session/request-measurement"
+import { Session as SessionHandles } from "@orchestra/core/session/session"
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import {
@@ -1037,13 +1041,30 @@ const watchRename = Effect.fnUntraced(function* (sessionID: Session.ID) {
 })
 
 describe("SessionRunnerLLM", () => {
-  scenario("burst duplicate prompts coalesce without interrupting the current execution", function* (s) {
-    const admitted = yield* Effect.all([s.admit("Same burst prompt"),s.admit("Same burst prompt"),s.admit("Same burst prompt")],{concurrency:3})
+  scenario("burst retries of the same client id coalesce without interrupting the current execution", function* (s) {
+    const id = SessionMessage.ID.create()
+    const send = () => s.session.prompt({sessionID,text:"Same burst prompt",id,resume:false})
+    const admitted = yield* Effect.all([send(),send(),send()],{concurrency:3})
     expect(new Set(admitted.map(row=>row.id)).size).toBe(1)
     yield* s.llm.push(TestLLM.text("One result", "one-burst"))
     yield* s.resume
     expect(s.requests).toHaveLength(1)
     expect((yield* s.context).filter(message=>message.type==="user")).toHaveLength(1)
+  })
+
+  scenario("client id dedup survives recreating the session admission service",function*(s){
+    const id=SessionMessage.ID.create()
+    const first=yield* s.session.prompt({sessionID,id,text:"Client retry",resume:false})
+    const recreated=yield* SessionHandles.make()
+    const second=yield* recreated.forSession(sessionID).prompt({id,text:"Client retry",resume:false})
+    expect(second.id).toBe(first.id)
+    expect((yield* s.session.inbox(sessionID)).filter(item=>item.type==="user")).toHaveLength(1)
+  })
+
+  scenario("identical deliberate replies without a shared client id are not silently dropped",function*(s){
+    const admitted=yield* Effect.all([s.admit("yes"),s.admit("yes")],{concurrency:2})
+    expect(new Set(admitted.map(row=>row.id)).size).toBe(2)
+    expect((yield* s.session.inbox(sessionID)).filter(item=>item.type==="user")).toHaveLength(2)
   })
 
   scenario("accepted delivery survives force resume and permits a new user turn", function* (s) {
@@ -6174,6 +6195,26 @@ describe("SessionRunnerLLM", () => {
     expect(rows[0]?.data).toMatchObject({error:{type:"provider.invalid-output"},tokens:{input:11,output:5,reasoning:2}})
     const types=yield* recordedEventTypes(sessionID)
     expect(types).not.toContain("session.step.ended.1")
+  })
+
+  scenario("step-zero measurements retain known usage on failed provider output",function*(s){
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),"orchestra-failed-usage-"))
+    const before=process.env.ORCHESTRA_REQUEST_MEASUREMENT
+    const beforeDir=process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR
+    yield* Effect.addFinalizer(()=>Effect.sync(()=>{
+      if(before===undefined)delete process.env.ORCHESTRA_REQUEST_MEASUREMENT;else process.env.ORCHESTRA_REQUEST_MEASUREMENT=before
+      if(beforeDir===undefined)delete process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR;else process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR=beforeDir
+      fs.rmSync(directory,{recursive:true,force:true})
+    }))
+    process.env.ORCHESTRA_REQUEST_MEASUREMENT="1"
+    process.env.ORCHESTRA_REQUEST_MEASUREMENT_DIR=directory
+    const failure=new AIError({reason:new InvalidProviderOutputError({message:"Invalid hosted output"})})
+    yield* s.llm.push(TestLLM.failAfter(failure,...TestLLM.complete({reason:{normalized:"stop"},usage:{nonCachedInputTokens:11,outputTokens:7,reasoningTokens:2}},LLMEvent.textStart({id:"measured-bad"}),LLMEvent.textDelta({id:"measured-bad",text:"Partial"}),LLMEvent.textEnd({id:"measured-bad"})).slice(0,-1)))
+    yield* s.runPrompt("Measure failure usage").pipe(Effect.exit)
+    const exported=yield* SessionRequestMeasurement.readExport(directory)
+    const attempts=exported.lines.map(line=>JSON.parse(line))
+    expect(attempts).toHaveLength(1)
+    expect(attempts[0]).toMatchObject({outcome:"failed",usage:{input:11,output:5,reasoning:2,cacheRead:null,cacheWrite:null}})
   })
 
   scenario("settles malformed streamed tool input before the provider failure", function* (s) {

@@ -49,7 +49,6 @@ export const make = Effect.fn("Session.make")(function* () {
   const admission = yield* SessionInbox.Service
   const fs = yield* FSUtil.Service
   const scope = yield* Scope.Scope
-  const recentPrompts = new Map<string, { signature: string; at: number; id: SessionMessage.ID }>()
 
   const get = Effect.fn("Session.get")(function* (sessionID: SessionSchema.ID) {
     const session = yield* store.get(sessionID)
@@ -150,11 +149,8 @@ export const make = Effect.fn("Session.make")(function* () {
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const session = yield* get(sessionID)
-        const signature = JSON.stringify({text:input.text, files:input.files, agents:input.agents, skills:input.skills, metadata:input.metadata, delivery:input.delivery})
-        const recent = recentPrompts.get(sessionID)
-        const now = Date.now()
-        const messageID = recent?.signature === signature && now - recent.at < 3000 ? recent.id : input.id ?? SessionMessage.ID.create()
-        recentPrompts.set(sessionID, {signature,at:now,id:messageID})
+        // Client ids are durable idempotency keys. Text is never an identity.
+        const messageID = input.id ?? SessionMessage.ID.create()
         const admitted = yield* SessionInbox.serialized(sessionID, Effect.gen(function* () {
           const existing = yield* admission.reconcile({
             id: messageID,
@@ -177,11 +173,8 @@ export const make = Effect.fn("Session.make")(function* () {
             item,
           })
         })).pipe(
-          Effect.tapError(() => Effect.sync(() => {if(recentPrompts.get(sessionID)?.id === messageID) recentPrompts.delete(sessionID)})),
           Effect.catchTag("SessionInbox.LifecycleConflict", () => new PromptConflictError({ sessionID, messageID })),
         )
-        recentPrompts.set(sessionID, {signature,at:now,id:messageID})
-        if (recentPrompts.size > 1000) recentPrompts.delete(recentPrompts.keys().next().value!)
         if (input.resume !== false) {
                     yield* execution.wake(sessionID)
         }

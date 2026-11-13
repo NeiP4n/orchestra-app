@@ -402,7 +402,7 @@ export const make = Effect.gen(function* () {
             })
         }
 
-        if (record.finish && !record.failure && input.onUsageSettled) {
+        if (record.finish && input.onUsageSettled) {
           const raw = record.finish.rawUsage
           const known = (value: number | undefined) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null
           yield* Effect.suspend(() => input.onUsageSettled!({input:known(raw?.nonCachedInputTokens),output:raw?.outputTokens === undefined || raw?.reasoningTokens === undefined ? null : known(Math.max(0,raw.outputTokens-raw.reasoningTokens)),reasoning:known(raw?.reasoningTokens),cacheRead:known(raw?.cacheReadInputTokens),cacheWrite:known(raw?.cacheWriteInputTokens)})).pipe(Effect.ignore)
@@ -410,12 +410,12 @@ export const make = Effect.gen(function* () {
 
         // Settle the measured attempt for this step: completed with the SessionUsage-normalized
         // tokens and the catalog-estimated cost, cancelled on interruption, failed on an LLM or
-        // step failure (usage stays unknown then). Early-return branches above settle their own
+        // step failure (known provider usage is retained). Early-return branches above settle their own
         // attempts; this covers every path that reaches the end. Diagnostic only; never a second
         // source of charges.
         if (SessionRequestMeasurement.enabled()) {
           const outcome = record.finish && !record.failure ? "completed" : interrupted ? "cancelled" : "failed"
-          if (outcome === "completed" && usage && record.finish && input.prepared.measurement !== undefined) {
+          if (usage && record.finish && input.prepared.measurement !== undefined) {
             // Unknown stays unknown in the diagnostic record: only usage fields the provider
             // actually reported become numbers, read from the optional raw fields - not the
             // zero-filled getters billing normalization uses. output excludes reasoning (the
