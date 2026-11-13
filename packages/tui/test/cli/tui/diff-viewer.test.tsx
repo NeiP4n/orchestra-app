@@ -368,12 +368,15 @@ test.each([50, 80, 100, 160])(
 )
 
 test("opening the source chooser from initial Uncommitted does not resolve a branch base", async () => {
-  const viewer = await renderDiffViewer(hunkDiff, { source: "working", height: 30 })
+  const viewer = await renderDiffViewer(hunkDiff, { source: "working", height: 30, kittyKeyboard: true })
   try {
     viewer.app.mockInput.pressKey("d")
     await viewer.app.waitForFrame((frame) => frame.includes("Diff source"))
-    expect(viewer.app.captureCharFrame()).toContain("Uncommitted · vs HEAD")
+    expect(viewer.app.captureCharFrame()).toMatch(/●\s+Uncommitted/)
     expect(viewer.app.captureCharFrame()).toMatch(/Base\s+Choose…/)
+    viewer.app.mockInput.pressEscape()
+    await viewer.app.waitForFrame((frame) => !frame.includes("Diff source"))
+    expect(viewer.app.captureCharFrame()).toContain("Uncommitted · vs HEAD")
     expect(viewer.baseRequests).toHaveLength(0)
     expect(viewer.diffRequests).toHaveLength(1)
   } finally {
@@ -547,11 +550,14 @@ test("an invalid comparison reports an error and allows another base choice", as
 test("base search failures are visible without changing the diff", async () => {
   const viewer = await renderDiffViewer(hunkDiff, {
     height: 30,
+    kittyKeyboard: true,
     branchesResponse: async () => json({ message: "branches unavailable" }, { status: 503 }),
   })
   try {
     await chooseSource(viewer, 4)
     await viewer.app.waitForFrame((frame) => frame.includes("Could not load branches"))
+    viewer.app.mockInput.pressEscape()
+    await viewer.app.waitForFrame((frame) => !frame.includes("Base branch"))
     expect(viewer.app.captureCharFrame()).toContain("All · vs v2")
     expect(viewer.mutationRequests).toHaveLength(0)
     expect(viewer.diffRequests).toHaveLength(1)
@@ -606,6 +612,10 @@ test("dismissing the base picker leaves the comparison unchanged", async () => {
     viewer.app.mockInput.pressKey("d")
     await viewer.app.waitForFrame((frame) => frame.includes("Diff source"))
     expect(viewer.app.captureCharFrame()).toContain("Diff source")
+    expect(viewer.app.captureCharFrame()).toMatch(/●\s+All/)
+    expect(viewer.app.captureCharFrame()).toMatch(/Base\s+v2/)
+    viewer.app.mockInput.pressEscape()
+    await viewer.app.waitForFrame((frame) => !frame.includes("Diff source"))
     expect(viewer.app.captureCharFrame()).toContain("All · vs v2")
     expect(viewer.diffRequests).toHaveLength(1)
   } finally {

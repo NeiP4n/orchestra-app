@@ -280,11 +280,11 @@ test.each([
     })
     void chosen.then(() => (settled = true))
     await opened(select.app, "Values")
-    await select.app.waitForFrame((frame) => frame.includes("Inspect ctrl+o"))
+    await select.app.waitForFrame((frame) => /Inspect\s+ctrl\+o/.test(frame))
 
     select.app.mockInput.pressKey("o", { ctrl: true })
     const frame = select.app.captureCharFrame().split("\n")
-    const row = frame.findIndex((line) => line.includes("Inspect ctrl+o"))
+    const row = frame.findIndex((line) => /Inspect\s+ctrl\+o/.test(line))
     await select.app.mockMouse.click(frame[row]!.indexOf("Inspect") + 1, row)
     select.app.mockInput.pressTab()
     select.app.mockInput.pressEnter()
@@ -339,7 +339,7 @@ test("only no-selection actions run without results", async () => {
       ],
     })
     await opened(select.app, "Empty")
-    await select.app.waitForFrame((frame) => frame.includes("New ctrl+a"))
+    await select.app.waitForFrame((frame) => /New\s+ctrl\+a/.test(frame))
     select.app.mockInput.pressKey("o", { ctrl: true })
     select.app.mockInput.pressKey("a", { ctrl: true })
 
