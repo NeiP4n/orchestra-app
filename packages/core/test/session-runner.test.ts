@@ -1,7 +1,7 @@
+import { KV } from "@orchestra/core/kv"
 import fs from "node:fs"
 import os from "node:os"
 import { SessionRequestMeasurement } from "@orchestra/core/session/request-measurement"
-import { Session as SessionHandles } from "@orchestra/core/session/session"
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import {
@@ -493,6 +493,7 @@ const layer = Layer.unwrap(
     return AppNodeBuilder.build(
       LayerNode.group([
         Database.node,
+        KV.node,
         Bus.node,
         Form.node,
         SessionProjector.node,
@@ -1055,9 +1056,9 @@ describe("SessionRunnerLLM", () => {
   scenario("client id dedup survives recreating the session admission service",function*(s){
     const id=SessionMessage.ID.create()
     const first=yield* s.session.prompt({sessionID,id,text:"Client retry",resume:false})
-    const recreated=yield* SessionHandles.make()
-    const second=yield* recreated.forSession(sessionID).prompt({id,text:"Client retry",resume:false})
-    expect(second.id).toBe(first.id)
+    const recreated=yield* SessionInbox.make()
+    const second=yield* recreated.reconcile({id,sessionID,type:"user",delivery:"steer"})
+    expect(second?.id).toBe(first.id)
     expect((yield* s.session.inbox(sessionID)).filter(item=>item.type==="user")).toHaveLength(1)
   })
 
