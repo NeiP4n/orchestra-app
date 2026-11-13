@@ -60,7 +60,8 @@ test("exposes every standard HTTP API group", () => {
   expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "output", "remove"])
   expect(Object.keys(client.project)).toEqual(["list", "update"])
   expect(Object.keys(client.worktree)).toEqual(["list", "create", "remove", "refresh"])
-  expect(Object.keys(client["server.autoloop"])).toEqual(["cards"])
+  expect(Object.keys(client["server.autoloop"])).toEqual(["cards", "disputes"])
+  expect(Object.keys(client["server.autoloop"].disputes)).toEqual(["raise", "resolve", "escalate"])
   expect(Object.keys(client["server.recovery"])).toEqual(["models", "chat"])
   expect(Object.keys(client.quota)).toEqual(["check"])
 })
@@ -928,7 +929,7 @@ test("event.subscribe rejects an SSE event above the size limit", async () => {
   })
 })
 
-test("session methods use the public HTTP contract", async () => {
+for (const held of [false, true]) test(`session methods use the public HTTP contract (held=${held})`, async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = []
   const client = OpenCode.make({
     baseUrl: "http://localhost:3000",
@@ -945,7 +946,7 @@ test("session methods use the public HTTP contract", async () => {
           headers: { "content-type": "text/event-stream" },
         })
       }
-      if (url.includes("/prompt")) return Response.json(admission)
+      if (url.includes("/prompt")) return Response.json({ ...admission, held })
       if (url.includes("/generate")) return Response.json({ data: { text: "A transient answer" } })
       if (url.includes("/synthetic")) return Response.json(syntheticAdmission)
       if (url.endsWith("/compact")) return Response.json(compactionAdmission)
@@ -985,17 +986,17 @@ test("session methods use the public HTTP contract", async () => {
   const context = await client.session.context({ sessionID: "ses_test" })
   const log = []
   for await (const item of client.session.log({ sessionID: "ses_test", after: 0 })) log.push(item)
-  const interrupted = await client.session.interrupt({ sessionID: "ses_test", continue: true })
+  const interrupted = await client.session.interrupt({ sessionID: "ses_test", resume: true })
   const message = await client.session.message.get({ sessionID: "ses_test", messageID: "msg_model" })
 
   expect(page.cursor.next).toBe("next")
   expect(page.data[0].time).toMatchObject({ idle: 1_717_171_717_002, viewed: 1_717_171_717_001 })
   expect(active).toEqual({ ses_test: { type: "running" } })
   expect(created.id).toBe("ses_test")
-  expect(admitted.id).toBe("msg_test")
+  expect(admitted).toEqual({ ...admission, held })
   expect(generated.text).toBe("A transient answer")
   expect(interrupted).toEqual({ interrupted: true })
-  expect(synthetic).toMatchObject({ type: "synthetic", data: { text: "Completed" }, delivery: "queue" })
+  expect(synthetic).toMatchObject({ type: "synthetic", payload: { text: "Completed" }, delivery: "queue" })
   expect(context).toEqual([])
   expect(log).toEqual([modelSwitchedEvent, synced])
   expect(message).toEqual(modelSwitchedMessage)
@@ -1013,7 +1014,7 @@ test("session methods use the public HTTP contract", async () => {
     ["POST", "http://localhost:3000/api/experimental/session/ses_test/wait"],
     ["GET", "http://localhost:3000/api/session/ses_test/context"],
     ["GET", "http://localhost:3000/api/experimental/session/ses_test/log?after=0"],
-    ["POST", "http://localhost:3000/api/session/ses_test/interrupt?continue=true"],
+    ["POST", "http://localhost:3000/api/session/ses_test/interrupt?resume=true"],
     ["GET", "http://localhost:3000/api/session/ses_test/message/msg_model"],
   ])
   const viewBody = requests.find((request) => request.url.endsWith("/api/session/ses_test/view"))?.init?.body
@@ -1094,7 +1095,7 @@ const admission = {
     id: "msg_test",
     sessionID: "ses_test",
     type: "user",
-    data: { text: "Hello" },
+    payload: { text: "Hello" },
     delivery: "steer",
     time: { created: 1_717_171_717_000 },
   },
@@ -1105,7 +1106,7 @@ const syntheticAdmission = {
     id: "msg_synthetic",
     sessionID: "ses_test",
     type: "synthetic",
-    data: { text: "Completed" },
+    payload: { text: "Completed" },
     delivery: "queue",
     time: { created: 1_717_171_717_000 },
   },
@@ -1114,6 +1115,8 @@ const syntheticAdmission = {
 const compactionAdmission = {
   data: {
     type: "compaction",
+    payload: {},
+    delivery: "queue",
     id: "msg_compaction",
     sessionID: "ses_test",
     time: { created: 1_717_171_717_000 },

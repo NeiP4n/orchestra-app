@@ -191,7 +191,7 @@ test("event.subscribe terminates on Effect protocol decode failures", async () =
   expect(error._tag).toBe("ClientError")
 })
 
-test("session methods retain decoded Effect inputs and outputs", async () => {
+for (const held of [false, true]) test(`session methods retain decoded Effect inputs and outputs (held=${held})`, async () => {
   const logQueries: Array<Record<string, string>> = []
   const requests: Array<{ method: string; url: string }> = []
   const httpClient = HttpClient.make((request) => {
@@ -209,7 +209,7 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
       )
     }
     if (url.includes("/prompt")) {
-      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(admission)))
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json({ ...admission, held })))
     }
     if (url.endsWith("/compact")) {
       return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(compactionAdmission)))
@@ -249,7 +249,7 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
     const created = yield* client.session.create({
       location: Location.Ref.make({ directory: AbsolutePath.make("/tmp/project") }),
     })
-    yield* client.session.view({ sessionID: Session.ID.make("ses_test"), idle: session.data.time.idle })
+    yield* client.session.view({ sessionID: Session.ID.make("ses_test"), idle: DateTime.makeUnsafe(session.data.time.idle) })
     yield* client.session.switchAgent({ sessionID: Session.ID.make("ses_test"), agent: Agent.ID.make("build") })
     yield* client.session.switchModel({
       sessionID: Session.ID.make("ses_test"),
@@ -285,8 +285,10 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
   expect(Object.getPrototypeOf(result.created)).toBe(Object.prototype)
   expect(result.created.id).toBe("ses_test")
   expect(Object.getPrototypeOf(result.admitted)).toBe(Object.prototype)
-  expect(Object.getPrototypeOf(result.admitted.payload)).toBe(Object.prototype)
-  expect(DateTime.toEpochMillis(result.admitted.time.created)).toBe(1_717_171_717_000)
+  expect(result.admitted.held).toBe(held)
+  expect(result.admitted.data.id).toBe("msg_test")
+  expect(Object.getPrototypeOf(result.admitted.data.payload)).toBe(Object.prototype)
+  expect(DateTime.toEpochMillis(result.admitted.data.time.created)).toBe(1_717_171_717_000)
   expect(result.context).toEqual([])
   expect(logQueries[0]).toEqual({ after: "0" })
   expect(requests).toContainEqual({ method: "POST", url: "http://localhost:3000/api/session/ses_test/view" })
