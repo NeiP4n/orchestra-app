@@ -3,6 +3,7 @@ import { expect, test } from "bun:test"
 import { HoverAction } from "../../src/component/hover-action"
 import { ConfigProvider } from "../../src/config"
 import { ThemeProvider, useTheme } from "../../src/context/theme"
+import { hoverBackground } from "../../src/ui/hover"
 import { emptyThemeSource } from "../fixture/fixture"
 import { TestTuiContexts } from "../fixture/tui-environment"
 import { createTuiResolvedConfig } from "../fixture/tui-runtime"
@@ -96,7 +97,7 @@ test("HoverAction supports destructive hover surfaces and reports pointer state"
   let destructiveHover: [number, number, number, number] = [0, 0, 0, 0]
   function Probe() {
     const theme = useTheme()
-    destructiveHover = theme.background.action.destructive.hovered.toInts()
+    destructiveHover = hoverBackground(theme, "destructive").toInts()
     return (
       <HoverAction
         id="destructive-action"

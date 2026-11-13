@@ -282,8 +282,7 @@ test("sidebar DoD progress bar reflects completed project tasks", async () => {
     expect(frame).toContain("DoD")
     expect(frame).toContain("1/2")
     expect(frame).toContain("50%")
-    expect(frame).toContain("█")
-    expect(frame).toContain("░")
+    expect(frame).toMatch(/━{10,}─{10,}/)
   } finally {
     app.renderer.destroy()
     await rm(directory, { recursive: true, force: true })

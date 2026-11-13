@@ -92,7 +92,7 @@ test("council results are drawn as one card per call sign", async () => {
   app.renderer.start()
   await app.waitForFrame((frame) => frame.includes("Add an index"))
   const frame = app.captureCharFrame()
-  for (const text of ["Совет", "Add search", "Atlas", "Web", "Use a form", "Borei", "API", "Add an index"])
+  for (const text of ["Council", "Add search", "Atlas", "Web", "Use a form", "Borei", "API", "Add an index"])
     expect(frame).toContain(text)
   app.renderer.destroy()
 })

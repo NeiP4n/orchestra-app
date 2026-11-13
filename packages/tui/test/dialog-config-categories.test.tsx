@@ -65,7 +65,7 @@ test("DialogConfig sets dialog size to large and renders categorized navigation 
   // path is engineering detail the dialog no longer shows.
   expect(frame).not.toContain("path:")
   expect(frame).not.toContain("default:")
-  expect(frame).toContain("tab")
+  expect(frame).toContain("Tab category")
 })
 
 test("DialogConfig category tabs filter the visible options when clicked", async () => {
