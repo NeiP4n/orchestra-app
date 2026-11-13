@@ -116,3 +116,36 @@ test("retry timeline retains failed attempt usage and retry scheduling without a
  expect(rows[0].data.tokens).toEqual(tokens)
  expect(rows.some(row=>row.eventType==="session.step.ended")).toBe(false)
 }))
+
+test("rejects a log replaced with a hard link between lstat and open", () => fixture(async directory => {
+  const script = path.join(directory, "race.mjs")
+  await writeFile(script, `
+import { mock } from 'bun:test'
+import * as fs from 'node:fs/promises'
+import path from 'node:path'
+const directory = process.argv[2]
+const log = path.join(directory, '.orchestra/project-debug.jsonl')
+const outside = path.join(directory, 'outside')
+let armed = false, reads = 0
+const originalLstat = fs.lstat
+mock.module('node:fs/promises', () => ({ ...fs, lstat: async file => {
+  const info = await originalLstat(file)
+  if (armed && file === log && ++reads === 2) { await fs.unlink(log); await fs.link(outside, log) }
+  return info
+} }))
+const { ProjectDebug } = await import(process.argv[3])
+await ProjectDebug.setEnabled(directory, true)
+const event = { timestamp: 1, sessionID: 'race', role: 'user', eventType: 'test', data: 'safe' }
+await ProjectDebug.record(directory, event)
+await fs.writeFile(outside, 'untouched', { mode: 0o644 })
+armed = true
+let rejected = false
+try { await ProjectDebug.record(directory, event) } catch { rejected = true }
+console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8'), mode: (await fs.stat(outside)).mode & 0o777 }))
+`)
+  const child = Bun.spawn([process.execPath, script, directory, path.resolve(import.meta.dir, "../src/session/project-debug.ts")], { stdout: "pipe", stderr: "pipe" })
+  const output = await new Response(child.stdout).text()
+  const error = await new Response(child.stderr).text()
+  expect(await child.exited, error).toBe(0)
+  expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", mode: 0o644 })
+}))

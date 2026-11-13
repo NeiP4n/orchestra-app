@@ -103,11 +103,26 @@ export async function record(directory: string, event: Record, maxBytes = MAX_BY
     await noLink(file + ".1")
     let line = JSON.stringify(redact(event)) + "\n"
     if (Buffer.byteLength(line) > Math.min(maxBytes, 256 * 1024)) line = JSON.stringify(redact({ timestamp: event.timestamp, sessionID: event.sessionID, role: event.role, eventType: event.eventType, omitted: "event exceeds recording limit" })) + "\n"
-    let size = 0
-    try { size = (await lstat(file)).size } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error }
-    if (size && size + Buffer.byteLength(line) > maxBytes) await rename(file, file + ".1")
-    const handle = await open(file, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | (constants.O_NOFOLLOW ?? 0), 0o600)
-    try { await handle.chmod(0o600); await handle.writeFile(line); errors.delete(file) } finally { await handle.close() }
+    let before = await lstat(file).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error
+      return undefined
+    })
+    if (before && (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1))
+      throw Error("Debug recording requires a private regular file")
+    if (before?.size && before.size + Buffer.byteLength(line) > maxBytes) {
+      await rename(file, file + ".1")
+      before = undefined
+    }
+    const handle = await open(file, constants.O_WRONLY | constants.O_APPEND | (before ? 0 : constants.O_CREAT | constants.O_EXCL) | (constants.O_NOFOLLOW ?? 0), 0o600)
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.nlink !== 1 || (before && (before.ino !== info.ino || before.dev !== info.dev)))
+        throw Error("Debug recording requires an unchanged private regular file")
+      // Validate the opened object before any mutation, including chmod.
+      await handle.chmod(0o600)
+      await handle.writeFile(line)
+      errors.delete(file)
+    } finally { await handle.close() }
   })
   locks.set(file, next)
   try { await next } catch (error) { failed(directory); throw error } finally { if (locks.get(file) === next) locks.delete(file) }
