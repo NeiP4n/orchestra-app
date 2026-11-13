@@ -345,7 +345,7 @@ export function DialogOpen(props: { sessions: SessionInfo[]; onLoad: (sessions: 
             focusCurrent={focus() !== undefined}
             sectionNavigation={true}
             preserveSelection={selectionMoved()}
-            onMove={() => {
+            onNavigate={() => {
               setSelectionMoved(true)
             }}
             onCancel={view().type === "projects" ? undefined : back}

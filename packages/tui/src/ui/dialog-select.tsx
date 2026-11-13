@@ -32,6 +32,8 @@ export interface DialogSelectProps<T> {
   filterThreshold?: number
   ref?: (ref: DialogSelectRef<T>) => void
   onMove?: (option: DialogSelectOption<T>) => void
+  /** Explicit keyboard/pointer navigation, excluding option-list reconciliation. */
+  onNavigate?: (option: DialogSelectOption<T>) => void
   onFilter?: (query: string) => void
   onSelect?: (option: DialogSelectOption<T>) => void
   onCancel?: () => void
@@ -404,6 +406,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     if (option) {
       selection = option
       resetSelection = !preserve
+      props.onNavigate?.(option)
     }
     scrollToSelection(center)
   }
