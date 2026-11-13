@@ -3226,7 +3226,7 @@ it.live("a due failed run is not stolen by a fresh dispatch to another worker",(
  const row=(yield* cycle.getView())["runs"]?.[String(first!.run)] as {state:string;session:string}
  expect(row.state).toBe("queued")
  expect(row.session).toBe("old-worker")
- const marker=yield* kv.get("orchestra/task/"+worker.id) as unknown as {autoloopRun:number}|undefined
+ const marker=(yield* kv.get("orchestra/task/"+worker.id)) as unknown as {autoloopRun:number}|undefined
  if(marker)expect(marker.autoloopRun).not.toBe(first!.run)
 }).pipe(Effect.scoped))
 

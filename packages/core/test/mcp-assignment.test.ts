@@ -88,7 +88,7 @@ test("disabled MCP has no forced survey or zero-limit boilerplate",()=>{
   delete process.env.ORCHESTRA_MCP
   expect(OrchestraTool.dispatchGuide()).not.toContain("The assignment must come from a survey")
   expect(OrchestraTool.dispatchGuide()).not.toContain("MCP assignment is mandatory")
-  expect(OrchestraTool.mcpBriefLine({servers:[],maxCalls:0})).toBe("")
+  expect(OrchestraTool.mcpBriefLine({servers:[],maxCalls:0,perServer:{}})).toBe("")
   process.env.ORCHESTRA_MCP="1"
   expect(OrchestraTool.dispatchGuide()).toContain("The assignment must come from a survey")
  }finally{if(previous===undefined)delete process.env.ORCHESTRA_MCP;else process.env.ORCHESTRA_MCP=previous}
