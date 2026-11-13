@@ -19,7 +19,7 @@ const TTL = 5 * 60 * 1000
 /** Backend-only classification. Never infer absence from a paginated or collapsed TUI. */
 export function make(input: {
   sessions: Session.Interface; store: SessionStore.Interface; execution: SessionExecution.Interface
-  kv: Pick<KV.Interface, "get">; db: Database.Interface["db"]; inbox: SessionInbox.Interface
+  kv: Pick<KV.Interface, "get">; db: Database.Interface["db"]; inbox: Pick<SessionInbox.Interface, "list">
   projects: Effect.Effect<readonly Orchestra.Project[]>
 }) {
   const previews = new Map<string, { ids: readonly string[]; current?: string; expires: number }>()

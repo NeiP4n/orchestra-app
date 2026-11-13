@@ -20,10 +20,10 @@ const locks = new Map<string, Promise<void>>()
 // credential. Extra fields or string values remain secret-bearing and redacted.
 const usageCounters = (value: unknown): boolean => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
-  const row = value as Record<string, unknown>
+  const row = value as { [key: string]: unknown }
   if (Object.keys(row).sort().join(",") !== "cache,input,output,reasoning") return false
   if (![row.input,row.output,row.reasoning].every(value => typeof value === "number" && Number.isFinite(value))) return false
-  const cache = row.cache as Record<string, unknown> | undefined
+  const cache = row.cache as { [key: string]: unknown } | undefined
   return !!cache && Object.keys(cache).sort().join(",") === "read,write" &&
     [cache.read,cache.write].every(value => typeof value === "number" && Number.isFinite(value))
 }

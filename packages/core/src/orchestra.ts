@@ -3879,7 +3879,8 @@ export function typedOutcomeOf(messages: ReadonlyArray<SessionMessage.Info>): "c
   const calls = messages.filter((message): message is SessionMessage.Assistant => message.type === "assistant")
     .toSorted((a,b) => DateTime.toEpochMillis(a.time.created) - DateTime.toEpochMillis(b.time.created))
     .flatMap(message => message.content.flatMap(part => part.type === "tool" && part.name === "task_report" && part.state.status === "completed" ? [part] : []))
-  const value = calls.at(-1)?.state.input.outcome
+  const input = calls.at(-1)?.state.input
+  const value = typeof input === "object" && input !== null ? input.outcome : undefined
   return value === "complete" || value === "partial" || value === "incomplete" || value === "failed" ? value : undefined
 }
 

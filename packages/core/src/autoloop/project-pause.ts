@@ -11,7 +11,7 @@ export const pausedProjectRuns = (view: View, kv: KV.Interface) => Effect.gen(fu
     const id = event.detail.slice(8)
     if (!cache.has(id)) {
       const p = yield* kv.get("orchestra/project/"+id)
-      cache.set(id, !!p && typeof p === "object" && !Array.isArray(p) && p.workEnabled === false)
+      cache.set(id, !!p && typeof p === "object" && !Array.isArray(p) && "workEnabled" in p && p.workEnabled === false)
     }
     if (cache.get(id)) paused.add(link.run_id)
   }

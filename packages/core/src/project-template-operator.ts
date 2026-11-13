@@ -205,15 +205,16 @@ export function make(deps: Deps) {
       if (!/^pti_[A-Za-z0-9_-]{1,100}$/.test(token)) throw Error("Invalid import token.")
       const pending = await run(deps.kv.get(PREPARED + token))
       if (!record(pending) || pending.kind !== "file-import" || typeof pending.file !== "string" || typeof pending.digest !== "string" || typeof pending.text !== "string") throw Error("Unknown import.")
-      const current = await ProjectTemplateTransfer.read(pending.file)
-      if (current.digest !== (pending.sourceDigest ?? pending.digest)) throw Error("Template changed after preview.")
+      const { file, digest, text } = pending
+      const current = await ProjectTemplateTransfer.read(file)
+      if (current.digest !== (pending.sourceDigest ?? digest)) throw Error("Template changed after preview.")
       return Flock.withLock("template-content-" + current.digest, async () => {
       const duplicate = (await library.list()).find(row => row.state === "ready" && row.digest === current.digest)
       if (duplicate) { await run(deps.kv.remove(removed + current.digest)); return { id: duplicate.name, name: current.bundle.name } }
       const id = (current.bundle.version === 2 ? "process:" : "") + "template_" + token.slice(4)
       let exists = false
       try { const saved = await library.preview(id); if(saved.digest !== current.digest) throw Error("Existing template differs."); exists = true } catch(error) { if((error as NodeJS.ErrnoException).code !== "ENOENT")throw error }
-      if (!exists) await library.saveSerialized(pending.text, id, pending.digest)
+      if (!exists) await library.saveSerialized(text, id, digest)
       await run(deps.kv.remove(removed + current.digest))
       return { id, name: current.bundle.name }
       })
