@@ -786,12 +786,20 @@ test("an expanded project folds sessions past the cap behind a more row", async 
   await setup.renderOnce()
   const more = cell(setup.captureCharFrame(), "+ 4 more")
   await setup.mockMouse.click(more.x + 2, more.y)
+  // The expanded roster now extends below the viewport because the permanent
+  // browser group and pause switch take rows too. Scroll to its footer.
+  await setup.waitForFrame(frame => frame.includes("Task 11"))
+  for (let i = 0; i < 8; i++) await setup.mockMouse.scroll(10, 14, "down")
 
   const unfolded = await setup.waitForFrame(
     (frame) => frame.includes("Task 11") && frame.includes("Show less"),
     { maxPasses: 100 },
   )
   expect(unfolded).not.toContain("+ 4 more")
+  const less = cell(unfolded, "Show less")
+  await setup.mockMouse.click(less.x + 1, less.y)
+  const refolded = await setup.waitForFrame(frame => frame.includes("+ 4 more") && !frame.includes("Task 11"))
+  expect(refolded).not.toContain("Show less")
 })
 
 test("in the Console view the left panel lists only projects, and a project opens its main session", async () => {
