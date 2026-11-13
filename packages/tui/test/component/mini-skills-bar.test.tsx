@@ -148,3 +148,34 @@ test("a right click on a chip opens its menu, and Remove takes it off", async ()
     setup.renderer.destroy()
   }
 })
+
+test("two pointer moves before layout cannot undo the chip's drop order", async () => {
+  const state = await mkdtemp(path.join(tmpdir(), "mini-skills-burst-"))
+  const inserted: string[] = []
+  const { setup, settle } = await render(state, 120, text => inserted.push(text))
+  try {
+    const top = () => setup.captureCharFrame().split("\n")[0]
+    const start = top().indexOf("Analyze") + 1, target = top().indexOf("Debug") + 1
+    await setup.mockMouse.pressDown(start, 0)
+    // Each event updates the shown order, but the layout boxes still describe
+    // the previous frame. The pointer keeps moving right across the same chip.
+    await setup.mockMouse.emitMouseEvent("drag", target - 3, 0)
+    await setup.mockMouse.emitMouseEvent("drag", target, 0)
+    await setup.mockMouse.release(target, 0)
+    await settle()
+    expect(top().indexOf("Analyze")).toBeGreaterThan(top().indexOf("Debug"))
+    const saved = JSON.parse(await readFile(path.join(state, "mini-skills.json"), "utf8")) as { items: { id: string }[] }
+    expect(saved.items.slice(0, 3).map(item => item.id)).toEqual(["plan", "debug", "analyze"])
+    expect(inserted).toEqual([])
+    if (process.env.CAPTURE_MINI_SKILL_DROP) await Bun.write(process.env.CAPTURE_MINI_SKILL_DROP, JSON.stringify(setup.captureSpans()))
+    await setup.mockMouse.pressDown(top().indexOf("Analyze") + 1, 0)
+    await setup.mockMouse.emitMouseEvent("drag", top().indexOf("Plan") + 2, 0)
+    await setup.mockMouse.emitMouseEvent("drag", top().indexOf("Plan") + 1, 0)
+    await setup.mockMouse.release(4, 0)
+    await settle()
+    expect(top().indexOf("Analyze")).toBeLessThan(top().indexOf("Plan"))
+    const restored = JSON.parse(await readFile(path.join(state, "mini-skills.json"), "utf8")) as { items: { id: string }[] }
+    expect(restored.items.slice(0, 3).map(item => item.id)).toEqual(["analyze", "plan", "debug"])
+    expect(inserted).toEqual([])
+  } finally { setup.renderer.destroy() }
+})

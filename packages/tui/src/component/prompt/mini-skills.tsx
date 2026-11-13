@@ -287,17 +287,27 @@ export function PromptMiniSkills(props: {
   const [menu, setMenu] = createSignal<{ skill: MiniSkill; x: number; y: number }>()
   const chips = new Map<string, BoxRenderable>()
   let dragged = false
+  let pointerX = 0
   const ordered = createMemo(() => preview() ?? skills())
   const drag = (event: MouseEvent) => {
     const source = dragging()
     if (!source) return
     dragged = true
+    const direction = Math.sign(event.x - pointerX)
+    pointerX = event.x
     const over = visibleSkills().find((skill) => {
       const chip = chips.get(skill.id)
       return chip && event.x >= chip.screenX && event.x < chip.screenX + chip.width
     })
-    if (!over || over.id === source) return
-    setPreview(placeSkill(ordered(), source, over.id))
+    if (!over || over.id === source || !direction) return
+    const current = ordered()
+    // Solid updates the order before Yoga updates chip bounds. A second event
+    // can hit the old target box; never move backwards while the pointer moves
+    // forwards. Reversing the pointer still permits dragging back to the start.
+    const from = current.findIndex(skill => skill.id === source)
+    const to = current.findIndex(skill => skill.id === over.id)
+    if (Math.sign(to - from) !== direction) return
+    setPreview(placeSkill(current, source, over.id))
   }
   const release = () => {
     const next = preview()
@@ -342,7 +352,8 @@ export function PromptMiniSkills(props: {
               text={`${skill.icon} ${label(skill)}`}
               lifted={dragging() === skill.id}
               ref={(chip) => chips.set(skill.id, chip)}
-              onPress={() => {
+              onPress={(event) => {
+                pointerX = event.x
                 dragged = false
                 setDragging(skill.id)
               }}
@@ -477,7 +488,7 @@ function Chip(props: {
   // Held by a drag in progress.
   lifted?: boolean
   ref?: (chip: BoxRenderable) => void
-  onPress?: () => void
+  onPress?: (event: MouseEvent) => void
   onContext?: (event: MouseEvent) => void
   onClick: () => void
 }) {
@@ -503,7 +514,7 @@ function Chip(props: {
           props.onContext(event)
           return
         }
-        if (event.button === 0) props.onPress?.()
+        if (event.button === 0) props.onPress?.(event)
       }}
       onMouseUp={(event: MouseEvent) => {
         if (event.button !== 0) return
