@@ -4,7 +4,7 @@ import { createSimpleContext } from "./helper"
 import { batch, createMemo, createResource, createSignal, onCleanup } from "solid-js"
 import { useEvent } from "./event"
 import path from "path"
-import { useTuiPaths } from "./runtime"
+import { useTuiLifecycleOptional, useTuiPaths } from "./runtime"
 import { useArgs } from "./args"
 import { RGBA } from "@opentui/core"
 import { Orchestra } from "@orchestra/schema/orchestra"
@@ -627,6 +627,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const state = {
         pending: false,
       }
+      let writing = Promise.resolve()
+      // The app must not remove its state directory while an atomic rename is
+      // in flight. Serialize snapshots so an older write cannot win the race.
+      useTuiLifecycleOptional()?.add(async () => {
+        await loading
+        await writing
+      })
 
       function save() {
         if (!sessionStore.ready) {
@@ -634,12 +641,13 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return
         }
         state.pending = false
-        void writeJsonAtomic(filePath, {
-          pinned: sessionStore.pinned,
-        })
+        const pinned = [...sessionStore.pinned]
+        writing = writing.catch(() => undefined).then(() => writeJsonAtomic(filePath, { pinned }))
+        // Keep errors handled even when no shutdown lifecycle is present.
+        void writing.catch((error) => console.error("Failed to persist pinned sessions", { error }))
       }
 
-      readJson<unknown>(filePath)
+      const loading = readJson<unknown>(filePath)
         .then((x) => {
           if (!x || typeof x !== "object") return
           const pinned = (x as Record<string, unknown>).pinned
@@ -677,9 +685,11 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         })
       }
 
-      event.on("session.deleted", (evt) => {
-        prune(evt.data.sessionID)
-      })
+      onCleanup(
+        event.on("session.deleted", (evt) => {
+          prune(evt.data.sessionID)
+        }),
+      )
 
       return {
         get ready() {

@@ -1,4 +1,5 @@
 import { testRender } from "@opentui/solid"
+import { TuiLifecycleProvider, type TuiLifecycle } from "../../src/context/runtime"
 import type { JSX } from "solid-js"
 import type { AgentInfo, ModelInfo, SessionInfo } from "@orchestra/client"
 import path from "node:path"
@@ -22,6 +23,7 @@ import { createTuiResolvedConfig } from "./tui-runtime"
 
 export async function renderLocal(
   input: {
+    lifecycle?: TuiLifecycle
     width?: number
     height?: number
     language?: "en" | "ru"
@@ -36,6 +38,11 @@ export async function renderLocal(
   } = {},
 ) {
   const temporary = await tmpdir()
+  const finalizers = new Set<() => Promise<void>>()
+  const lifecycle = input.lifecycle ?? { add(finalizer: () => Promise<void>) {
+    finalizers.add(finalizer)
+    return () => finalizers.delete(finalizer)
+  } }
   await Bun.write(path.join(temporary.path, "model.json"), JSON.stringify(input.preferences ?? {}))
   const events = createEventStream()
   const calls = createFetch(async (url, request) => {
@@ -75,12 +82,14 @@ export async function renderLocal(
                       <DataProvider directory={directory}>
                         <LocationProvider>
                           <PermissionProvider>
-                            <LocalProvider>
-                              <DialogProvider>
-                                <Probe />
-                                {input.view?.()}
-                              </DialogProvider>
-                            </LocalProvider>
+                            <TuiLifecycleProvider value={lifecycle}>
+                              <LocalProvider>
+                                <DialogProvider>
+                                  <Probe />
+                                  {input.view?.()}
+                                </DialogProvider>
+                              </LocalProvider>
+                            </TuiLifecycleProvider>
                           </PermissionProvider>
                         </LocationProvider>
                       </DataProvider>
@@ -108,6 +117,7 @@ export async function renderLocal(
     state: temporary.path,
     async [Symbol.asyncDispose]() {
       setup.renderer.destroy()
+      await Promise.all([...finalizers].map(finalizer => finalizer()))
       await temporary[Symbol.asyncDispose]()
     },
   }
