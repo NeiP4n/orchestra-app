@@ -307,7 +307,7 @@ function parts(node: Node) {
         if (!item || item.type === "command_argument_sep" || item.type === "redirection") return []
         return [{ type: item.type, text: item.text }]
       })
-    if (!["command_name", "command_name_expr", "word", "string", "raw_string", "concatenation"].includes(child.type))
+    if (!["command_name", "command_name_expr", "word", "number", "string", "raw_string", "concatenation"].includes(child.type))
       return []
     return [{ type: child.type, text: child.text }]
   })

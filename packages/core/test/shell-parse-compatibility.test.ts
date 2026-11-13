@@ -156,17 +156,10 @@ describe("current native and legacy parity gaps", () => {
       native: { commands: [{ resource: "printf value", save: "printf *" }], directories: [] },
     },
     {
-      name: "native keeps numeric arguments in saved prefixes",
-      shell: "bash",
-      command: "git 2 status",
-      legacy: { commands: [{ resource: "git 2 status", save: "git status *" }], directories: [] },
-      native: { commands: [{ resource: "git 2 status", save: "git 2 *" }], directories: [] },
-    },
-    {
       name: "native keeps numeric directory names and operator-shaped arguments",
       shell: "bash",
       command: "cd 123; git == value",
-      legacy: { commands: [{ resource: "git == value", save: "git value *" }], directories: [] },
+      legacy: { commands: [{ resource: "git == value", save: "git value *" }], directories: ["123"] },
       native: { commands: [{ resource: "git == value", save: "git == *" }], directories: ["123"] },
     },
     {
