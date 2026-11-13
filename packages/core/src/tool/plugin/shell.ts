@@ -1,3 +1,5 @@
+import { RuleEnforce } from "../../rule-enforce.js"
+import { createHash } from "node:crypto"
 export * as ShellTool from "./shell.js"
 
 import { BrowserGuard } from "../../browser/guard.js"
@@ -61,6 +63,7 @@ const description = (shell?: string) =>
         ]
       : []),
     "Quote file paths containing spaces or special characters.",
+    "For large scripts, use write to save a project-local script file and invoke that file with a short shell command. Do not embed a long source file in node -e, python -c or a here-string: older arguments may be elided from history.",
     "Prefer dedicated tools over shell commands when possible.",
     "When output is large, the full result is saved to a file and a truncated preview is returned.",
     "Rely on automatic truncation unless filtering the output is more useful.",
@@ -155,7 +158,10 @@ export const Plugin = {
       // The built-in secret patterns apply everywhere, so `cat .env` and
       // `printenv` are refused here, before anything spawns.
       const forbidden = forbiddenCommand(invocation.command)
-      if (forbidden) return yield* Effect.fail(new Error(forbidden))
+      if (forbidden) {
+        recordGuardRefusal(invocation.command, context)
+        return yield* Effect.fail(new Error(forbidden))
+      }
       const source = {
         type: "tool" as const,
         messageID: context.messageID,
@@ -362,7 +368,7 @@ export const Plugin = {
 export function forbiddenCommand(command: string): string | undefined {
   const file = RoomRules.protectedFileInCommand(undefined, command)
   if (file)
-    return `Refusing to run a command that touches protected file "${file}": secret and credential files are off limits to the AI.`
+    return `Refusing to run a command that touches protected file "${file}": secret and credential files are off limits to the AI. Do not bypass this refusal with string concatenation, join, base64, another interpreter or a script. Use dod for project acceptance items; never search private Orchestra configuration for them.`
   if (RoomRules.commandLeaksCredentials(command))
     return "Refusing to run a command that prints the host's environment or credentials."
   if (BrowserGuard.launchesBrowser(command)) return BrowserGuard.REFUSAL
@@ -418,3 +424,9 @@ const decodeDiagnostic = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Struct({ severity: Schema.String, message: Schema.String })),
 )
 
+
+/** No command text, path, credential value or source content enters the audit. */
+export function recordGuardRefusal(command: string, context: {sessionID:string;agent:string}, log = RuleEnforce.log): void {
+  const assembled = RoomRules.foldLiteralPaths(command) !== command
+  log({layer:"hard",outcome:"refused",session:context.sessionID,agent:context.agent,by:"built-in",rule:"credential-guard",what:JSON.stringify({event:"credential-guard.refused",assembled,encoded:/base64|atob|FromBase64String/i.test(command),interpreter:/\b(?:node|python|pwsh|powershell)\b/i.test(command),sha256:createHash("sha256").update(command).digest("hex")})})
+}

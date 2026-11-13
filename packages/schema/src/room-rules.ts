@@ -334,14 +334,14 @@ export function commandLeaksCredentials(command: string) {
   const normalized = command.replace(/\\\r?\n/g, "").replace(/\\(.)/gs, "$1")
   return (
     /(?:^|[;&|()`'\s]|\/(?:usr\/)?(?:bin\/)?)(env|printenv)(?![\w.-])/i.test(normalized) ||
-    /(?:^|[;&|()\s])set(?:\s|$)/i.test(normalized) ||
+    /(?:^|[;&|()\r\n])\s*(?:cmd(?:\.exe)?\s+\/c\s+)?set(?:\s|$)/i.test(normalized) ||
     /\b(?:get-childitem|gci)\s+env:/i.test(normalized) ||
     /\bpython(?:3)?\b.*(?:os\.environb?|os\.getenv|environ\s*\[|printenv)/is.test(normalized) ||
     /\bnode\b.*(?:process\.env|Object\.keys\s*\(\s*process\.env)/is.test(normalized) ||
     // PowerShell and cmd.exe use different variable syntax from POSIX shells.
     /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(normalized) ||
     /%[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*%/i.test(normalized) ||
-    /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i.test(normalized)
+    [...normalized.matchAll(/\$(?:\{)?([A-Za-z_][A-Za-z0-9_]*)(?:\})?/g)].some(match => /(?:^|_)(?:API_KEY|TOKEN|TOKENS|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)(?:_|$)/i.test(match[1]!))
   )
 }
 
@@ -360,7 +360,12 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
 // Bounded constant folding only: no eval, variable expansion or script execution.
 // Catch a literal credential path split with + or [literal,...].join(literal).
 export function foldLiteralPaths(command: string): string {
-  let result = command
+  let result = command.replace(/Buffer\.from\(\s*["']([A-Za-z0-9+/=]{4,2048})["']\s*,\s*["']base64["']\s*\)\.toString\(\s*(?:["']utf-?8["'])?\s*\)/g, (whole, encoded) => {
+    try {
+      const value = atob(encoded)
+      return /^[\x20-\x7e]{1,1024}$/.test(value) ? `"${value}"` : whole
+    } catch {return whole}
+  })
   const literal = /["']([^"'\\\r\n]*)["']\s*\+\s*["']([^"'\\\r\n]*)["']/g
   for (let n = 0; n < 16; n++) {
     const next = result.replace(literal, (_, a, b) => `"${a}${b}"`)
