@@ -261,3 +261,13 @@ test("screenshot privacy removes nested image payloads while retaining text", ()
   })
   expect(RoomRules.sanitizeScreenshots(payload, false)).toEqual(payload)
 })
+
+test("project design tokens are readable while credential tokens and environment dumps stay blocked", () => {
+  expect(RoomRules.protectedFile(undefined, "/app/src/design-tokens.json")).toBeUndefined()
+  for (const name of ["token.json", "tokens.json", "token-cache.json", "access_token.json", "refresh-token.json", "auth-tokens.json", "refreshTokenStore.json", ".env.local"]) {
+    expect(RoomRules.protectedFile(undefined, `/app/${name}`)).toBeDefined()
+    expect(RoomRules.protectedFileInCommand(undefined, `cat /app/${name}`)).toBeDefined()
+  }
+  expect(RoomRules.commandLeaksCredentials("printenv")).toBeTruthy()
+  expect(RoomRules.commandLeaksCredentials("Get-ChildItem Env:")).toBeTruthy()
+})
