@@ -278,3 +278,28 @@ test("constant path assembly cannot hide credential files from the shell guard",
  expect(RoomRules.protectedFileInCommand(undefined, `node -e "require('fs').writeFileSync(['design','tok'+'ens.json'].join('-'),'{}')"`)).toBeUndefined()
  expect(RoomRules.commandLeaksCredentials(`node -e "console.log(process.env)"`)).toBe(true)
 })
+
+test("literal array folding rejects adversarial empty strings in bounded time", () => {
+  for (const count of [35, 20_000]) {
+    const command = '[""' + ' ""'.repeat(count) + '!'
+    const start = performance.now()
+    expect(RoomRules.foldLiteralPaths(command)).toBe(command)
+    expect(performance.now() - start).toBeLessThan(500)
+  }
+  expect(RoomRules.foldLiteralPaths("['auth','tokens.json'].join('/')")).toBe('"auth/tokens.json"')
+  expect(RoomRules.foldLiteralPaths("['a[b','c]'].join('-')")).toBe('"a[b-c]"')
+  expect(RoomRules.foldLiteralPaths("['a',].join('') + ['b'].join('')")).toBe('"ab"')
+})
+
+test("literal array folding agrees with the prior grammar on short generated input", () => {
+  const original = /\[((?:\s*["'][^"'\\\r\n]*["']\s*,?)+)\]\.join\(\s*["']([^"'\\\r\n]*)["']\s*\)/g
+  let seed = 19
+  const parts = ['"a"', "'b'", '""', ' ', ',', '[', ']', '"a[b"', "'c]'", '!']
+  for (let trial = 0; trial < 10_000; trial++) {
+    let body = ''
+    for (let i = 0; i < trial % 8; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; body += parts[seed % parts.length] }
+    const source = `[${body}].join('-')`
+    const expected = source.replace(original, (_, list, separator) => JSON.stringify([...list.matchAll(/["']([^"']*)["']/g)].map((entry: RegExpMatchArray) => entry[1]).join(separator)))
+    expect(RoomRules.foldLiteralPaths(source)).toBe(expected)
+  }
+})

@@ -384,15 +384,39 @@ export function foldLiteralPaths(command: string): string {
     .replace(/(?:atob|\[Convert\]::FromBase64String)\(\s*["']([A-Za-z0-9+/=]{4,2048})["']\s*\)/gi, (whole, value) => decoded(whole, value, "base64"))
   const literal = /["']([^"'\\\r\n]*)["']\s*\+\s*["']([^"'\\\r\n]*)["']/g
   for (let n = 0; n < 16; n++) {
-    const next = result.replace(literal, (_, a, b) => JSON.stringify(a + b))
-      .replace(/\[((?:\s*["'][^"'\\\r\n]*["']\s*,?)+)\]\.join\(\s*["']([^"'\\\r\n]*)["']\s*\)/g, (_, list, separator) => {
-        const values = [...list.matchAll(/["']([^"']*)["']/g)].map((entry: RegExpMatchArray) => entry[1])
-        return JSON.stringify(values.join(separator))
-      })
+    const next = foldLiteralJoins(result.replace(literal, (_, a, b) => JSON.stringify(a + b)))
     if (next === result) break
     result = next
   }
   return result
+}
+
+// Scan constant array items with a sticky single-item pattern. A repeated
+// item regex had overlapping whitespace/empty strings and exponential failure.
+function foldLiteralJoins(command: string) {
+  const item = /\s*["']([^"'\\\r\n]*)["']\s*,?/y
+  const suffix = /\]\.join\(\s*["']([^"'\\\r\n]*)["']\s*\)/y
+  let result = ""
+  let copied = 0
+  for (let start = command.indexOf("["); start !== -1; start = command.indexOf("[", start + 1)) {
+    let at = start + 1
+    const values: string[] = []
+    while (at < command.length) {
+      item.lastIndex = at
+      const match = item.exec(command)
+      if (!match) break
+      values.push(match[1])
+      at = item.lastIndex
+    }
+    if (!values.length) continue
+    suffix.lastIndex = at
+    const joined = suffix.exec(command)
+    if (!joined) continue
+    result += command.slice(copied, start) + JSON.stringify(values.join(joined[1]))
+    copied = suffix.lastIndex
+    start = copied - 1
+  }
+  return result + command.slice(copied)
 }
 
 export function redactPath(text: string, directory: string) {
