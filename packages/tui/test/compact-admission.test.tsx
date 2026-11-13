@@ -216,7 +216,8 @@ test.each(["first", "second"])(
       await selectModel("second")
       await setup.mockInput.typeText("Second prompt")
       setup.mockInput.pressEnter()
-      await setup.waitForFrame((frame) => frame.split("\n").slice(0, 20).join("\n").includes("Second prompt"))
+      // The collapsed dock previews the head, not every queued prompt.
+      await setup.waitForFrame((frame) => frame.includes("2 queued") && frame.includes("First prompt"))
       expect(mutations).toHaveLength(submitted)
       first.resolve()
       expect(await secondRequested.promise).toBe("second")
