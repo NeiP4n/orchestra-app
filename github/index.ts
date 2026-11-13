@@ -1,3 +1,4 @@
+import { downloadAttachment } from "./attachment-download"
 import { $ } from "bun"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
@@ -596,12 +597,7 @@ async function getUserPrompt() {
     const filename = path.basename(url)
 
     // Download image
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-    })
+    const res = await downloadAttachment(url, accessToken)
     if (!res.ok) {
       console.error(`Failed to download image: ${url}`)
       continue
