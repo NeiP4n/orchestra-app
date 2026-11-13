@@ -34,3 +34,36 @@ test("bounds redirect loops", async () => {
   await expect(downloadAttachment("https://github.com/user-attachments/assets/example", "synthetic-fixture", request)).rejects.toThrow()
   expect(calls).toBe(4)
 })
+
+for (const destination of [
+  "https://github.com.attacker.invalid/user-attachments/a",
+  "https://objects.githubusercontent.com.attacker.invalid/a",
+  "https://objects.githubusercontent.com@127.0.0.1/a",
+  "https://objects.githubusercontent.com:8443/a",
+  "https://user:pass@objects.githubusercontent.com/a",
+  "//127.0.0.1/private",
+  "file:///etc/hosts",
+  "https://[::1]/private",
+  "https://169.254.169.254/latest/meta-data/",
+  "http://objects.githubusercontent.com/a",
+]) test(`rejects redirect outside the exact HTTPS attachment boundary: ${destination}`, async () => {
+  const requests: string[] = []
+  const request = (async (url: string) => {
+    requests.push(url)
+    return new Response(null, { status: 302, headers: { location: destination } })
+  }) as typeof fetch
+  await expect(downloadAttachment("https://github.com/user-attachments/assets/example", "synthetic-fixture", request)).rejects.toThrow()
+  expect(requests).toEqual(["https://github.com/user-attachments/assets/example"])
+})
+
+test("checks every redirect hop, including after an approved CDN", async () => {
+  const requests: Array<{ url: string; options?: RequestInit }> = []
+  const request = (async (url: string, options?: RequestInit) => {
+    requests.push({ url, options })
+    return new Response(null, { status: 302, headers: { location: requests.length === 1 ? "https://objects.githubusercontent.com/a" : "https://127.0.0.1/private" } })
+  }) as typeof fetch
+  await expect(downloadAttachment("https://github.com/user-attachments/assets/example", "synthetic-fixture", request)).rejects.toThrow()
+  expect(requests).toHaveLength(2)
+  for (const request of requests) expect(request.options?.redirect).toBe("manual")
+  expect(requests[1].options?.headers).not.toHaveProperty("Authorization")
+})
