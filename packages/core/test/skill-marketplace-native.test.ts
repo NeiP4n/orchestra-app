@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, linkSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { Effect } from "effect"
 import { SkillMarketplaceManifest } from "@orchestra/core/skill-marketplace/manifest"
@@ -444,4 +444,57 @@ describe("pick ranking", () => {
     expect(picked.skills[0]?.name).toBe("summarize")
     expect(picked.skills.every((entry) => !("content" in entry))).toBe(true)
   })
+})
+
+for (const kind of ["symlink", "hardlink", "folder-symlink"] as const) test(`journal cannot append through ${kind}`, async () => {
+  await using tmp = await tmpdir()
+  const roots = { society: undefined, project: path.join(tmp.path, "project"), session: undefined }
+  const directory = path.join(roots.project, "native-skills")
+  const outside = path.join(tmp.path, "outside")
+  mkdirSync(roots.project)
+  if (kind === "folder-symlink") {
+    mkdirSync(outside)
+    writeFileSync(path.join(outside, "journal.jsonl"), "untouched")
+    symlinkSync(outside, directory, process.platform === "win32" ? "junction" : "dir")
+  } else {
+    mkdirSync(directory)
+    writeFileSync(outside, "untouched")
+    if (kind === "hardlink") linkSync(outside, path.join(directory, "journal.jsonl"))
+    else symlinkSync(outside, path.join(directory, "journal.jsonl"))
+  }
+  await run(SkillMarketplaceLevels.appendJournal(roots, "project", {
+    at: 1, kind: "install", skill: "gather", level: "project", problem: "installed", decision: "installed",
+  }))
+  expect(readFileSync(kind === "folder-symlink" ? path.join(outside, "journal.jsonl") : outside, "utf8")).toBe("untouched")
+})
+
+test("journal rejects a hard link swapped just before open without failing its caller", async () => {
+  await using tmp = await tmpdir()
+  const script = path.join(tmp.path, "journal-race.mjs")
+  writeFileSync(script, `
+import { mock } from 'bun:test'
+import * as fs from 'node:fs/promises'
+import path from 'node:path'
+const { Effect } = await import(process.argv[4])
+const directory = process.argv[2], outside = path.join(directory, 'outside'), target = path.join(directory, 'native-skills', 'journal.jsonl')
+await fs.mkdir(path.dirname(target))
+await fs.writeFile(target, 'original')
+await fs.writeFile(outside, 'untouched')
+const original = fs.open
+let armed = true
+mock.module('node:fs/promises', () => ({...fs, open: async(file, ...args) => {
+ if (armed && file === target) { armed = false; await fs.unlink(target); await fs.link(outside, target) }
+ return original(file, ...args)
+}}))
+const { SkillMarketplaceLevels } = await import(process.argv[3])
+await Effect.runPromise(SkillMarketplaceLevels.appendJournal({society:undefined,session:undefined,project:directory},'project',{at:1,kind:'install',skill:'test',level:'project',problem:'test',decision:'test'}))
+console.log(await fs.readFile(outside,'utf8'))
+`)
+  // Resolve dependencies from the package rather than the temporary script.
+  const child = Bun.spawn([process.execPath, script, tmp.path, path.resolve(import.meta.dir, "../src/skill-marketplace/levels.ts"), import.meta.resolve("effect")], {
+    stdout: "pipe", stderr: "pipe", env: { ...process.env, NODE_PATH: path.resolve(import.meta.dir, "../node_modules") },
+  })
+  const output = await new Response(child.stdout).text(), error = await new Response(child.stderr).text()
+  expect(await child.exited, error).toBe(0)
+  expect(output.trim()).toBe("untouched")
 })

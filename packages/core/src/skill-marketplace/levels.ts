@@ -1,6 +1,7 @@
 export * as SkillMarketplaceLevels from "./levels.js"
 
-import { appendFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises"
+import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises"
+import { constants } from "node:fs"
 import path from "path"
 import { Effect, Option, Result, Schema } from "effect"
 import { Flock } from "@orchestra/util/flock"
@@ -194,19 +195,30 @@ export const appendJournal = (roots: Roots, level: Level, entry: JournalEntry): 
     const target = path.join(registryDir(dir), JOURNAL_FILE)
     yield* Effect.tryPromise({
       try: async () => {
-        await mkdir(path.dirname(target), { recursive: true })
-        // A3-12: rotate at the size cap, keeping one older copy. Rotation is
-        // best-effort like the append itself: any failure here still ends in
-        // the append attempt below, and the journal never fails its caller.
-        try {
-          if ((await stat(target)).size >= JOURNAL_MAX_BYTES) {
+        const directory = path.dirname(target)
+        await mkdir(directory, { recursive: true })
+        const folder = await lstat(directory)
+        if (!folder.isDirectory() || folder.isSymbolicLink()) return
+        let before = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error
+          return undefined
+        })
+        if (before && (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1)) return
+        // Rotation remains best-effort, but an unsafe target never falls back
+        // to appendFile, which follows both symbolic and hard links.
+        if (before && before.size >= JOURNAL_MAX_BYTES) {
+          try {
             await rm(`${target}.1`, { force: true })
             await rename(target, `${target}.1`)
-          }
-        } catch {
-          // No journal yet, or rotation failed: append anyway.
+            before = undefined
+          } catch { /* A safe existing journal may still accept this entry. */ }
         }
-        await appendFile(target, `${JSON.stringify(entry)}\n`)
+        const handle = await open(target, constants.O_WRONLY | constants.O_APPEND | (before ? 0 : constants.O_CREAT | constants.O_EXCL) | (constants.O_NOFOLLOW ?? 0), 0o600)
+        try {
+          const actual = await handle.stat()
+          if (!actual.isFile() || actual.nlink !== 1 || (before && (actual.ino !== before.ino || actual.dev !== before.dev))) return
+          await handle.writeFile(`${JSON.stringify(entry)}\n`)
+        } finally { await handle.close() }
       },
       catch: () => undefined,
     }).pipe(Effect.result, Effect.asVoid)
