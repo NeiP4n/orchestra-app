@@ -335,8 +335,10 @@ test("a click on the gear does not toggle the project row underneath", async () 
   await setup.mockMouse.click(gear.x, gear.y)
 
   await setup.waitForFrame((f) => f.includes("Edit project"))
-  // The row's own action is expand/collapse; a gear click must not reach it and fold the project.
-  expect(setup.captureCharFrame()).toContain("Orchestrator")
+  // The modal hides the tree while open. Inspect the preserved expansion after closing it.
+  setup.mockInput.pressEscape()
+  const restored = await setup.waitForFrame(frame => !frame.includes("Edit project") && frame.includes("Demo"))
+  expect(restored).toContain("Orchestrator")
 })
 
 test("a press released away from the gear does not open project settings", async () => {
@@ -752,11 +754,14 @@ test("the compact layout docks both side panels beside the chat on a laptop-size
   const calls: Call[] = []
   await using setup = await render(state.path, calls, [project], worker, "compact", { width: 140, sidebar: "auto" })
 
-  // the project panel on the left and the session sidebar on the right share one row with the chat
-  const top = (frame: string) => frame.split("\n").find((line) => line.includes("Projects")) ?? ""
-  const row = top(await setup.waitForFrame((frame) => top(frame).lastIndexOf("Worker task") >= 140 - SESSION_SIDEBAR_COMPACT_WIDTH))
-  // the sidebar is the compact width, at the right edge
-  expect(row.lastIndexOf("Worker task")).toBeGreaterThanOrEqual(140 - SESSION_SIDEBAR_COMPACT_WIDTH)
+  // The pause switch owns the first row now. Both panels still dock beside
+  // the chat: the sidebar title stays at the right edge, Projects at the left.
+  const frame = await setup.waitForFrame(frame => frame.split("\n").some(line => line.lastIndexOf("◉ Worker task") >= 140 - SESSION_SIDEBAR_COMPACT_WIDTH))
+  const row = frame.split("\n").find(line => line.includes("◉ Worker task"))!
+  expect(row.lastIndexOf("◉ Worker task")).toBeGreaterThanOrEqual(140 - SESSION_SIDEBAR_COMPACT_WIDTH)
+  const projects = frame.split("\n").find(line => line.includes("Projects ✎"))!
+  expect(projects.indexOf("Projects")).toBeLessThan(40)
+  expect(row.indexOf("Worker task")).toBeGreaterThan(32)
 })
 
 test("an expanded project folds sessions past the cap behind a more row", async () => {

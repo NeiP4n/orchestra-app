@@ -89,18 +89,18 @@ test("every project tree has a Browsers group with its browser sessions, orphan 
 test("deleting a chat or removing a browser session cleans the Browser tab: no pointer to a gone chat, no foreign chat beside the page", () => {
   expect(read("component/project-tree.tsx")).toContain("notes.retireDeletedBrowserChat(session.id)")
   expect(read("component/project-tree.tsx")).toContain("data.session.evict(session.id)")
-  expect(read("component/project-tree.tsx")).toContain("await client.api.session.remove({ sessionID: chatID })")
+  expect(read("component/project-tree.tsx")).toContain("await client.api.session.remove({ sessionID })")
   expect(read("util/browser-sessions.ts")).toContain("export function forgetBrowserChat")
   expect(read("component/session-frame.tsx")).toContain("A chat no browser session owns")
 })
 
 test("a browser session row in the Browsers group opens only its chat from Projects, and the view follow-up leaves the tab", () => {
   const tree = read("component/project-tree.tsx")
-  expect(tree).toContain("openedFromProjects.add(item.chat)")
+  expect(tree).toContain("openedFromProjects.add(chat)")
   const rowStart = tree.indexOf('id={`browser:${item.id}`}')
   const row = tree.slice(rowStart, tree.indexOf('<Branch lit=', rowStart))
   expect(row).not.toContain('notes.setTab("browser")')
-  expect(row).toContain('notes.tab() !== "browser" && item.chat')
+  expect(row).toContain('notes.tab() !== "browser" && chat')
   expect(read("component/session-frame.tsx")).toContain("openedFromProjects.delete(id)")
 })
 

@@ -56,7 +56,7 @@ test("home side panels collapse and restore from their own edge controls", async
     },
   })
   await setup.ready
-  await setup.waitForFrame((frame) => frame.includes("Project DoD") && frame.includes("Multiplayer"))
+  await setup.waitForFrame((frame) => frame.includes("Project overview") && frame.includes("Multiplayer"))
 
   const clickGlyphOnLine = async (needle: string, glyph: string, rightmost = false) => {
     const lines = setup.captureCharFrame().split("\n")
@@ -82,15 +82,15 @@ test("home side panels collapse and restore from their own edge controls", async
   }
 
   await clickGlyphOnLine("Projects", "‹", true)
-  await setup.waitForFrame((frame) => !frame.includes("Multiplayer") && frame.includes("Project DoD"))
+  await setup.waitForFrame((frame) => !frame.includes("Multiplayer") && frame.includes("Project overview"))
   const leftRail = glyphAtEdge("›", "left")
   await setup.mockMouse.click(leftRail.x, leftRail.y)
-  await setup.waitForFrame((frame) => frame.includes("Multiplayer") && frame.includes("Project DoD"))
+  await setup.waitForFrame((frame) => frame.includes("Multiplayer") && frame.includes("Project overview"))
 
   const homeHide = glyphAtEdge("›", "right")
   await setup.mockMouse.click(homeHide.x, homeHide.y)
-  await setup.waitForFrame((frame) => !frame.includes("Project DoD"))
+  await setup.waitForFrame((frame) => !frame.includes("Project overview"))
   const rightRail = glyphAtEdge("‹", "right")
   await setup.mockMouse.click(rightRail.x, rightRail.y)
-  await setup.waitForFrame((frame) => frame.includes("Project DoD"))
+  await setup.waitForFrame((frame) => frame.includes("Project overview"))
 })
