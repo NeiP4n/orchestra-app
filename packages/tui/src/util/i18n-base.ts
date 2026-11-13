@@ -7,6 +7,8 @@ export type Language = "en" | "ru"
 const ru: Record<string, string> = {
   "Pausing / resuming…": "Приостанавливаем / продолжаем…",
   "All projects: no data": "Все проекты: нет данных",
+  "Pause all projects": "Приостановить все проекты",
+  "Resume all projects": "Продолжить все проекты",
   "All projects: ON": "Все проекты: ВКЛ",
   "All projects: PAUSED": "Все проекты: ПАУЗА",
   "Could not update. Retry": "Не удалось обновить. Повторить",

@@ -1,3 +1,4 @@
+import { ContinuationSwitchConnected } from "./component/continuation-switch"
 import { mcpRegistryState, mcpRegistryToggle } from "./util/mcp-registry"
 import { render, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { registerOrchestraSpinner } from "./component/register-spinner"
@@ -1653,6 +1654,9 @@ function App() {
       }
     >
       <UserNameBar />
+      {/* The sidebar may be folded or absent on a narrow terminal. Keep the
+          global pause control visible and its palette command mounted. */}
+      <ContinuationSwitchConnected global visible={!leftPanelVisible() || mobile()} />
       <box
         flexGrow={1}
         minHeight={0}

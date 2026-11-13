@@ -3,13 +3,31 @@ import { Show } from "solid-js"
 import { useClient } from "../context/client"
 import { useTheme } from "../context/theme"
 import { useT } from "../util/i18n"
+import { Keymap } from "../context/keymap"
+import { useDialog } from "../ui/dialog"
 import { HoverAction } from "./hover-action"
 
-export function ContinuationSwitch(props: { access: ContinuationAccess; compact?: boolean }) {
+export function ContinuationSwitch(props: { access: ContinuationAccess; compact?: boolean; global?: boolean; visible?: boolean }) {
   const control = createContinuationControl(props.access)
   const theme = useTheme()
   const tr = useT()
+  if (props.global) {
+    const dialog = useDialog()
+    Keymap.createLayer(() => ({
+      mode: "global",
+      commands: [{
+        id: "continuation.toggle",
+        title: control.enabled() === false ? "Resume all projects" : "Pause all projects",
+        group: "System",
+        bind: false,
+        palette: true,
+        enabled: !control.busy() && control.enabled() !== undefined,
+        run: () => { dialog.clear(); void control.toggle() },
+      }],
+    }))
+  }
   return (
+    <Show when={props.visible !== false}>
     <box flexDirection="column" flexShrink={0} paddingLeft={1}>
       <HoverAction
         id="continuation.toggle"
@@ -43,14 +61,17 @@ export function ContinuationSwitch(props: { access: ContinuationAccess; compact?
         </HoverAction>
       </Show>
     </box>
+    </Show>
   )
 }
 
-export function ContinuationSwitchConnected(props: { compact?: boolean }) {
+export function ContinuationSwitchConnected(props: { compact?: boolean; global?: boolean; visible?: boolean }) {
   const client = useClient()
   return (
     <ContinuationSwitch
       compact={props.compact}
+      global={props.global}
+      visible={props.visible}
       access={{
         get: () => client.api.config.continuation.get(),
         set: (value) => client.api.config.continuation.set(value),
