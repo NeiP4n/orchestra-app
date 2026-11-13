@@ -884,7 +884,7 @@ describe("ShellTool", () => {
         const command = isWindows ? `Set-Content -LiteralPath '${file}' changed` : `sed -i 's/original/changed/g' '${file}'`
         const result = yield* executeTool(registry, call({ command }))
         expect(yield* Effect.promise(() => Bun.file(file).text())).toBe("original")
-        expect(JSON.stringify(result)).toContain("Plot paths must stay inside the project directory")
+        expect(JSON.stringify(result)).toContain("Shell write target is outside the calling session's project root")
       }))
     }), tmp => Effect.promise(() => tmp[Symbol.asyncDispose]()),
   ))
@@ -1982,3 +1982,19 @@ describe("ShellTool forbidden commands", () => {
     }),
   )
 })
+
+productionIt.live("executes a file-based Node script and test suite with real shell output",()=>Effect.acquireUseRelease(
+ Effect.promise(()=>tmpdir("orchestra-real-script-")),tmp=>{
+  reset()
+  return withSession(tmp.path,registry=>Effect.gen(function*(){
+   yield* Effect.promise(()=>Bun.write(path.join(tmp.path,"sum.mjs"),"export const sum=(a,b)=>a+b\n"))
+   yield* Effect.promise(()=>Bun.write(path.join(tmp.path,"sum.test.mjs"),"import {test} from 'node:test';import assert from 'node:assert/strict';import {sum} from './sum.mjs';test('positive',()=>assert.equal(sum(2,3),5));test('negative',()=>assert.equal(sum(-3,2),-1));\n"))
+   const result=yield* executeTool(registry,call({command:"node --test sum.test.mjs"},"real-script-tests"))
+   expect(result.status).toBe("completed")
+   expect(result.metadata).toMatchObject({exit:0,truncated:false})
+   const output=JSON.stringify(result.content)
+   expect(output).toContain("# pass 2")
+   expect(output).toContain("# fail 0")
+  }))
+ },tmp=>Effect.promise(()=>tmp[Symbol.asyncDispose]()),
+))

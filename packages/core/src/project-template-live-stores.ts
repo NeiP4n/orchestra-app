@@ -184,6 +184,9 @@ export function make(deps: Dependencies) {
     directory: r.directory,
     created: r.createdAt,
     main: r.plan.mainSessionID!,
+    // Match normal project creation. Otherwise a live project listing migrates
+    // this field between publish and verifyPublished and breaks exact replay.
+    workEnabled: true,
   })
   const service = Materialize.make({
     lock: (id, action) => Flock.withLock(path.join(deps.root, id + ".import-lock"), action),

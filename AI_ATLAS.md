@@ -3139,3 +3139,11 @@ persist exact-scope decision ordinals. Existing McpRatings successes mean transp
 return (including isError), not verified task success, so no adapter launders those
 rows into verifiedSuccesses. Next slice must record source-grounded task outcome
 verification and durable ordinals before exposing a recommendation in the orchestrator.
+
+### November 13 dev QA follow-up
+
+- Session admission uses client message IDs as durable idempotency keys, never text/time coalescing. Delivery receipts skip accepted finals only after stale tool/compaction settlement.
+- Dispatch claims the run mapped to its event. Deferred provider retries retain full briefs, archive failed admission after terminal backoff, notify main, and clear removed owners without deleting healthy paused work.
+- Credential guards fold bounded constant encodings without evaluating code. `credential-guard.ts` logs only hashes/flags for suspicious construction and protected file denial, including native read/write permission checks. This is not an OS sandbox for arbitrary scripts.
+- Failed model attempts keep reported usage in step events and opt-in numeric request measurements; failure remains failure and unknown usage remains null.
+- Template materialization publishes `workEnabled: true` like normal project creation, so listing cannot mutate the record between publication and exact checkpoint verification.

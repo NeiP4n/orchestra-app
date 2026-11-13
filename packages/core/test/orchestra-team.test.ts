@@ -3053,7 +3053,7 @@ it.live("v2 live import persists process before publication and resumes without 
   expect((yield* Effect.promise(()=>operator.list())).some(row=>row.id==='legacy_template')).toBe(true)
   const legacyUpdate=yield* Effect.promise(()=>operator.prepareSave(reserved.projectID,[],'legacy_template'))
   expect(JSON.parse(legacyUpdate.details).version).toBe(1)
-  expect(legacyUpdate.name).toBe(source.name)
+  expect(legacyUpdate.name).toBe('Final process factory')
   yield* Effect.promise(()=>operator.confirmSave(legacyUpdate.token,[]))
   yield* Effect.promise(()=>operator.confirmSave(legacyUpdate.token,[]))
   const legacyUpdated=yield* Effect.promise(()=>ProjectTemplateLibrary.local(data).preview('legacy_template'))
