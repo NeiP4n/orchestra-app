@@ -19,6 +19,7 @@ import { LocationEvent } from "./location-event.js"
 import { McpEvent } from "./mcp-event.js"
 import { Model } from "./model.js"
 import { ModelsDev } from "./models-dev.js"
+import { Orchestra } from "./orchestra.js"
 import { Note } from "./note.js"
 import { Permission } from "./permission.js"
 import { PersistentPty } from "./persistent-pty.js"
@@ -59,6 +60,7 @@ const featureDefinitions = Event.inventory(
   ...Permission.Event.Definitions,
   ...Plugin.Event.Definitions,
   ...Project.Event.Definitions,
+  ...Orchestra.Event.Definitions,
   ...Worktree.Event.Definitions,
   ...Command.Event.Definitions,
   ...Config.Event.Definitions,

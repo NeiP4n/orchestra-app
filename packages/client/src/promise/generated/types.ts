@@ -1230,6 +1230,15 @@ export type PluginUpdated = {
   data: {}
 }
 
+export type OrchestraProjectsChanged = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "orchestra.projects.changed"
+  location?: LocationRef
+  data: {}
+}
+
 export type WorktreeUpdated = {
   id: string
   created: number
@@ -3106,6 +3115,7 @@ export type V2Event =
   | PermissionReplied
   | PluginUpdated
   | ProjectUpdated
+  | OrchestraProjectsChanged
   | WorktreeUpdated
   | WorktreeResolved
   | CommandUpdated

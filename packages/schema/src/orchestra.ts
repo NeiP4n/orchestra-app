@@ -1,5 +1,6 @@
 export * as Orchestra from "./orchestra.js"
 
+import { ephemeral, inventory } from "./event.js"
 import { Option, Schema } from "effect"
 import { Agent } from "./agent.js"
 import { ascending } from "./identifier.js"
@@ -1588,3 +1589,7 @@ export function playbookOf(template: Pick<Template, "id" | "playbook">) {
     undefined
   )
 }
+
+/** Invalidates the operator project list only after its KV state changes. */
+const ProjectsChanged = ephemeral({ type: "orchestra.projects.changed", schema: {} })
+export const Event = { ProjectsChanged, Definitions: inventory(ProjectsChanged) }

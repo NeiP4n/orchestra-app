@@ -2944,11 +2944,21 @@ it.live("v2 live import persists process before publication and resumes without 
   expect(yield* store.list({directoryPrefix:AbsolutePath.make(reserved.directory)})).toEqual([])
   expect(Exit.isFailure(yield* Effect.promise(()=>adapter.resume(reserved.id)).pipe(Effect.exit))).toBe(true)
   expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(true)
+  const publicChanges: string[] = []
+  yield* (yield* Bus.Service).subscribe((yield* Effect.promise(() => import('@orchestra/schema/orchestra'))).Orchestra.Event.ProjectsChanged).pipe(
+    Stream.runForEach(() => orchestra.projects().pipe(Effect.tap(rows => Effect.sync(() => { if(rows.some(row => row.id===reserved.projectID)) publicChanges.push(reserved.projectID) })))),
+    Effect.forkScoped({startImmediately:true}),
+  )
   const change=yield* orchestra.changes.pipe(Stream.take(1),Stream.runCollect,Effect.forkScoped({startImmediately:true}))
   const published=yield* Effect.promise(()=>adapter.resume(reserved.id))
   expect(yield* Fiber.join(change)).toHaveLength(1)
   expect(published.phase).toBe('published')
   expect(changed).toBe(1)
+  yield* Effect.sync(() => publicChanges.includes(reserved.projectID)).pipe(
+    Effect.repeat({while: ready => !ready,schedule:Schedule.spaced("5 millis")}),
+    Effect.timeout("1 second"),
+  )
+  expect(publicChanges).toContain(reserved.projectID)
   expect((yield* Effect.promise(()=>adapter.readReceipt(reserved.id)))?.phase).toBe('published')
   expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(false)
   const localAgent='team-'+ProcessSkills.namespace(reserved.projectID)+'2'

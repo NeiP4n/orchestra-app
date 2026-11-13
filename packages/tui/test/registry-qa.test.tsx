@@ -25,6 +25,16 @@ for (const width of [48, 120])
     await app.waitForFrame((f) => f.includes("MCP") && f.includes("Context7"))
     expect(app.captureCharFrame()).toContain("Templates")
     await Bun.write(`/tmp/registry-command-${width}.json`, JSON.stringify(app.captureSpans()))
+    // Registry uses the same modal scope as other dialogs. Base-mode
+    // navigation shortcuts do not replace an open modal implicitly.
+    await app.mockInput.pressKey("p", { ctrl: true })
+    await app.renderOnce()
+    expect(app.captureCharFrame()).toContain("Templates")
+    expect(app.captureCharFrame()).not.toContain("tab category")
+    await app.mockInput.pressKey("ESCAPE")
+    await app.waitForFrame(f => f.includes("Ask anything"))
+    await app.mockInput.pressKey("p", { ctrl: true })
+    await app.waitForFrame(f => f.includes("tab category"))
   })
 for (const width of [48, 120])
   test(`long imported template details remain inside Registry scroll at ${width}`, async () => {

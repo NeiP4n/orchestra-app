@@ -682,6 +682,7 @@ const layer: Layer.Layer<
     const save = (project: Project) => Effect.gen(function* () {
       yield* Rules.snapshotDefaults(kv, project.id).pipe(Effect.orDie)
       yield* kv.set(PROJECT + project.id, Schema.encodeSync(Project)(project))
+      yield* bus.publish(Orchestra.Event.ProjectsChanged, {})
       return project
     })
 
@@ -2309,6 +2310,10 @@ const layer: Layer.Layer<
     )
 
     const changed = yield* PubSub.sliding<void>(16)
+    const notifyChanged = () => Effect.gen(function* () {
+      yield* PubSub.publish(changed, undefined)
+      yield* bus.publish(Orchestra.Event.ProjectsChanged, {})
+    })
 
     const stored = Effect.fnUntraced(function* <A extends { created: number }>(
       prefix: string,
@@ -2950,7 +2955,7 @@ const layer: Layer.Layer<
                 yield* kv.remove("orchestra/process-skill-definitions/" + id)
                 yield* kv.remove(ProjectTemplateV2Runtime.PROJECT_PROCESS + id)
                 yield* Effect.forEach(yield* scanAll(PROJECT_ROLE + id + "/"), entry => kv.remove(entry.key), { discard: true })
-                yield* PubSub.publish(changed, undefined)
+                yield* notifyChanged()
                 yield* kv.remove(MOVE_PLAN + id)
                 yield* kv.remove(STAGE + id)
                 for (const scope of [Rules.projectScope(id), Rules.projectDefaultsScope(id), Rules.orchestratorScope(id)]) {
@@ -3527,7 +3532,7 @@ const layer: Layer.Layer<
         }
         return history
       }),
-      reload: () => PubSub.publish(changed, undefined).pipe(Effect.asVoid),
+      reload: () => notifyChanged(),
       changes: Stream.fromPubSub(changed),
     })
     const removeContinuationListener = continuationControl.listen(

@@ -37,6 +37,8 @@ export type ProcessAdapter = Materialize.ProcessAdapter
 export interface Dependencies {
   kv: KV.Interface
   process?: ProcessAdapter
+  /** Post-commit list invalidation, including legacy v1 templates. */
+  changed?: () => Promise<void>
   sessions: {
     create: (input: {
       id: Session.ID
@@ -385,9 +387,10 @@ export function make(deps: Dependencies) {
       if (!exact(serial(expected), serial(receipt.plan)) || receipt.directory !== path.join(deps.root, receipt.id))
         throw Error("Import reservation no longer matches its source.")
       const result = await service.apply(receipt)
-      if (receipt.process) {
+      const changed = deps.changed ?? (receipt.process ? deps.process?.changed : undefined)
+      if (changed) {
         try {
-          await deps.process!.changed()
+          await changed()
         } catch {
           // The durable checkpoint is already published. A best-effort UI
           // invalidation cannot turn this committed create into a failed create.

@@ -108,6 +108,7 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         })),
       }, projectID),
       live: (settingsDirectory,destinationRoot) => ProjectTemplateLiveStores.make({ kv, store, sessions, root: destinationRoot ?? path.join(global.data, "template-projects"), installedVersion: app.version, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        changed: () => Effect.runPromise(orchestra.reload()),
         process: ProjectTemplateV2Runtime.make({ kv, dataDirectory: global.data, installedVersion: app.version,
           destination: async directory => {
             const target = directory && await stat(directory).then(s => s.isDirectory(), error => { if (error.code === "ENOENT") return false; throw error }) ? directory : settingsDirectory

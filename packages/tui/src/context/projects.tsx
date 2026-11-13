@@ -21,6 +21,12 @@ export const { use: useProjects, provider: ProjectsProvider } = createSimpleCont
         void owner.refetch()
       }),
     )
+    // Session creation may precede template publication. Refetch again when
+    // the committed project state changes, including changes by another client.
+    onCleanup(client.event.on("orchestra.projects.changed", () => {
+      void refetch()
+      void owner.refetch()
+    }))
     // Claims made here, kept apart so a refetch racing the server write cannot drop them.
     const [claimed, setClaimed] = createStore<Record<string, string>>({})
     // A project's orchestrator claims its new sessions before creating them, so the claim is already readable.

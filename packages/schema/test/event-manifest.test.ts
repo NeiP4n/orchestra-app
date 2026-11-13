@@ -13,6 +13,7 @@ import {
   Session,
   Workspace,
 } from "../src/index.js"
+import { Orchestra } from "../src/orchestra.js"
 import { EventManifest } from "../src/event-manifest.js"
 import { FileSystemV1 } from "../src/filesystem-v1.js"
 import { McpEvent } from "../src/mcp-event.js"
@@ -40,6 +41,7 @@ describe("public event manifest", () => {
     expect(EventManifest.Server.get("session.created")).toBe(SessionEvent.Created)
     expect(EventManifest.Server.get("session.deleted")).toBe(SessionEvent.Deleted)
     expect(EventManifest.Server.get("project.updated")).toBe(Project.Event.Updated)
+    expect(EventManifest.Server.get("orchestra.projects.changed")).toBe(Orchestra.Event.ProjectsChanged)
     expect(EventManifest.Server.has("mcp.tools.changed")).toBe(false)
     expect(Agent.Event.Updated.durable).toBeUndefined()
     expect(EventManifest.Durable.has("agent.updated")).toBe(false)
