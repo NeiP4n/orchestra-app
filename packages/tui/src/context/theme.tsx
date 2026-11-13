@@ -114,12 +114,6 @@ type ThemeContextValue = {
   readonly ready: boolean
 }
 
-const [store, setStore] = createStore<State>({
-  mode: "dark",
-  lock: undefined,
-  active: "orchestra",
-  ready: false,
-})
 const [themeSources, setThemeSources] = createSignal(allThemes())
 
 subscribeThemes(setThemeSources)
@@ -127,6 +121,14 @@ subscribeThemes(setThemeSources)
 const themeContext = createSimpleContext({
   name: "Theme",
   init: (props: { mode: "dark" | "light"; source: ThemeSource }): ThemeContextValue => {
+    // A provider owns its selection and mode. Sharing this store between roots
+    // makes pinned light/dark config effects fight and can recurse forever.
+    const [store, setStore] = createStore<State>({
+      mode: "dark",
+      lock: undefined,
+      active: "orchestra",
+      ready: false,
+    })
     const renderer = useRenderer()
     const configState = useConfig()
     const config = configState.data

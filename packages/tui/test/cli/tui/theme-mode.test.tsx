@@ -177,3 +177,37 @@ test("dialog surfaces are absolute and can be inherited through the theme contex
     app.renderer.destroy()
   }
 })
+
+test("independent theme providers do not overwrite each other's pinned mode or selection", async () => {
+  const providers: ReturnType<typeof useThemes>[] = []
+  function Probe(props: { index: number }) {
+    providers[props.index] = useThemes()
+    return <text>{providers[props.index]!.selected}</text>
+  }
+  const app = await testRender(() => (
+    <box>
+      <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "orchestra", mode: "dark" } })}>
+        <ThemeProvider mode="dark" source={{ discover: async () => ({}) }}><Probe index={0} /></ThemeProvider>
+      </ConfigProvider>
+      <ConfigProvider config={createTuiResolvedConfig({ theme: { name: "vesper", mode: "light" } })}>
+        <ThemeProvider mode="light" source={{ discover: async () => ({}) }}><Probe index={1} /></ThemeProvider>
+      </ConfigProvider>
+    </box>
+  ), { width: 40, height: 4 })
+  try {
+    await wait(() => providers.length === 2 && providers.every((value) => value.ready))
+    expect(providers[0]!.selected).toBe("orchestra")
+    expect(providers[1]!.selected).toBe("vesper")
+    expect(providers[0]!.mode()).toBe("dark")
+    expect(providers[1]!.mode()).toBe("light")
+    providers[1]!.preview("orchestra")
+    expect(providers[0]!.selected).toBe("orchestra")
+    expect(providers[0]!.mode()).toBe("dark")
+    providers[0]!.setMode("light", false)
+    providers[0]!.preview("vesper")
+    expect(providers[1]!.selected).toBe("orchestra")
+    expect(providers[1]!.mode()).toBe("light")
+  } finally {
+    app.renderer.destroy()
+  }
+})
