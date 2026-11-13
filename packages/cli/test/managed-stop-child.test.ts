@@ -149,7 +149,8 @@ for (const phase of ["early", "post-boot"] as const)
           console.log(JSON.stringify({ phase, action, exit, status, closed, preserved, stdout, stderr: error }))
           if (action === "boot-failed") {
             expect(exit).toBe(1)
-            expect(stdout + error).toContain("SQLiteError: unable to open database file")
+            expect(stdout + error).toContain("database-is-a-directory failed integrity verification (truncated or corrupt)")
+            expect(stdout + error).toContain("orchestra db restore")
             expect(stdout).not.toContain('"stage":"post-boot"')
             expect(preserved).toBe(true)
           } else if (action === "owner") {
