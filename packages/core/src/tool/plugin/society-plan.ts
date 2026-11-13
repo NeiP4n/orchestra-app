@@ -105,6 +105,7 @@ export const Plugin = {
           execute: (input, context) =>
             Effect.gen(function* () {
               const scope = yield* resolve(context.sessionID)
+              if (!scope) return {output:{output:"society_plan is not applicable to this standalone project. No changes made. Use sessions action=plan for this project's work; use society_plan only from an existing Society planner or Society chat."}}
               const projects = yield* orchestra.projects()
 
               if (input.action === "status") {
@@ -531,18 +532,12 @@ export const Plugin = {
         if (chat) return { group: chat, role: "society chat" as const }
         const project = yield* orchestra.mainOf(sessionID).pipe(Effect.orElseSucceed(() => undefined))
         if (!project)
-          return yield* new ToolFailure({
-            message:
-              "society_plan works in a Society: from its planner project or from the Society chat. This session is neither.",
-          })
+          return undefined
         const planned = groups.find(
           (group) => FederationSchema.modeOf(group) === "council" && group.projects[0] === project.id,
         )
         if (planned) return { group: planned, role: `planner of ${project.name}` as const }
-        return yield* new ToolFailure({
-          message:
-            "society_plan works in a Society: from its planner project or from the Society chat. This session is neither.",
-        })
+        return undefined
       })
     }
   }),

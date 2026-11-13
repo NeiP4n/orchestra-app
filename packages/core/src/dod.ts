@@ -680,7 +680,7 @@ export const detail = Effect.fn("Dod.detail")(function* (directory: string, id: 
   if (text === undefined) return yield* new DodError({ message: `This project has no DoD (${FILE})` })
   const list = yield* leaves(text)
   const item = toItems(list, undefined, active).find((entry) => entry.id === id)
-  if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
+  if (!item) return yield* new DodError({ message: `The DoD has no item ${id}. Existing ids: ${list.slice(0,30).map(entry=>entry.id).join(", ") || "none"}. Use dod action=status and copy an existing id exactly.` })
   return { item, steps: list.find((leaf) => leaf.id === id)?.steps ?? [] }
 })
 
@@ -1031,7 +1031,7 @@ function change(
       if (before === undefined) return yield* new DodError({ message: `This project has no DoD (${FILE})` })
       const list = yield* items(before, live, active)
       const item = list.find((entry) => entry.id === id)
-      if (!item) return yield* new DodError({ message: `The DoD has no item ${id}` })
+      if (!item) return yield* new DodError({ message: `The DoD has no item ${id}. Existing ids: ${list.slice(0,30).map(entry=>entry.id).join(", ") || "none"}. Use dod action=status and copy an existing id exactly.` })
       const fields = decide(item, list)
       if (typeof fields === "string") return yield* new DodError({ message: fields })
       const edited = edit(before, id, fields)

@@ -157,7 +157,7 @@ describe("Plot", () => {
         yield* refusal(
           plots.guard({ sessionID: session.id, files: [path.resolve(directory, "..", "outside")] }),
         ),
-      ).toContain("must stay inside the project directory")
+      ).toContain("outside the calling session's project root")
       expect(yield* plots.list(directory)).toEqual([])
     }).pipe(Effect.scoped),
   )

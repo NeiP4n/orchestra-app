@@ -280,7 +280,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
             )
           : []
         if (canonicalFiles.length !== files.length || canonicalFiles.some((file) => file === undefined))
-          return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
+          return yield* new TakenError({ message: `Shell write target is outside the calling session's project root or resolves through an external symlink. Session project: ${directory}. A different workdir does not change project ownership. Use the session belonging to the target project or the guarded file tools with explicit external-directory approval. No command ran.` })
         const safeFiles = canonicalFiles as string[]
         for (const { plot, folder } of yield* live(safeFiles, directory)) {
           const touched = safeFiles.some((file) => plot.paths.some((held) => covers(held, file)))

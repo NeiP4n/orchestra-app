@@ -185,7 +185,7 @@ describe("Dod", () => {
     await run(Dod.take({ directory: dir.path, id: "L-002", owner: alex }))
     expect(await fails(Dod.take({ directory: dir.path, id: "L-002", owner: bo }))).toBe("L-002 is taken by Alex")
     expect(await fails(Dod.take({ directory: dir.path, id: "L-001", owner: bo }))).toBe("L-001 is already done")
-    expect(await fails(Dod.take({ directory: dir.path, id: "L-404", owner: bo }))).toBe("The DoD has no item L-404")
+    expect(await fails(Dod.take({ directory: dir.path, id: "L-404", owner: bo }))).toContain("The DoD has no item L-404. Existing ids:")
   })
 
   test("releasing gives the item back; only its owner or the host may", async () => {

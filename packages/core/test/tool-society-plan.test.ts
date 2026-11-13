@@ -305,8 +305,8 @@ describe("SocietyPlanTool apply", () => {
         action: "apply",
         chats: [{ project: team.id, budget: 100 }],
       })
-      expect(result.status).toBe("error")
-      expect(JSON.stringify(result.error)).toContain("society_plan works in a Society")
+      expect(result.status).toBe("completed")
+      expect(JSON.stringify(result)).toContain("not applicable to this standalone project")
       expect((yield* sessions.get(worker.id)).metadata?.[SessionPlan.BUDGET_KEY]).toBeUndefined()
     }),
     60_000,

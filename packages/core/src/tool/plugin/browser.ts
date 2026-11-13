@@ -116,7 +116,7 @@ const page = (info: { url: string; title: string }, text: string) =>
   ].join("\n")
 
 export const NO_SESSION =
-  "No browser session is selected for this project. Ask the operator to open the Browser tab and add or pick a browser session."
+  "No browser session is selected for this project. Run browser action=sessions to inspect the existing project sessions. Page work belongs to that session's BrowserAgent: ask the Orchestrator to dispatch there, or create role=browser-agent with a task-named title if none exists. Do not use desktop, an unrelated worker eval, or launch another browser as a workaround."
 
 // A short pause so a page that just navigated or reacted has started to render before it is read.
 const settle = () => new Promise((done) => setTimeout(done, 1500))
