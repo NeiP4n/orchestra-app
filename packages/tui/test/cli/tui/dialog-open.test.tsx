@@ -938,6 +938,7 @@ test("surfaces sessions awaiting permissions or questions at the top with attent
     )
     expect(frame.indexOf("! Old session awaiting permission")).toBeLessThan(frame.indexOf("Recent session 1"))
 
+    if (process.env.CAPTURE_OPEN_ATTENTION) await Bun.write(process.env.CAPTURE_OPEN_ATTENTION, JSON.stringify(fixture.app.captureSpans()))
     fixture.app.mockInput.pressEnter()
     await fixture.app.waitFor(() => fixture.route.data.type === "session")
     expect(fixture.route.data).toEqual({ type: "session", sessionID: "ses_parent_question" })

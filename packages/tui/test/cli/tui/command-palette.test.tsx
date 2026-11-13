@@ -135,8 +135,8 @@ test("browses commands and settings by category with counts, tab navigation, and
   try {
     // The rail lists every non-empty category: All, Suggested, the canonical
     // command categories (the legacy "Git" group collapses into VCS), then the
-    // settings sections. All holds 4 commands + 8 settings.
-    await app.waitForFrame((frame) => frame.includes("· 12 options"))
+    // settings sections. All holds 4 commands + 11 settings.
+    await app.waitForFrame((frame) => frame.includes("· 15 options"))
     const all = app.captureCharFrame()
     for (const label of ["All", "Suggested", "Session", "Agent", "VCS", "General", "Chat", "Notifications", "Developer"])
       expect(all).toContain(label)
@@ -173,6 +173,10 @@ test("browses commands and settings by category with counts, tab navigation, and
     app.mockInput.pressTab()
     await app.waitForFrame((frame) => frame.includes("Git status"))
     app.mockInput.pressTab()
+    await app.waitForFrame(frame => frame.includes("Безопасность · 2 options"))
+    app.mockInput.pressTab()
+    await app.waitForFrame(frame => frame.includes("Профиль · 2 options"))
+    app.mockInput.pressTab()
     await app.waitForFrame((frame) => frame.includes("Language") && frame.includes("· 3 options"))
     const general = app.captureCharFrame()
     expect(general).toContain("AI language")
@@ -180,7 +184,7 @@ test("browses commands and settings by category with counts, tab navigation, and
 
     // Enter on a setting opens the settings dialog at that setting.
     app.mockInput.pressEnter()
-    await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("default:"))
+    await app.waitForFrame((frame) => frame.includes("Settings") && frame.includes("AI language"))
   } finally {
     app.renderer.destroy()
   }
