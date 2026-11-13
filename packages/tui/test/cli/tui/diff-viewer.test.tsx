@@ -997,11 +997,20 @@ test.each([100, 160])("shared pane edges align headings and stay fixed at %i col
     const title = lines.findIndex((line) => line.includes("file00.txt"))
     expect(lines.findIndex((line) => line.includes("All"))).toBe(title)
     const frame = viewer.app.captureSpans()
-    const caps = frame.lines[title - 1].spans.filter((span) => span.width > 2)
-    expect(caps).toHaveLength(2)
-    caps.forEach((span) => expect(span.text.trim()).toBe(""))
-    expect(caps[0].bg).toEqual(frame.lines[title].spans.find((span) => span.text.includes("All"))!.bg)
-    expect(caps[1].bg).toEqual(frame.lines[title].spans.find((span) => span.text.includes("file00.txt"))!.bg)
+    // Equal neighboring colors may be coalesced into one capture span. Test
+    // each pane's actual cells and bounds, not the renderer's span encoding.
+    for (const [id, heading] of [["diff-tree-top-edge", "All"], ["diff-patch-top-edge", "file00.txt"]]) {
+      const edge = viewer.app.renderer.root.findDescendantById(id)!
+      expect(edge.y).toBe(title - 1)
+      expect(edge.height).toBe(1)
+      expect(edge.width).toBeGreaterThan(2)
+      expect(lines[edge.y].slice(edge.x, edge.x + edge.width)).toBe(" ".repeat(edge.width))
+      const cells = frame.lines[edge.y].spans.flatMap(span => Array.from({ length: span.width }, () => span.bg))
+      const color = frame.lines[title].spans.find(span => span.text.includes(heading))!.bg
+      expect(cells.slice(edge.x, edge.x + edge.width)).toEqual(Array.from({ length: edge.width }, () => color))
+    }
+    if (process.env.CAPTURE_DIFF_PANE_EDGES)
+      await Bun.write(`/tmp/diff-pane-edges-${width}.json`, JSON.stringify(frame))
     expect(title).toBe(1)
     expect(viewer.app.captureCharFrame()).not.toContain("Diff working tree")
     expect(lines[title + 1].slice(lines[title].indexOf("file00.txt")).trim()).toBe("")
@@ -1042,13 +1051,18 @@ test.each(["dark", "light"] as const)("the pane edge matches the visible reviewe
     const scroll = findScrollBox(viewer.app.renderer.root)!
     const expectEdge = (file: string, collapsed = false) => {
       const frame = viewer.app.captureSpans()
-      const edge = frame.lines[scroll.viewport.y - 1].spans.find((span) => span.width === scroll.viewport.width)!
-      const page = frame.lines[scroll.viewport.y - 1].spans.at(-1)!.bg
+      const edge = viewer.app.renderer.root.findDescendantById("diff-patch-top-edge")!
+      const cells = frame.lines[edge.y].spans.flatMap(span => Array.from({ length: span.width }, () => span.bg))
+      const page = cells.at(-1)!
       const title = frame.lines[scroll.viewport.y].spans.find((span) => span.text.includes(file))!
       expect(title, viewer.app.captureCharFrame()).toBeDefined()
-      expect(edge.text.trim()).toBe("")
-      expect(edge.bg).toEqual(title.bg)
-      expect(edge.bg).not.toEqual(page)
+      expect(edge.x).toBe(scroll.viewport.x)
+      expect(edge.y).toBe(scroll.viewport.y - 1)
+      expect(edge.width).toBe(scroll.viewport.width)
+      expect(viewer.app.captureCharFrame().split("\n")[edge.y].slice(edge.x, edge.x + edge.width)).toBe(" ".repeat(edge.width))
+      expect(cells.slice(edge.x, edge.x + edge.width)).toEqual(Array.from({ length: edge.width }, () => title.bg))
+      expect(edge.backgroundColor).toEqual(title.bg)
+      if (collapsed) expect(title.bg).not.toEqual(page)
       expect(frame.lines[0].spans[0].bg).toEqual(frame.lines[1].spans.find((span) => span.text.includes("All"))!.bg)
       const bottom = frame.lines[scroll.viewport.y + 1].spans.findLast((span) => span.text.includes("▀"))
       if (!collapsed) {
@@ -1056,7 +1070,7 @@ test.each(["dark", "light"] as const)("the pane edge matches the visible reviewe
         return
       }
       expect(bottom?.text.trim()).toBe("▀".repeat(scroll.viewport.width))
-      expect(bottom?.fg).toEqual(edge.bg)
+      expect(bottom?.fg).toEqual(title.bg)
       expect(bottom?.bg).toEqual(page)
     }
     expectEdge("file0.txt")
