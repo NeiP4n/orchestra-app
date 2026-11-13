@@ -53,7 +53,7 @@ const team = {
 function render(
   state: string,
   calls: Call[],
-  projects: (typeof project)[],
+  projects: (typeof project & { workEnabled?: boolean })[],
   listed = worker,
   layout: "compact" | "full" = "full",
   options: {

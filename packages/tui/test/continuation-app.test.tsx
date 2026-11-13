@@ -26,7 +26,7 @@ for (const language of ["en", "ru"] as const) for (const width of [32, 48, 80, 1
         if (/^\/api\/session\/[^/]+\/(message|inbox|permission)$/.test(url.pathname)) return json({ data: [], cursor: {} })
       },
     })
-    publish = enabled => app.events.emit({ id: "evt_pause_matrix", type: "config.continuation.updated", data: { enabled } })
+    publish = enabled => app.events.emit({ id: "evt_pause_matrix", created: Date.now(), type: "config.continuation.updated", data: { enabled } })
     await app.ready
     await app.waitForFrame(frame => frame.includes(on))
     const lines = app.captureCharFrame().split("\n")

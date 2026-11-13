@@ -1051,7 +1051,8 @@ test.each(["dark", "light"] as const)("the pane edge matches the visible reviewe
     const scroll = findScrollBox(viewer.app.renderer.root)!
     const expectEdge = (file: string, collapsed = false) => {
       const frame = viewer.app.captureSpans()
-      const edge = viewer.app.renderer.root.findDescendantById("diff-patch-top-edge")!
+      const edge = viewer.app.renderer.root.findDescendantById("diff-patch-top-edge")
+      if (!(edge instanceof BoxRenderable)) throw new Error("Missing diff patch top edge box")
       const cells = frame.lines[edge.y].spans.flatMap(span => Array.from({ length: span.width }, () => span.bg))
       const page = cells.at(-1)!
       const title = frame.lines[scroll.viewport.y].spans.find((span) => span.text.includes(file))!

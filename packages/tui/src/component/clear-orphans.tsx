@@ -30,7 +30,7 @@ export function ClearOrphansAction(props: {
       if (!yes) return
       const result = await props.api.confirm({ token: preview.token })
       for (const id of result.deleted) await props.afterRemove?.({ id })
-      props.notify({ message: t("Deleted {removed} orphan sessions; skipped {skipped}.", result), variant: result.skipped ? "warning" : "success", duration: 6000 })
+      props.notify({ message: t("Deleted {removed} orphan sessions; skipped {skipped}.", { removed: result.removed, skipped: result.skipped }), variant: result.skipped ? "warning" : "success", duration: 6000 })
     } catch (error) { props.notify({ message: t("Failed to clear sessions: {error}", { error: cleanupErrorMessage(error, t) }), variant: "error", duration: 6000 }) }
     finally { setBusy(false) }
   }
