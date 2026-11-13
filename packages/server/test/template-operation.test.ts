@@ -77,8 +77,8 @@ test("prepare-create role and model refusals identify a bounded cause, never rol
   for (const [stage, reasonCode, expectedKind] of [
     ["roles", "session-role-missing", "TEMPLATE_SESSION_ROLE"],
     ["roles", "rule-role-missing", "TEMPLATE_RULE_ROLE"],
-    ["roles", "core-role-different", "TEMPLATE_FAILED"],
-    ["session-models", "model-unavailable", "TEMPLATE_FAILED"],
+    ["roles", "core-role-different", "TEMPLATE_CORE_ROLE"],
+    ["session-models", "model-unavailable", "TEMPLATE_MODEL"],
   ] as const) {
     const messages: unknown[] = []
     const error = new TemplateStageError(stage, new Error("PRIVATE_RULES PRIVATE_MODEL PRIVATE_SESSION"), reasonCode)

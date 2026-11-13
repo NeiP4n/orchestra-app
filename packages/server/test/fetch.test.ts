@@ -63,6 +63,7 @@ it.live("recovers Orchestra tasks even when the session restart sweep fails", ()
       resumeSuspendedSessions: Effect.die(new Error("simulated session restart failure")),
     })
     const orchestra = Orchestra.Service.of({
+      projects: () => [],
       recoverPendingTasks: () =>
         Effect.sync(() => {
           recovered = true
