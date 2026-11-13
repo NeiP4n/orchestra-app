@@ -1115,7 +1115,7 @@ export function Prompt(props: PromptProps) {
   })
 
   let submitting = false
-  async function submit(delivery: SessionInbox.Delivery = "steer") {
+  async function submit(delivery: SessionInbox.Delivery = "queue") {
     if (disabled()) return false
     // Prevent overlapping invocations (e.g. a double-pressed Enter, or the
     // input's native onSubmit racing another dispatch). Without this guard,

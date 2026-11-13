@@ -1037,6 +1037,15 @@ const watchRename = Effect.fnUntraced(function* (sessionID: Session.ID) {
 })
 
 describe("SessionRunnerLLM", () => {
+  scenario("burst duplicate prompts coalesce without interrupting the current execution", function* (s) {
+    const admitted = yield* Effect.all([s.admit("Same burst prompt"),s.admit("Same burst prompt"),s.admit("Same burst prompt")],{concurrency:3})
+    expect(new Set(admitted.map(row=>row.id)).size).toBe(1)
+    yield* s.llm.push(TestLLM.text("One result", "one-burst"))
+    yield* s.resume
+    expect(s.requests).toHaveLength(1)
+    expect((yield* s.context).filter(message=>message.type==="user")).toHaveLength(1)
+  })
+
   scenario("accepted delivery survives force resume and permits a new user turn", function* (s) {
     yield* s.llm.push(TestLLM.text("Delivered final", "delivery-one"))
     yield* s.runPrompt("Return the result")
