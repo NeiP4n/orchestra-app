@@ -73,14 +73,18 @@ async function openDialogThenResync(target: string, dialog: string) {
   const lines = setup.captureCharFrame().split("\n")
   const row = lines.findIndex((line) => line.includes(target))
   await setup.mockMouse.click(lines[row]!.indexOf(target) + 2, row)
-  await setup.waitForFrame((frame) => frame.includes(dialog) && frame.includes("Turn 00"))
+  await setup.waitForFrame((frame) => frame.includes(dialog))
 
   setup.events.disconnect()
   await resync.promise
   // Older rows leave once the newest page is published, or the app crashes.
   await setup.waitForFrame((frame) => !frame.includes("Turn 00"))
   await setup.waitForVisualIdle({ quietFrames: 3 })
-  return setup.captureCharFrame()
+  const surviving = setup.captureCharFrame()
+  setup.mockInput.pressEscape()
+  await setup.waitForFrame(frame => frame.includes("Turn 20 prompt") && !frame.includes(dialog))
+  expect(setup.captureCharFrame()).not.toContain("Turn 00 prompt")
+  return surviving
 }
 
 test("message actions dialog survives a resync that drops its message", async () => {

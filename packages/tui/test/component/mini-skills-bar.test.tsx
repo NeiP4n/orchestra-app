@@ -58,7 +58,7 @@ test("the bar is the prompt's top line and lights the chip under the pointer", a
   try {
     const lines = setup.captureCharFrame().split("\n")
     expect(lines[0]).toContain("◎ Analyze")
-    expect(lines[0]).toContain("⚙ Skills")
+    expect(lines[0]).toContain("✱ Skills")
     // what does not fit goes behind +N instead of being cut
     expect(lines[0]).toMatch(/\+\d/)
     expect(lines[2]).toContain("prompt input")

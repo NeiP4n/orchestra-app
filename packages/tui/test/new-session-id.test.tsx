@@ -87,7 +87,7 @@ test("the first new session uses the launch session ID and later ones mint their
 })
 
 test("a failed first create keeps the launch session ID for the retry", async () => {
-  const run = await launch({ failCreates: 1 })
+  const run = await launch({ failCreates: 1, width: 160 })
   await using setup = run.setup
 
   await setup.ready
