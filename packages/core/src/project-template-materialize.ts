@@ -1,5 +1,6 @@
 export * as ProjectTemplateMaterialize from "./project-template-materialize.js"
 
+import { templateStage, type TemplateStage } from "./project-template-errors.js"
 import type { Session } from "@orchestra/schema/session"
 import { ProjectTemplateImport } from "./project-template-import.js"
 
@@ -107,12 +108,23 @@ export function make(ports: Ports) {
         }
         const advance = async (phase: Receipt["phase"], action: () => Promise<void>) => {
           if (PHASES.indexOf(receipt!.phase) >= PHASES.indexOf(phase)) return
-          await action()
-          const next = { ...receipt!, phase }
-          await ports.updateReceipt(next)
-          const saved = await ports.readReceipt(next.id)
-          if (!saved || !same(saved, next) || saved.phase !== phase) throw Error("Import checkpoint did not persist.")
-          receipt = saved
+          const stages: Partial<Record<Receipt["phase"], TemplateStage>> = {
+            directory: "base-project",
+            process: "process-bindings",
+            sessions: "base-sessions",
+            rules: "base-rules",
+            vault: "base-vault",
+            browsers: "base-browsers",
+            schedules: "base-schedules",
+          }
+          await templateStage(stages[phase] ?? "base-project", async () => {
+            await action()
+            const next = { ...receipt!, phase }
+            await ports.updateReceipt(next)
+            const saved = await ports.readReceipt(next.id)
+            if (!saved || !same(saved, next) || saved.phase !== phase) throw Error("Import checkpoint did not persist.")
+            receipt = saved
+          })
         }
         await advance("directory", () => ports.ensureDirectory(receipt!))
         if (receipt.process) await advance("process", () => ports.ensureProcess!(receipt!))
@@ -124,12 +136,14 @@ export function make(ports: Ports) {
         await advance("browsers", () => ports.ensureBrowsers(receipt!, receipt!.plan.browsers))
         await advance("schedules", () => ports.ensureSchedules(receipt!, receipt!.plan.schedules))
         // Always verify all actual stores on every resumed call, including checkpoints already written.
-        if (receipt.process) await ports.verifyProcess!(receipt)
-        await ports.verify(receipt)
+        if (receipt.process) await templateStage("process-bindings", () => ports.verifyProcess!(receipt!))
+        await templateStage("base-project", () => ports.verify(receipt!))
         await advance("verified", async () => {})
         // Crash after publish but before checkpoint is safe only because publish itself is create-only/idempotent.
-        await ports.publish(receipt)
-        await ports.verifyPublished(receipt)
+        await templateStage("base-project", async () => {
+          await ports.publish(receipt!)
+          await ports.verifyPublished(receipt!)
+        })
         await advance("published", async () => {})
         return receipt
       }),

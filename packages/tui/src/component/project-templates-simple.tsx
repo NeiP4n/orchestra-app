@@ -144,6 +144,9 @@ export function ProjectTemplatesSimple(props: {
         setMessage("Confirm the same operation again to continue without creating a second copy.")
         return
       }
+      // A successful retry replaces the previous failure, even if refreshing
+      // the library fails independently afterward.
+      setReason()
       // The commit succeeded. A list-refresh failure must never offer duplicate creation.
       try {
         await refresh()

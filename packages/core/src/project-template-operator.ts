@@ -392,7 +392,7 @@ export function make(deps: Deps) {
         const current = await library.preview(pending.libraryID)
         if (current.digest !== (pending.sourceDigest ?? pending.digest)) throw Error("Template changed after preview.")
       }
-      const result = pending.done && receipt.phase === "published" ? receipt : await live.resume(token)
+      const result = pending.done && receipt.phase === "published" ? receipt : await templateStage("reservation", () => live.resume(token))
       return {
         projectID: result.projectID,
         mainSessionID: result.plan.mainSessionID!,

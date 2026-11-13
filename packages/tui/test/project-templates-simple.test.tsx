@@ -137,6 +137,8 @@ test("confirmation retries the same operation after partial failure and refresh 
     await click("project-templates.confirm")
     await app.waitForFrame((f) => f.includes("Список пока не обновился"))
     expect(app.captureCharFrame()).toContain("Проект создан")
+    expect(app.captureCharFrame()).not.toContain("TEMPLATE_FAILED")
+    expect(app.captureCharFrame()).not.toContain("Template operation failed")
     expect(app.renderer.root.findDescendantById("project-templates.confirm")).toBeUndefined()
     expect(calls).toEqual(["durable-create", "durable-create"])
     if (process.env.CAPTURE_SIMPLE_FAILURE)

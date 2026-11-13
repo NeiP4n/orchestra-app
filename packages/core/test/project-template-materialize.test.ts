@@ -1,3 +1,4 @@
+import { TemplateStageError, templateDiagnosticOf } from "../src/project-template-errors"
 import { expect, test } from "bun:test"
 import { ProjectTemplateMaterialize as M } from "../src/project-template-materialize"
 import { ProjectTemplateImport } from "../src/project-template-import"
@@ -134,7 +135,10 @@ test("resume validates already-written stores and refuses publication when they 
   f.fail("schedules")
   await expect(f.service.apply(f.reservation)).rejects.toThrow()
   f.done.delete("vault")
-  await expect(f.service.apply(f.reservation)).rejects.toThrow("incomplete")
+  const failure = await f.service.apply(f.reservation).catch(error => error)
+  expect(failure).toBeInstanceOf(TemplateStageError)
+  expect(templateDiagnosticOf(failure)).toEqual({ stage: "base-project", reasonCode: "read-failed" })
+  expect(failure.original.message).toBe("incomplete")
   expect(f.isPublished()).toBe(false)
 })
 
@@ -157,10 +161,26 @@ test("process receipt refuses a missing adapter before writes and verifies the p
     f.calls.push("verify-process")
   }
   const service = M.make(f.ports)
-  await expect(service.apply(f.reservation)).rejects.toThrow("checkpoint")
+  const failure = await service.apply(f.reservation).catch(error => error)
+  expect(failure).toBeInstanceOf(TemplateStageError)
+  expect(templateDiagnosticOf(failure)).toEqual({ stage: "process-bindings", reasonCode: "read-failed" })
+  expect(failure.original.message).toBe("process checkpoint lost")
   expect(f.calls).not.toContain("sessions")
   expect(f.isPublished()).toBe(false)
   await service.apply(f.reservation)
   expect(f.calls.filter((call) => call === "process")).toHaveLength(2)
   expect(f.calls.lastIndexOf("verify-process")).toBeLessThan(f.calls.lastIndexOf("publish"))
+})
+
+test("session failure carries a bounded stage and resumes the same unpublished reservation", async () => {
+  const f = fixture()
+  f.fail("sessions")
+  const failure = await f.service.apply(f.reservation).catch(error => error)
+  expect(templateDiagnosticOf(failure)).toEqual({ stage: "base-sessions", reasonCode: "read-failed" })
+  expect(f.isPublished()).toBe(false)
+  expect(f.receipt()?.phase).toBe("directory")
+  const result = await f.service.apply(f.reservation)
+  expect(result.projectID).toBe(f.reservation.projectID)
+  expect(result.plan.mainSessionID).toBe(f.reservation.plan.mainSessionID)
+  expect(result.phase).toBe("published")
 })
