@@ -1114,7 +1114,9 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             empty.area(this.height)
           }}
         >
-        <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
+        {/* Empty-room decoration may retain its previous size for a layout pass.
+            Keep its hit grid behind real rows, including newly loaded rooms. */}
+        <scrollbox zIndex={1} flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
           <box
             flexShrink={0}
             onSizeChange={function () {
