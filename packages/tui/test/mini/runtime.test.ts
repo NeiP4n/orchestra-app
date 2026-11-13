@@ -241,6 +241,7 @@ describe("run interactive runtime", () => {
       {
         headers: {
           "x-opencode-directory": "%2Fremote%20work",
+          "x-orchestra-directory": "%2Fremote%20work",
         },
       },
     )

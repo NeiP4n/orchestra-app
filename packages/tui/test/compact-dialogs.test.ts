@@ -25,7 +25,8 @@ test("Settings keeps both CategoryRail and DialogSelect, with footer owned by th
 test("compact is the default and filtered selection notifies the description owner",()=>{
  const s=source("ui/dialog-select.tsx")
  expect(s).toContain("props.compact !== false")
- expect(s).toContain("createEffect(on(() => selected()?.value")
+ expect(s).toContain("const selectedValue = createMemo(() => selected()?.value, undefined, { equals: isDeepEqual })")
+ expect(s).toContain("createEffect(on(selectedValue,")
  expect(s).toContain("props.onMove?.(option)")
  expect(s).toContain("rowGap={compact() ? 0 : undefined}")
 })
