@@ -299,6 +299,8 @@ export const SECRET_FILE_PATTERNS: readonly string[] = [
   "**/token_*.json",
   "**/*-token.json",
   "**/*_token.json",
+  "**/*Token.json",
+  "**/*TOKEN.json",
   "**/auth-tokens.json",
   "**/auth_tokens.json",
   "**/accessToken*.json",
@@ -346,6 +348,7 @@ export function commandLeaksCredentials(command: string) {
 }
 
 function sensitiveVariable(name: string): boolean {
+  if (/^(?:primary|accent|secondary|design|color|spacing|typography)_token_(?:hex|color|value|name)$/i.test(name)) return false
   return /(?:^|_)(?:API_KEY|TOKEN|TOKENS|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)(?:_|$)/i.test(name) ||
     (name === name.toUpperCase() && /(?:APIKEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATEKEY)/.test(name)) ||
     /[a-z](?:Token|Secret|Password|Credential|ApiKey)$/.test(name)
@@ -366,18 +369,25 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
 // Bounded constant folding only: no eval, variable expansion or script execution.
 // Catch a literal credential path split with + or [literal,...].join(literal).
 export function foldLiteralPaths(command: string): string {
-  let result = command.replace(/Buffer\.from\(\s*["']([A-Za-z0-9+/=]{4,2048})["']\s*,\s*["']base64["']\s*\)\.toString\(\s*(?:["']utf-?8["'])?\s*\)/g, (whole, encoded) => {
+  const decoded = (whole: string, encoded: string, encoding: "base64" | "hex") => {
     try {
-      const value = atob(encoded)
-      return /^[\x20-\x7e]{1,1024}$/.test(value) ? `"${value}"` : whole
-    } catch {return whole}
-  })
+      if (encoded.length > 2048) return whole
+      const value = encoding === "base64" ? atob(encoded) : encoded.replace(/../g, pair => String.fromCharCode(parseInt(pair, 16)))
+      return /^[\x20-\x7e]{1,1024}$/.test(value) ? JSON.stringify(value) : whole
+    } catch { return whole }
+  }
+  // Constant decoding only. Never eval or expand an interpolation.
+  let result = command.replace(/\\(?:x([0-9a-f]{2})|u00([0-9a-f]{2}))/gi, (_, hex, unicode) => String.fromCharCode(parseInt(hex ?? unicode, 16)))
+    .replace(/`([^`$\\\r\n]*)`/g, (_, text) => JSON.stringify(text))
+    .replace(/Buffer\.from\(\s*["']([A-Za-z0-9+/=]{4,2048})["']\s*,\s*["']base64["']\s*\)(?:\.toString\(\s*(?:["']utf-?8["'])?\s*\))?/g, (whole, value) => decoded(whole, value, "base64"))
+    .replace(/Buffer\.from\(\s*["']([0-9a-f]{2,2048})["']\s*,\s*["']hex["']\s*\)(?:\.toString\(\s*(?:["']utf-?8["'])?\s*\))?/gi, (whole, value) => decoded(whole, value, "hex"))
+    .replace(/(?:atob|\[Convert\]::FromBase64String)\(\s*["']([A-Za-z0-9+/=]{4,2048})["']\s*\)/gi, (whole, value) => decoded(whole, value, "base64"))
   const literal = /["']([^"'\\\r\n]*)["']\s*\+\s*["']([^"'\\\r\n]*)["']/g
   for (let n = 0; n < 16; n++) {
-    const next = result.replace(literal, (_, a, b) => `"${a}${b}"`)
+    const next = result.replace(literal, (_, a, b) => JSON.stringify(a + b))
       .replace(/\[((?:\s*["'][^"'\\\r\n]*["']\s*,?)+)\]\.join\(\s*["']([^"'\\\r\n]*)["']\s*\)/g, (_, list, separator) => {
         const values = [...list.matchAll(/["']([^"']*)["']/g)].map((entry: RegExpMatchArray) => entry[1])
-        return `"${values.join(separator)}"`
+        return JSON.stringify(values.join(separator))
       })
     if (next === result) break
     result = next

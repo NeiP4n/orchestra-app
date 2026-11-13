@@ -16,6 +16,7 @@ import { PermissionSaved } from "./permission/saved.js"
 import { PluginHooks } from "./plugin/hooks.js"
 import { Room } from "./room.js"
 import path from "node:path"
+import { CredentialGuard } from "./credential-guard.js"
 import { RuleEnforce } from "./rule-enforce.js"
 
 const PermissionEffect = Permission.Effect
@@ -286,6 +287,12 @@ const layer = Layer.effect(
     }
 
     const evaluateInput = Effect.fnUntraced(function* (input: AssertInput) {
+      if (CredentialGuard.files(input.action, input.resources, {sessionID:input.sessionID,agent:input.agent})) return {
+        effect: "deny" as const, rules: [], message: "Built-in credential protection: that file is off limits. Use the supported configuration tools; do not reconstruct or bypass the path.",
+        save: undefined, scoped: false, onAlways: undefined,
+        requestAction: undefined, requestResources: undefined, requestMetadata: undefined,
+        roomPrograms: undefined, roomID: undefined, memberID: undefined,
+      }
       const rules = yield* configured(input.sessionID, input.agent)
       if (denied(input, rules)) {
         return {
@@ -352,6 +359,10 @@ const layer = Layer.effect(
           : undefined
 
       if (roomPolicy?.effect === "deny") {
+        for (const resource of input.resources) {
+          const protectedResource = roomCommands ? RoomRules.protectedFileInCommand(activeRoomRules, resource) : RoomRules.protectedFile(activeRoomRules, resource)
+          if (protectedResource) CredentialGuard.record(resource, {sessionID:input.sessionID,agent:input.agent}, "refused")
+        }
         return {
           effect: "deny" as const,
           message: roomPolicy.message,

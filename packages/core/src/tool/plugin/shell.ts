@@ -1,5 +1,5 @@
 import { RuleEnforce } from "../../rule-enforce.js"
-import { createHash } from "node:crypto"
+import { CredentialGuard } from "../../credential-guard.js"
 export * as ShellTool from "./shell.js"
 
 import { BrowserGuard } from "../../browser/guard.js"
@@ -157,6 +157,7 @@ export const Plugin = {
       // Room rules check this when a room exists; outside a room nothing did.
       // The built-in secret patterns apply everywhere, so `cat .env` and
       // `printenv` are refused here, before anything spawns.
+      if (CredentialGuard.suspicious(invocation.command)) CredentialGuard.record(invocation.command, context, "construction")
       const forbidden = forbiddenCommand(invocation.command)
       if (forbidden) {
         recordGuardRefusal(invocation.command, context)
@@ -427,6 +428,5 @@ const decodeDiagnostic = Schema.decodeUnknownOption(
 
 /** No command text, path, credential value or source content enters the audit. */
 export function recordGuardRefusal(command: string, context: {sessionID:string;agent:string}, log = RuleEnforce.log): void {
-  const assembled = RoomRules.foldLiteralPaths(command) !== command
-  log({layer:"hard",outcome:"refused",session:context.sessionID,agent:context.agent,by:"built-in",rule:"credential-guard",what:JSON.stringify({event:"credential-guard.refused",assembled,encoded:/base64|atob|FromBase64String/i.test(command),interpreter:/\b(?:node|python|pwsh|powershell)\b/i.test(command),sha256:createHash("sha256").update(command).digest("hex")})})
+  CredentialGuard.record(command, context, "refused", log)
 }

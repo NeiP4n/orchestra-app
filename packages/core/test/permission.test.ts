@@ -1015,3 +1015,13 @@ describe("shell scanner permission impact", () => {
     }
   }
 })
+
+it.effect("built-in credential file denials win outside rooms despite configured allows",()=>Effect.gen(function*(){
+ yield* setup([{action:"*",resource:"*",effect:"allow"}])
+ const service=yield* Permission.Service
+ for(const action of ["read","write","edit"]){
+  const result=yield* service.ask(assertion({action,resources:["apiToken.json"]}))
+  expect(result.effect).toBe("deny")
+ }
+ expect((yield* service.ask(assertion({action:"read",resources:["design-tokens.json"]}))).effect).toBe("allow")
+}))
