@@ -2925,8 +2925,8 @@ it.live("v2 live import persists process before publication and resumes without 
   const content = '# Process skill\nRead guide.md.\n'
   const source = {format:'orchestra.project-template',version:2,name:'Process factory',description:'Process only',minOrchestraVersion:'1.0.0',variables:{projectName:'Imported process',folder:'${projectFolder}'},mainSession:'main',sessions:[{slot:'main',title:'Main',role:'orchestrator',model:{provider:'demo',id:'free',variant:null}},{slot:'reviewer',title:'Review',role:local.agent,model:null}],browsers:[],rules:[{scope:'role',role:local.agent,session:null,text:'Never publish without approval.'}],schedules:[],vault:{local:[],globalRequirements:[]},providers:[],mcp:[],process:{playbook:'Review the result before publishing.',recommendedRoles:[local.agent],roles:[core,local],skills:[{id:'review',name:'Review',entry:'SKILL.md',description:'Review work',files:[{path:'SKILL.md',content,sha256:ProjectTemplateV2.hash(content)},{path:'guide.md',content:'Check the result.\n',sha256:ProjectTemplateV2.hash('Check the result.\n')}],dependencies:[]}],skillAssignments:[{target:{kind:'project'},skills:['review']},{target:{kind:'role',role:local.agent},skills:[]},{target:{kind:'session',session:'main'},skills:['review']}],sessionModels:[{session:'main',models:[{provider:'demo',id:'free',variant:null},{provider:'demo',id:'backup',variant:'careful'}]},{session:'reviewer',models:[]}],programs:[]}}
   const preview = ProjectTemplateV2.preview(JSON.stringify(source)); if(!preview.ok) throw Error(preview.error)
-  let changed=0,failOnce=true,failProcessOnce=true
-  const process = ProjectTemplateV2Runtime.make({kv,dataDirectory:data,installedVersion:'1.0.0',destination:async()=>({roles:[core],skills:[],models:new Set(['demo/free','demo/backup#careful']),programs:new Set(),mcp:new Map(),providers:new Set()}),changed:async()=>{changed++;await Effect.runPromise(orchestra.reload())}})
+  let changed=0,failOnce=true,failProcessOnce=true,failChangedOnce=true
+  const process = ProjectTemplateV2Runtime.make({kv,dataDirectory:data,installedVersion:'1.0.0',destination:async()=>({roles:[core],skills:[],models:new Set(['demo/free','demo/backup#careful']),programs:new Set(),mcp:new Map(),providers:new Set()}),changed:async()=>{changed++;await Effect.runPromise(orchestra.reload());if(failChangedOnce){failChangedOnce=false;throw Error('PRIVATE_NOTIFICATION_FAILURE')}}})
   const vault=(id:string)=>CredentialVault.make({directory:path.join(tmp.path,'vault'),projectID:id,collector:{collect:async()=>{throw Error('must not request secrets')}} as never})
   const adapter=ProjectTemplateLiveStores.make({kv,sessions,store,root:path.join(tmp.path,'imports'),installedVersion:'1.0.0',timezone:'UTC',process:{...process,ensure:async r=>{await process.ensure(r);if(failProcessOnce){failProcessOnce=false;throw Error('process checkpoint lost')}}},
     availableRoles:async()=>new Set(['orchestrator']),availableModels:async()=>new Set(['demo/free','demo/backup#careful']),vault,browsers:ProjectTemplateBrowserStore.make(kv,data),bootstrap:async()=>{if(failOnce){failOnce=false;throw Error('publication checkpoint lost')}}})
@@ -2949,6 +2949,7 @@ it.live("v2 live import persists process before publication and resumes without 
   expect(yield* Fiber.join(change)).toHaveLength(1)
   expect(published.phase).toBe('published')
   expect(changed).toBe(1)
+  expect((yield* Effect.promise(()=>adapter.readReceipt(reserved.id)))?.phase).toBe('published')
   expect(yield* SessionHold.held(reserved.plan.mainSessionID!)).toBe(false)
   const localAgent='team-'+ProcessSkills.namespace(reserved.projectID)+'2'
   expect((yield* orchestra.roles(Orchestra.ProjectID.make(reserved.projectID))).find(role=>role.agent===localAgent)?.rules).toBe(local.rules)
@@ -3007,8 +3008,14 @@ it.live("v2 live import persists process before publication and resumes without 
   expect(afterUpdate[0].name).toBe('Final process factory')
   const create=yield* Effect.promise(()=>operator.prepareCreate(library[0].id,data))
   expect(JSON.parse(create.details).process.skills[0].files).toEqual(source.process.skills[0].files)
+  failChangedOnce=true
   const created=yield* Effect.promise(()=>operator.confirmCreate(create.token))
   expect(created.projectID).not.toBe(reserved.projectID)
+  expect((yield* Effect.promise(()=>adapter.readReceipt(create.token)))?.phase).toBe('published')
+  // Before finishCreate marks the operator token done, repeated confirm must
+  // revalidate and return the same committed outcome after notification loss.
+  expect(yield* Effect.promise(()=>operator.confirmCreate(create.token))).toEqual(created)
+  expect((yield* store.list({directoryPrefix:AbsolutePath.make((yield* Effect.promise(()=>adapter.readReceipt(create.token)))!.directory)}))).toHaveLength(2)
   yield* Effect.promise(()=>operator.finishCreate(create.token))
   const resumed=yield* Effect.promise(()=>operator.confirmCreate(create.token))
   expect(resumed.projectID).toBe(created.projectID)

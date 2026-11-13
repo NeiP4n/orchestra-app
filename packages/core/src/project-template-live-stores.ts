@@ -385,7 +385,18 @@ export function make(deps: Dependencies) {
       if (!exact(serial(expected), serial(receipt.plan)) || receipt.directory !== path.join(deps.root, receipt.id))
         throw Error("Import reservation no longer matches its source.")
       const result = await service.apply(receipt)
-      if (receipt.process) await deps.process!.changed()
+      if (receipt.process) {
+        try {
+          await deps.process!.changed()
+        } catch {
+          // The durable checkpoint is already published. A best-effort UI
+          // invalidation cannot turn this committed create into a failed create.
+          // Repeated confirms still revalidate the stores and retry notification.
+          await run(Effect.logWarning("project template notification deferred", {
+            operation: "confirmCreate", stage: "process-bindings", reasonCode: "read-failed",
+          }))
+        }
+      }
       return result
     },
     readReceipt,
