@@ -104,7 +104,7 @@ const FUNCTION_BODY_RE =
 const DO_AHEAD_RE = /(?:[ \t\n;]|\\\n|#[^\n]*(?:\n|$))*(?:do(?=(?:\\\n)*(?:[ \t\n;{(]|$))|\{(?=(?:\\\n)*[ \t\n]))/y
 const NOFORK_OPEN_RE = /\$\{(?:\\\n)*(?:[ \t\n]|\|)/y
 // Zsh flags that neither evaluate nor glob a value; s and j take an argument between repeated delimiters.
-const ZSH_SAFE_FLAGS_RE = /\$\{\((?:[@AaBbCcDEfFikLMmNnOopqStUuVvWwXZz0-]|q[-+]?|[js]([^({[<\\])(?:(?!\1)[^)])*\1)*\)/y
+const ZSH_SAFE_FLAGS = new Set("@AaBbCcDEfFikLMmNnOopqStUuVvWwXZz0-")
 const ZSH_GLOB_MODIFIER_RE = /(?:[\^=~#+]|\\\n)*~/y
 const ZSH_SUBSCRIPT_RE = /\$(?:[\^=+~#]|\\\n)*(?:[A-Za-z_](?:[A-Za-z0-9_]|\\\n)*|[@*#?$!0-9-])(?:\\\n)*\[/y
 const LINE_CONTINUATION_RE = /(?:\\\n)*/y
@@ -1137,13 +1137,35 @@ function zshEvaluates(input: string, index: number) {
   let at = index + 1
   if (input.startsWith("{\\\n", at)) return true
   if (input[at] === "{" && input[at + 1] === "(") {
-    ZSH_SAFE_FLAGS_RE.lastIndex = index
-    if (!ZSH_SAFE_FLAGS_RE.test(input)) return true
-    at = ZSH_SAFE_FLAGS_RE.lastIndex
+    const end = zshSafeFlagsEnd(input, index + 3)
+    if (end === undefined) return true
+    at = end
   }
   if (input[at] === "{") at++
   ZSH_GLOB_MODIFIER_RE.lastIndex = at
   return ZSH_GLOB_MODIFIER_RE.test(input)
+}
+
+// Every character is consumed once. An overlapping repeated flag regex could
+// backtrack exponentially on a long valid prefix followed by an invalid flag.
+function zshSafeFlagsEnd(input: string, at: number): number | undefined {
+  while (at < input.length) {
+    const flag = input[at++]
+    if (flag === ")") return at
+    if (ZSH_SAFE_FLAGS.has(flag)) {
+      if (flag === "q" && (input[at] === "-" || input[at] === "+")) at++
+      continue
+    }
+    if (flag !== "j" && flag !== "s") return
+    const delimiter = input[at++]
+    if (delimiter === undefined || "({[<\\".includes(delimiter)) return
+    while (at < input.length && input[at] !== delimiter) {
+      if (input[at] === ")") return
+      at++
+    }
+    if (at === input.length) return
+    at++
+  }
 }
 
 function bashAppend(text: BashText, value: string) {

@@ -103,3 +103,11 @@ describe("ShellScan adversarial corpus", () => {
     expect(ShellScan.scanPowerShell(input).kind).toBe("opaque")
   })
 })
+
+for (const flags of ["q".repeat(40), "q".repeat(60_000), "q-".repeat(30_000)]) {
+  test(`Zsh safe-flag rejection is bounded (${flags.length} chars)`, () => {
+    const start = performance.now()
+    expect(ShellScan.scan(`print \${(${flags}!)x}`, "zsh").kind).toBe("opaque")
+    expect(performance.now() - start).toBeLessThan(500)
+  })
+}
