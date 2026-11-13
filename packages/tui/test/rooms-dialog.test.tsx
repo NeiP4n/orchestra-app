@@ -700,3 +700,32 @@ test("a hosted room shows its project's DoD with who took each item, and the hos
     (frame) => !frame.includes("Alex") && frame.includes("DoD 1/3 ███") && frame.includes("● L-002"),
   )
 })
+
+test.each([20, 24, 30, 40])("empty participant hint cannot move room actions while the sidebar settles at height %i", async (height) => {
+  await using state = await tmpdir()
+  await using setup = await createAppFixture({
+    width: 130, height, state: state.path,
+    config: { animations: false, debug: { devtools: true } },
+    fetch: (url) => {
+      if (url.pathname === "/api/location") return json(location)
+      if (url.pathname === "/api/room") return json({ data: [room] })
+      if (url.pathname === `/api/room/${room.id}/member` || url.pathname === `/api/room/${room.id}/ban`) return json({ data: [] })
+    },
+  })
+  const frame = await setup.waitForFrame(frame => frame.includes("Participants") && /[⇄↔] Lab +×/.test(frame))
+  const lines = frame.split("\n")
+  const participants = lines.findIndex(line => line.includes("Participants"))
+  const hosted = lines.findIndex(line => /[⇄↔] Lab +×/.test(line))
+  expect(hosted - participants).toBe(2)
+  const hint = setup.renderer.root.findDescendantById("room-empty-participants")!
+  expect(hint.height).toBe(1)
+  // A scrollbar/layout pass can take one column from the sidebar between
+  // pointer down and up. Force that narrower hint container deterministically.
+  hint.parent!.width = 31
+  await setup.renderOnce()
+  expect(hint.height).toBe(1)
+  const settled = setup.captureCharFrame().split("\n")
+  expect(settled.findIndex(line => /[⇄↔] Lab +×/.test(line))).toBe(hosted)
+  if (process.env.CAPTURE_EMPTY_ROOM_HINT && height === 40)
+    await Bun.write(process.env.CAPTURE_EMPTY_ROOM_HINT, JSON.stringify(setup.captureSpans()))
+})

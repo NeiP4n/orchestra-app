@@ -2059,7 +2059,7 @@ function RoomPeople(props: {
           when={people().length > 0}
           fallback={
             <box paddingLeft={6} paddingRight={1}>
-              <text fg={theme.text.muted}>{t("No guests have joined yet.")}</text>
+              <text id="room-empty-participants" fg={theme.text.muted} wrapMode="none" truncate>{t("No guests have joined yet.")}</text>
             </box>
           }
         >
