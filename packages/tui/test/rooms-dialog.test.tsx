@@ -325,7 +325,7 @@ test("a joined room opens in the main area like a session and stays in the left 
     }
     setup.renderer.on("frame", firstFrame)
     await setup.mockMouse.click(row.x + 1, row.y)
-    await setup.waitForFrame((frame) => frame.includes("Second task") && !frame.includes("Role"))
+    await setup.waitFor(() => firstFocused !== undefined)
     expect(firstFocused).toBe(true)
     if (process.env.CAPTURE_ROOM_FIRST_FOCUS)
       await Bun.write(process.env.CAPTURE_ROOM_FIRST_FOCUS, JSON.stringify(setup.captureSpans()))
