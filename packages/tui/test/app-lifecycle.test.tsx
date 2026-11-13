@@ -1192,6 +1192,7 @@ test("keeps the prompt display stable while a new location catalog loads", async
   const catalog = Promise.withResolvers<void>()
   const providerCatalog = Promise.withResolvers<void>()
   const locationRequested = Promise.withResolvers<void>()
+  let targetLocationRequests = 0
   const modelRequested = Promise.withResolvers<void>()
   await using setup = await createAppFixture({
     // Full-text semantics, not narrow-layout coverage (tested separately at 100 columns).
@@ -1209,6 +1210,7 @@ test("keeps the prompt display stable while a new location catalog loads", async
       }
       if (url.pathname === "/api/location") {
         if (requestedDirectory === target) {
+          targetLocationRequests++
           locationRequested.resolve()
           await locationCatalog.promise
         }
@@ -1259,6 +1261,11 @@ test("keeps the prompt display stable while a new location catalog loads", async
     await setup.renderOnce()
     expect(setup.captureCharFrame()).toContain(`/cd ${target}`)
     setup.mockInput.pressEscape()
+    setup.mockInput.pressKey("x", { ctrl: true })
+    setup.mockInput.pressEnter()
+    await setup.waitForFrame((frame) => frame.includes("This prompt cannot be queued"))
+    expect(targetLocationRequests).toBe(0)
+    expect(setup.captureCharFrame()).toContain(`/cd ${target}`)
     setup.mockInput.pressEnter()
     await Promise.race([
       locationRequested.promise,

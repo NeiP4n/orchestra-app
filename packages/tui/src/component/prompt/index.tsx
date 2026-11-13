@@ -1115,7 +1115,7 @@ export function Prompt(props: PromptProps) {
   })
 
   let submitting = false
-  async function submit(delivery: SessionInbox.Delivery = "queue") {
+  async function submit(delivery?: SessionInbox.Delivery) {
     if (disabled()) return false
     // Prevent overlapping invocations (e.g. a double-pressed Enter, or the
     // input's native onSubmit racing another dispatch). Without this guard,
@@ -1126,13 +1126,13 @@ export function Prompt(props: PromptProps) {
     if (submitting) return false
     submitting = true
     try {
-      return await submitInner(delivery)
+      return await submitInner(delivery ?? "queue", delivery === "queue")
     } finally {
       submitting = false
     }
   }
 
-  async function submitInner(delivery: SessionInbox.Delivery) {
+  async function submitInner(delivery: SessionInbox.Delivery, explicitQueue: boolean) {
     // IME: double-defer may fire before onContentChange flushes the last
     // composed character (e.g. Korean hangul) to the store, so read
     // plainText directly and sync before any downstream reads.
@@ -1157,7 +1157,9 @@ export function Prompt(props: PromptProps) {
       }),
     )
     const slash = argumentSlash(inputText, keymapCommands())
-    if (delivery === "queue" && (store.mode === "shell" || exitWord || slash)) {
+    // Queue restrictions belong to the explicit Queue gesture. Ordinary Enter
+    // defaults user messages to queue but still runs local slash/shell actions.
+    if (explicitQueue && (store.mode === "shell" || exitWord || slash)) {
       toast.show({ message: "This prompt cannot be queued", variant: "warning" })
       return false
     }
@@ -1176,7 +1178,7 @@ export function Prompt(props: PromptProps) {
       (data.location.command.list(currentLocation.ref) ?? []).some((command) => command.name === slashHead.name)
     const editorSelection = editorContext()
     const pendingEditorSelection = editorSelection && editor.labelState() === "pending" ? editorSelection : undefined
-    if (delivery === "queue" && pendingEditorSelection) {
+    if (explicitQueue && pendingEditorSelection) {
       toast.show({ message: "Editor context cannot be queued", variant: "warning" })
       return false
     }

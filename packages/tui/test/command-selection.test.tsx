@@ -88,7 +88,7 @@ test("custom commands commit the captured agent, model and variant before execut
     await setup.mockInput.typeText("second")
     await setup.waitForFrame((frame) => frame.includes("second model") && frame.includes("All · 1 options"))
     setup.mockInput.pressEnter()
-    await setup.waitForFrame((frame) => frame.includes("Select variant") && frame.includes("low"))
+    await setup.waitForFrame((frame) => frame.includes("Select variant") && frame.includes("low") && setup.renderer.currentFocusedRenderable instanceof InputRenderable)
     await setup.mockInput.typeText("low")
     await setup.waitForFrame((frame) => frame.includes("low") && !frame.includes("high"))
     setup.mockInput.pressEnter()
