@@ -6165,6 +6165,17 @@ describe("SessionRunnerLLM", () => {
     expect(yield* recordedEventTypes(sessionID)).not.toContain("session.retry.scheduled.1")
   })
 
+  scenario("invalid output with known provider usage stays failed and records billed tokens",function*(s){
+    const failure=new AIError({reason:new InvalidProviderOutputError({message:"Invalid hosted output"})})
+    yield* s.llm.push(TestLLM.failAfter(failure,...TestLLM.complete({reason:{normalized:"stop"},usage:{nonCachedInputTokens:11,outputTokens:7,reasoningTokens:2}},LLMEvent.textStart({id:"bad"}),LLMEvent.textDelta({id:"bad",text:"Partial"}),LLMEvent.textEnd({id:"bad"})).slice(0,-1)))
+    yield* s.runPrompt("Check failure usage").pipe(Effect.exit)
+    const rows=yield* s.db.select({type:EventTable.type,data:EventTable.data}).from(EventTable).where(eq(EventTable.type,"session.step.failed.1")).all().pipe(Effect.orDie)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows[0]?.data).toMatchObject({error:{type:"provider.invalid-output"},tokens:{input:11,output:5,reasoning:2}})
+    const types=yield* recordedEventTypes(sessionID)
+    expect(types).not.toContain("session.step.ended.1")
+  })
+
   scenario("settles malformed streamed tool input before the provider failure", function* (s) {
     const failure = new AIError({
       reason: new InvalidProviderOutputError({ message: "Invalid JSON input for tool call echo" }),

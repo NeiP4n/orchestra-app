@@ -5,7 +5,7 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readFile, rename } from "node:fs/promises"
 import { redactSecrets } from "./secret-redaction.js"
 
-export const eventTypes = new Set(["session.inbox.enqueued", "session.synthetic", "session.text.ended", "session.tool.called", "session.tool.success", "session.tool.failed", "session.shell.started", "session.shell.ended", "session.execution.started", "session.execution.failed", "session.execution.interrupted", "session.step.ended", "session.step.failed", "session.usage.recorded", "session.usage.updated"])
+export const eventTypes = new Set(["session.inbox.enqueued", "session.synthetic", "session.text.ended", "session.tool.called", "session.tool.success", "session.tool.failed", "session.shell.started", "session.shell.ended", "session.execution.started", "session.execution.failed", "session.execution.interrupted", "session.step.ended", "session.step.failed", "session.retry.scheduled", "session.usage.recorded", "session.usage.updated"])
 
 export const MAX_BYTES = 10 * 1024 * 1024
 const REDACTED = "[redacted]"

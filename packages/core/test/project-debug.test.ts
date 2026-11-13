@@ -105,3 +105,14 @@ test("numeric per-event token usage survives redaction but token credentials do 
  for(const row of rows){expect(row.data.tokens).toEqual(tokens);expect(row.data.cost).toBe(0.25);expect(row.data.apiToken).toBe("[redacted]");expect(row.data.nested.tokens).toBe("[redacted]")}
  expect(ProjectDebug.redact({tokens:{...tokens,access_token:"secret"}})).toEqual({tokens:"[redacted]"})
 }))
+
+test("retry timeline retains failed attempt usage and retry scheduling without a success event",()=>fixture(async directory=>{
+ await ProjectDebug.setEnabled(directory,true)
+ const tokens={input:11,output:5,reasoning:2,cache:{read:0,write:0}}
+ for(const [eventType,data] of [["session.step.failed",{error:{type:"provider.invalid-output"},tokens}],["session.retry.scheduled",{attempt:1,delay:2000}]] as const)
+  await ProjectDebug.record(directory,{timestamp:1,sessionID:"retry",role:"team-tester",eventType,data})
+ const rows=(await readFile(ProjectDebug.logPath(directory),"utf8")).trim().split("\n").map(line=>JSON.parse(line))
+ expect(rows.map(row=>row.eventType)).toEqual(["session.step.failed","session.retry.scheduled"])
+ expect(rows[0].data.tokens).toEqual(tokens)
+ expect(rows.some(row=>row.eventType==="session.step.ended")).toBe(false)
+}))
