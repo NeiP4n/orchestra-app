@@ -1,3 +1,4 @@
+import { DesktopIsolation } from "../../desktop-isolation.js"
 import { DeliveryRecall } from "../../delivery-recall.js"
 import { SessionCompletionGate } from "../../session/completion-gate.js"
 import { ReconDedup } from "../../recon-dedup.js"
@@ -46,6 +47,8 @@ export const MODE_IDS = Mode.builtins
 export const description = [
   "Run this project's AI team: the other sessions of the project, each a separate chat with its own role.",
   "Only the project's main session (the orchestrator) has this tool.",
+  'Required action example: {"action":"list"}. To dispatch: {"action":"send","sessionID":"<id from list>","text":"Check the result"}. Never use task text as model.',
+  `Modes: ${MODE_IDS}.`,
   "Actions: list shows the team by category; send queues a task for a worker without interrupting it; create starts or reuses a worker session; read shows a session's latest messages; answer replies to a worker's question; set_mode changes how a session works; stop interrupts it; acquire_mcp installs and verifies a catalog MCP server; plan, stages, stage and verify manage workflow stages.",
   "Before creating a worker, inspect the roster and reuse an existing writable session with the needed role. Do not call HTTP endpoints directly or invent /api/orchestra routes for team management. Use this tool.",
   "The full operating rules (delegation gate, MCP assignment and survey, worker model choice, stage evidence) arrive with this session's first call of this tool.",
@@ -115,6 +118,23 @@ export const guide = [
   "MCP acquisition: action acquire_mcp makes a catalog MCP server actually usable. Pass server (an exact catalog id) or need (a capability in words, e.g. \"browser automation\") and it selects, installs, connects and verifies the server, reporting its real state and the tools actually discovered — a server counts as ready only when both hold. Pass role to check first that the server sits inside that role's MCP ceiling; outside it, acquisition is refused, not worked around. A needs_auth result names the credential variables the operator must provide; never invent a value. Installing is global and shared by the project, but it grants no role access by itself: role profiles and the per-task mcp limits still decide who may call the server, and removing one role's access never disconnects it for the others.",
   "Workflow stages: for anything beyond a trivial task, record the plan with action plan (stages: each with a name, work categories, role ids, dependsOn stage ids, acceptance criteria and the MCP servers it needs). You decide how many stages the task needs: one for a small fix, many for a system audit. Categories describe kinds of work (Research, Security, Implementation); stages are execution units and one stage may span several categories. Action stages lists the current plan; action stage updates one stage (status, and result as the evidence). Replan by calling plan again when a discovery changes the work: completed stages are preserved exactly as recorded, and a stage may start only when every stage it depends on is completed. Mark a stage completed only with evidence in result — a report, a test run, a commit — never on a worker's claim alone. The overall task is complete only when every stage is completed or explicitly cancelled. The final operator report lists every completed stage 1:1 with its [stage-id], outcome and evidence, and names remaining open/blocked stages. Never claim full completion with open DoD items. Action verify scores a task's own acceptance criteria against real evidence (a pass without evidence does not count, a missing criterion is a gap) — use it as the completion gate instead of trusting a worker's claim.",
 ].join("\n")
+
+export function withoutDisabledMcpGuidance(text: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ORCHESTRA_MCP === "1") return text
+  return text.replace(/ A dispatch also needs a fresh MCP survey[^.]*\./g, "")
+}
+export function dispatchGuide(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.ORCHESTRA_MCP === "1") return guide
+  return withoutDisabledMcpGuidance(guide.split("\n").filter(line => !line.startsWith("MCP assignment") && !line.startsWith("The assignment must come from a survey"))
+    .map(line => line.replace(/ The MCP survey \(mcp_manager inspect\) is never refused either[^.]*\./, ""))
+    .join("\n"), env) + "\nMCP is disabled. Do not survey MCP or require an mcp assignment. Use the worker's available native tools."
+}
+
+export function desktopDispatchDenial(input: {action:string; text?:string}, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!["send","create"].includes(input.action) || !input.text || !/(?:desktop[_ -](?:action|check|test|automation)|desktop verification|проверк[аиу]\s+(?:desktop|рабочего стола)|agent-desktop)/i.test(input.text)) return
+  const denial = DesktopIsolation.desktopPlatformDenial(env, platform)
+  return denial ? `Do not assign desktop verification on this host. ${denial} Use browser verification or non-GUI tests and report native desktop checks as unverified.` : undefined
+}
 
 type WorkerRow = {
   role: string
@@ -258,7 +278,7 @@ export function delegationStatus(streak: number) {
       ? [
           "# 12-message rule — limit reached",
           `You have sent ${streak} of your own messages in a row without handing a task to a team session (limit ${limit}). Your next action MUST be sessions action send or create with the task; your other tool calls are refused until you delegate. Do not keep investigating, editing around it or writing a longer report instead. A dispatch also needs a fresh MCP survey (mcp_manager inspect is always allowed, even at the limit) and an explicit mcp assignment — survey first if you have not, then dispatch. Building the Society (society_forge found/generate, society_plan apply) is always allowed and also resets the count.`,
-        ].join("\n")
+        ].map(line => withoutDisabledMcpGuidance(line)).join("\n")
       : [
           "# 12-message rule",
           `You have sent ${streak} of your ${limit} own messages in a row since the last task you handed to the team; ${Math.max(0, limit - streak)} remain before you must delegate. After ${limit} own messages you hand tasks to team sessions (sessions send/create) instead of continuing yourself, and other tool calls are refused until you do. Society building (society_forge, society_plan) is never refused by this rule.`,
@@ -511,6 +531,7 @@ export function withoutMcpDenyRules(
 
 /** The one line at the top of a worker's task brief stating the MCP limit it was handed. */
 export function mcpBriefLine(limit: McpLimit): string {
+  if (process.env.ORCHESTRA_MCP !== "1") return ""
   const servers =
     limit.servers === "all" ? "any connected MCP server" : limit.servers.length > 0 ? limit.servers.join(", ") : "none"
   const per = Object.entries(limit.perServer)
@@ -876,7 +897,7 @@ export const Plugin = {
         })
       const ref = yield* Effect.try({
         try: () => Model.Ref.parse(model),
-        catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant.` }),
+        catch: () => new ToolFailure({ message: `Invalid model "${model}". Use provider/model or provider/model#variant, or omit model to keep the worker default. Example: { action: "send", sessionID: "<id from list>", text: "Check the result" }. 'check' is task text or mode=review, not a model.` }),
       })
       // The models the operator enabled in /models are the pool the Orchestrator chooses from; a role's own
       // model list is separate. Nothing enabled means the session's model: there is nothing to choose.
@@ -1130,7 +1151,7 @@ export const Plugin = {
         gateCounted.set(event.sessionID, [...gate.counted])
         if (gate.blocked)
           return yield* new Tool.Error({
-            message: `12-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too. (This count restarts with every new message from the operator.)`,
+            message: withoutDisabledMcpGuidance(`12-message rule: you have sent ${ORCHESTRATOR_MESSAGE_LIMIT} of your own messages in a row without handing a task to a team session, so this call is refused. Delegate now with the sessions tool (action send or create, with the task as text) — that call is always allowed and resets the count. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: if you have not surveyed yet, run mcp_manager action=inspect first — it is always allowed, even at the limit — then dispatch with mcp (servers [] and maxCalls 0 when the task needs no MCP). Building the Society (society_forge found/generate, society_plan apply) is always allowed too. (This count restarts with every new message from the operator.)`),
           })
       }),
     )
@@ -1139,12 +1160,14 @@ export const Plugin = {
       .transform((editor) =>
         editor.add({
           name,
-          options: { codemode: false, core: true, guide, guideWithResult: true },
+          options: { codemode: false, core: true, guide: dispatchGuide(), guideWithResult: true },
           description,
           input: Input,
           output: Output,
           execute: (input, context) =>
             Effect.gen(function* () {
+              const desktopBlock = desktopDispatchDenial(input)
+              if (desktopBlock) return yield* new ToolFailure({message:desktopBlock})
               const project = yield* orchestra.mainOf(context.sessionID)
               if (!project)
                 return yield* new ToolFailure({ message: "Only a project's main session can manage sessions" })
@@ -1420,7 +1443,8 @@ export const Plugin = {
                 // may have changed (a server died, a new one was installed), so a
                 // dispatch on a stale survey is refused until the fleet is
                 // surveyed again.
-                if (Option.isSome(mcp)) {
+                const mcpEnabled = process.env.ORCHESTRA_MCP === "1"
+                if (mcpEnabled && Option.isSome(mcp)) {
                   const self = yield* sessions.get(context.sessionID).pipe(Effect.orElseSucceed(() => undefined))
                   if (!McpSurvey.isFresh(self?.metadata)) {
                     const configured = yield* mcp.value
@@ -1439,13 +1463,13 @@ export const Plugin = {
                 // implicit grant the operator never saw decided; that is exactly the
                 // failure this gate exists to make impossible. (Assignment records
                 // stamped before the gate may still carry explicit: false.)
-                if (input.mcp === undefined) {
+                if (mcpEnabled && input.mcp === undefined) {
                   return yield* new ToolFailure({
                     message:
                       "No MCP assignment: every dispatch to a team session must pass an explicit mcp object — the servers this task may use and maxCalls (the role's ceiling is in your context). If the task needs no MCP, pass mcp: { servers: [], maxCalls: 0 }. Nothing was sent.",
                   })
                 }
-                const resolution = resolveMcpLimit(role, input.mcp)
+                const resolution = resolveMcpLimit(role, mcpEnabled ? input.mcp : { servers: [], maxCalls: 0 })
                 if (!resolution.ok) return yield* new ToolFailure({ message: resolution.message })
                 const limit = resolution.limit
                 // The previous task's generated denies come out before the
@@ -1562,7 +1586,7 @@ export const Plugin = {
                   yield* apply(session.id, choice)
                   yield* applyMode(session, role, mode)
                   const limit = yield* distributeMcp(session.id, role)
-                  yield* dispatch(session.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
+                  yield* dispatch(session.id, limit && mcpBriefLine(limit) ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   return {
                     sessionID: session.id,
                     output: `Sent. VERIFIED: id ${session.id}, title "${session.title ?? ""}", role ${role?.id ?? session.agent ?? "session"}; task accepted by the session service. Its report will arrive here when it finishes. Dispatch other ready independent work now; then wait for reports, do NOT poll with read or list.${modelNote(choice.model ?? session.model, choice.model ? (choice.modelSource ?? "your explicit choice") : "the session's existing model")}`,
@@ -1600,7 +1624,7 @@ export const Plugin = {
                         yield* applyMode(existing, role, mode)
                         const limit = yield* distributeMcp(existing.id, role)
                         if (input.text?.trim())
-                          yield* dispatch(existing.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
+                          yield* dispatch(existing.id, limit && mcpBriefLine(limit) ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                         return {
                           sessionID: existing.id,
                           output: input.text?.trim()
@@ -1653,7 +1677,7 @@ export const Plugin = {
                   yield* applyMode(created, role, mode)
                   const limit = yield* distributeMcp(created.id, role)
                   if (input.text?.trim())
-                    yield* dispatch(created.id, limit ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
+                    yield* dispatch(created.id, limit && mcpBriefLine(limit) ? `${mcpBriefLine(limit)}\n\n${input.text}` : input.text)
                   // What is reported is what was read back from the session store, not what was asked for.
                   const confirmed = yield* sessions.get(created.id).pipe(Effect.option)
                   if (Option.isNone(confirmed))

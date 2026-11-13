@@ -81,3 +81,22 @@ describe("assignments never widen a role ceiling", () => {
     }
   })
 })
+
+test("disabled MCP has no forced survey or zero-limit boilerplate",()=>{
+ const previous=process.env.ORCHESTRA_MCP
+ try{
+  delete process.env.ORCHESTRA_MCP
+  expect(OrchestraTool.dispatchGuide()).not.toContain("The assignment must come from a survey")
+  expect(OrchestraTool.dispatchGuide()).not.toContain("MCP assignment is mandatory")
+  expect(OrchestraTool.mcpBriefLine({servers:[],maxCalls:0})).toBe("")
+  process.env.ORCHESTRA_MCP="1"
+  expect(OrchestraTool.dispatchGuide()).toContain("The assignment must come from a survey")
+ }finally{if(previous===undefined)delete process.env.ORCHESTRA_MCP;else process.env.ORCHESTRA_MCP=previous}
+})
+
+test("desktop dispatch preflight refuses Windows desktop work but not browser or unit tests",()=>{
+ expect(OrchestraTool.desktopDispatchDenial({action:"send",text:"Run desktop verification"},"win32",{})).toContain("Do not assign desktop")
+ expect(OrchestraTool.desktopDispatchDenial({action:"send",text:"Run unit tests and browser verification"},"win32",{})).toBeUndefined()
+ expect(OrchestraTool.desktopDispatchDenial({action:"send",text:"Run desktop verification"},"linux",{})).toBeUndefined()
+ expect(OrchestraTool.withoutDisabledMcpGuidance("Delegate now. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: inspect first. Continue.",{})).toBe("Delegate now. Continue.")
+})

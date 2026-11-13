@@ -2634,6 +2634,9 @@ describe("Orchestra team", () => {
 describe("Orchestra MCP assignment gate", () => {
   it.live("refuses a dispatch to a role session without an explicit MCP assignment", () =>
     Effect.gen(function* () {
+      const priorMcp = process.env.ORCHESTRA_MCP
+      process.env.ORCHESTRA_MCP = "1"
+      yield* Effect.addFinalizer(() => Effect.sync(() => {if(priorMcp===undefined) delete process.env.ORCHESTRA_MCP;else process.env.ORCHESTRA_MCP=priorMcp}))
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-mcp-gate-")))
       const orchestra = yield* Orchestra.Service
       const project = yield* orchestra.create({ name: "Gate", directory: tmp.path })
