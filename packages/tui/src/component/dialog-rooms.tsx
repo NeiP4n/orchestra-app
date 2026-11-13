@@ -1364,6 +1364,7 @@ export function DialogPeople(props: { roomID: string; name: string; onClose?: ()
 // Rules the host sets for everyone in a room, the host's AI included. The host's server applies
 // them, so a guest's client cannot switch one off. They are about data and commands, not roles.
 export function DialogRoomRules(props: { roomID: string; name: string; onClose?: () => void }) {
+  const dimensions = useTerminalDimensions()
   const client = useClient()
   const config = useConfig().data
   const theme = useTheme().surface("dialog")
@@ -1423,7 +1424,8 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
   )
 
   return (
-    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1} height={Math.max(1, dimensions().height - 3)}>
+      <box flexShrink={0}>
       <Header title={`${t("Room rules")} · ${props.name}`} onClose={props.onClose} />
       <text fg={theme.text.muted} wrapMode="word">
         {t("Privacy, network and command/file restrictions also constrain the host's AI. Guest-only restrictions apply to every remote role.")}
@@ -1435,6 +1437,8 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
           </text>
         )}
       </Show>
+      </box>
+      <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
       <Show when={room()}>
         <Section title={t("Privacy & visibility")} />
         <Setting
@@ -1498,6 +1502,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
       </Show>
+      </scrollbox>
     </box>
   )
 }
@@ -1663,13 +1668,13 @@ function Labeled(props: { label: string; children: JSX.Element }) {
 function Setting(props: { label: string; help: string; children: JSX.Element }) {
   const theme = useTheme().surface("dialog")
   return (
-    <box flexDirection="row">
+    <box flexDirection="row" flexShrink={0} gap={1}>
       <box width={LABEL_WIDTH} flexShrink={0}>
         <text fg={theme.text.muted}>{props.label}</text>
       </box>
-      <box flexShrink={1} minWidth={0}>
-        <box flexDirection="row">{props.children}</box>
-        <text fg={theme.text.muted} wrapMode="word">
+      <box flexGrow={1} flexShrink={1} minWidth={0}>
+        <box flexDirection="row" height={1} flexShrink={0}>{props.children}</box>
+        <text fg={theme.text.muted} wrapMode="word" flexShrink={0}>
           {props.help}
         </text>
       </box>
