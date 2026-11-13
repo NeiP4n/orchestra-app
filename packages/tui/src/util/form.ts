@@ -86,7 +86,7 @@ export function formValidateValue(field: FormAnswerField, value: FormValue | und
         return `Invalid pattern: ${field.pattern}`
       }
     }
-    if (field.format === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "Expected an email address"
+    if (field.format === "email" && !validEmail(value)) return "Expected an email address"
     if (field.format === "uri" && !validURL(value)) return "Expected a URL"
     if (field.format === "date" && !validDate(value)) return "Expected a date (YYYY-MM-DD)"
     if (field.format === "date-time" && Number.isNaN(new Date(value).getTime())) return "Expected a date and time"
@@ -128,6 +128,15 @@ export function formSetMultiselectCustom(value: FormValue | undefined, previous:
   const index = previous ? values.indexOf(previous) : -1
   const current = index === -1 ? [...values] : values.toSpliced(index, 1)
   return next && !current.includes(next) ? [...current, next] : current
+}
+
+// Match the existing simple email contract without overlapping quantified
+// domain segments, which backtracked quadratically on long dotted input.
+function validEmail(value: string) {
+  const at = value.indexOf("@")
+  if (at < 1 || value.indexOf("@", at + 1) !== -1 || /\s/.test(value)) return false
+  const domain = value.slice(at + 1)
+  return domain.slice(1, -1).includes(".")
 }
 
 function validURL(value: string) {

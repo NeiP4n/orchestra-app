@@ -582,3 +582,17 @@ describe("provider error messages", () => {
     ).toEqual([undefined, undefined, undefined, undefined])
   })
 })
+
+test("no-body status classification is bounded and preserves optional status text", () => {
+  for (const status of ["400", "413"]) {
+    for (const separator of ["", " ", "\t\n", " ".repeat(60_000)]) {
+      expect(isContextOverflow(`${status}${separator}(no body)`)).toBe(true)
+      expect(isContextOverflow(`${status}${separator}status code${separator}(no body)`)).toBe(true)
+      const start = performance.now()
+      expect(isContextOverflow(`${status}${separator}!`)).toBe(false)
+      expect(performance.now() - start).toBeLessThan(500)
+    }
+  }
+  expect(isContextOverflow("401 (no body)")).toBe(false)
+  expect(isContextOverflow("x413 (no body)")).toBe(false)
+})

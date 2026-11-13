@@ -108,3 +108,24 @@ test("updates multiselects without mutating their source", () => {
   expect(formSetMultiselectCustom(source, "custom", "replacement")).toEqual(["one", "replacement"])
   expect(source).toEqual(["one", "custom"])
 })
+
+test("email validation preserves its simple address contract in bounded time", () => {
+  const field = { key: "email", type: "string", format: "email" } as const
+  const original = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  let seed = 7
+  const alphabet = "a.@ \t\n"
+  for (let trial = 0; trial < 20_000; trial++) {
+    let value = ""
+    for (let i = 0; i < trial % 12; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+      value += alphabet[seed % alphabet.length]
+    }
+    expect(formValidateValue(field, value) === undefined).toBe(original.test(value))
+  }
+  for (const value of ["a@b.c", "a@..b", "a@b.c.", "a@.b", "a@b.", "a@@b.c", "a@b.c\u00a0"]) {
+    expect(formValidateValue(field, value) === undefined).toBe(original.test(value))
+  }
+  const start = performance.now()
+  expect(formValidateValue(field, "a@" + ".".repeat(60_000) + " ")).toBe("Expected an email address")
+  expect(performance.now() - start).toBeLessThan(500)
+})
