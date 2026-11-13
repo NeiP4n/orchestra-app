@@ -341,8 +341,14 @@ export function commandLeaksCredentials(command: string) {
     // PowerShell and cmd.exe use different variable syntax from POSIX shells.
     /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(normalized) ||
     /%[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*%/i.test(normalized) ||
-    [...normalized.matchAll(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g)].some(match => /(?:^|_)(?:API_KEY|TOKEN|TOKENS|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)(?:_|$)/i.test((match[1] ?? match[2])!))
+    [...normalized.matchAll(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?=[}:?+%=/#-])|([A-Za-z_][A-Za-z0-9_]*))/g)].some(match => sensitiveVariable((match[1] ?? match[2])!))
   )
+}
+
+function sensitiveVariable(name: string): boolean {
+  return /(?:^|_)(?:API_KEY|TOKEN|TOKENS|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)(?:_|$)/i.test(name) ||
+    (name === name.toUpperCase() && /(?:APIKEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATEKEY)/.test(name)) ||
+    /[a-z](?:Token|Secret|Password|Credential|ApiKey)$/.test(name)
 }
 
 // Conservatively detect protected paths directly mentioned in shell commands.
