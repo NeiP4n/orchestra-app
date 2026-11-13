@@ -125,13 +125,20 @@ export function withoutDisabledMcpGuidance(text: string, env: NodeJS.ProcessEnv 
 }
 export function dispatchGuide(env: NodeJS.ProcessEnv = process.env): string {
   if (env.ORCHESTRA_MCP === "1") return guide
-  return withoutDisabledMcpGuidance(guide.split("\n").filter(line => !line.startsWith("MCP assignment") && !line.startsWith("The assignment must come from a survey"))
+  return withoutDisabledMcpGuidance(guide.split("\n").filter(line => !line.startsWith("MCP assignment") && !line.startsWith("The assignment must come from a survey") && !line.startsWith("MCP acquisition:"))
     .map(line => line.replace(/ The MCP survey \(mcp_manager inspect\) is never refused either[^.]*\./, ""))
     .join("\n"), env) + "\nMCP is disabled. Do not survey MCP or require an mcp assignment. Use the worker's available native tools."
 }
 
-export function desktopDispatchDenial(input: {action:string; text?:string}, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string | undefined {
-  if (!["send","create"].includes(input.action) || !input.text || !/(?:desktop[_ -](?:action|check|test|automation)|desktop verification|проверк[аиу]\s+(?:desktop|рабочего стола)|agent-desktop)/i.test(input.text)) return
+export function dispatchDescription(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ORCHESTRA_MCP === "1" ? description : description
+    .replace(" acquire_mcp installs and verifies a catalog MCP server;", "")
+    .replace("delegation gate, MCP assignment and survey, worker model choice, stage evidence", "delegation gate, worker model choice, stage evidence")
+}
+export function desktopDispatchDenial(input: {action:string; text?:string; stages?:ReadonlyArray<{name:string;description?:string;acceptance?:string}>}, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!["send","create","plan","stage"].includes(input.action)) return
+  const text = [input.text, ...(input.stages ?? []).flatMap(stage => [stage.name,stage.description,stage.acceptance])].filter(Boolean).join("\n")
+  if (!/(?:desktop[_ -](?:action|check|test|automation|verification|e2e|smoke)|(?:проверь|провер[а-я]*)[^.\n]{0,45}(?:desktop|рабочего стола)|agent-desktop)/i.test(text)) return
   const denial = DesktopIsolation.desktopPlatformDenial(env, platform)
   return denial ? `Do not assign desktop verification on this host. ${denial} Use browser verification or non-GUI tests and report native desktop checks as unverified.` : undefined
 }
@@ -1161,7 +1168,7 @@ export const Plugin = {
         editor.add({
           name,
           options: { codemode: false, core: true, guide: dispatchGuide(), guideWithResult: true },
-          description,
+          description: dispatchDescription(),
           input: Input,
           output: Output,
           execute: (input, context) =>
@@ -1783,6 +1790,11 @@ export const Plugin = {
                   if (!input.stage) return yield* new ToolFailure({ message: "Pass stage: the id of the stage to update" })
                   if (input.status === undefined && input.result === undefined)
                     return yield* new ToolFailure({ message: "Pass status and/or result for the stage update" })
+                  if (input.status === "running") {
+                    const stage = (yield* orchestra.stages(project.id)).find(stage => stage.id === input.stage)
+                    const blocked = desktopDispatchDenial({action:"stage",text:stage ? [stage.name,stage.description,stage.acceptance].filter(Boolean).join("\n") : input.result})
+                    if (blocked) return yield* new ToolFailure({message:blocked})
+                  }
                   const updated = yield* orchestra
                     .setStage(project.id, input.stage, {
                       ...(input.status ? { status: input.status } : {}),

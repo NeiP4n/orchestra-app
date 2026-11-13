@@ -100,3 +100,11 @@ test("desktop dispatch preflight refuses Windows desktop work but not browser or
  expect(OrchestraTool.desktopDispatchDenial({action:"send",text:"Run desktop verification"},"linux",{})).toBeUndefined()
  expect(OrchestraTool.withoutDisabledMcpGuidance("Delegate now. A dispatch also needs a fresh MCP survey and an explicit mcp assignment: inspect first. Continue.",{})).toBe("Delegate now. Continue.")
 })
+
+test("disabled MCP text omits acquisition and desktop preflight covers plans",()=>{
+ expect(OrchestraTool.dispatchDescription({})).not.toContain("acquire_mcp")
+ expect(OrchestraTool.dispatchGuide({})).not.toContain("MCP acquisition:")
+ for(const text of ["проверь desktop","desktop e2e/smoke","проверка интерфейса desktop-приложения"])
+  expect(OrchestraTool.desktopDispatchDenial({action:"send",text},"win32",{})).toContain("Do not assign desktop")
+ expect(OrchestraTool.desktopDispatchDenial({action:"plan",stages:[{name:"desktop smoke"}]},"win32",{})).toContain("Do not assign desktop")
+})

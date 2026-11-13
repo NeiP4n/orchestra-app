@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import path from "node:path"
-import { mkdir, symlink } from "node:fs/promises"
+import { mkdir, symlink, rm } from "node:fs/promises"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@orchestra/core/effect/app-node-builder"
 import { LayerNode } from "@orchestra/util/effect/layer-node"
@@ -194,7 +194,7 @@ describe("Plot", () => {
     }).pipe(Effect.scoped),
   )
 
-  it.live("plot storage symlinks cannot read or delete files outside the project", () =>
+  for (const storageDirectory of [".opencode", ".orchestra"]) it.live(`plot storage symlinks cannot read or delete files outside the project (${storageDirectory})`, () =>
     Effect.gen(function* () {
       if (process.platform === "win32") return
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-")))
@@ -203,11 +203,13 @@ describe("Plot", () => {
       const sessions = yield* Session.Service
       const directory = tmp.path
       const session = yield* sessions.create({ location: { directory: AbsolutePath.make(directory) } })
-      const externalFolder = path.join(outside.path, ".opencode", "plots")
+      const externalFolder = path.join(outside.path, storageDirectory, "plots")
       yield* Effect.promise(() => mkdir(externalFolder, { recursive: true }))
       const marker = path.join(externalFolder, "do-not-delete.json")
       yield* Effect.promise(() => Bun.write(marker, "not a plot"))
-      yield* Effect.promise(() => symlink(path.join(outside.path, ".opencode"), path.join(directory, ".opencode")))
+      // Session creation materializes the primary metadata directory.
+      yield* Effect.promise(() => rm(path.join(directory, storageDirectory), {recursive:true,force:true}))
+      yield* Effect.promise(() => symlink(path.join(outside.path, storageDirectory), path.join(directory, storageDirectory)))
 
       expect(yield* refusal(plots.claim({ sessionID: session.id, directory, paths: ["src"], purpose: "safe plot" }))).toContain(
         "Plot storage must stay inside the project directory",

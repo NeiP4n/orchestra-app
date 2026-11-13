@@ -40,7 +40,7 @@ import { SessionMessage } from "./message.js"
 /** Steps a tool may go unused before it stops being advertised (TokenEconomizer p=10). */
 export const TOOL_PRUNE_UNUSED_STEPS_DEFAULT = 10
 
-/** Tools the runner never prunes: the CodeMode gateway and the on-demand index. */
+/** Keep discovery available: CodeMode, the on-demand index, and core file lookup. */
 export const PROTECTED_TOOL_NAMES: ReadonlySet<string> = new Set(["execute", "tools", "glob"])
 
 /** Assistant turns in the visible history, and the last turn each tool was called on (1-based). */

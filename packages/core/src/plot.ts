@@ -210,7 +210,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         const safePaths = canonicalPaths as string[]
         const storage = path.join(directory, FOLDER)
-        const safeStorage = yield* Effect.promise(() => pathsInside(directory, [storage]).catch(() => false))
+        const safeStorage = yield* Effect.promise(() => pathsInside(directory, [storage, path.join(directory, LEGACY_FOLDER)]).catch(() => false))
         if (!safeStorage)
           return yield* new TakenError({ message: "Plot storage must stay inside the project directory." })
         const others = yield* live(safePaths, directory)
