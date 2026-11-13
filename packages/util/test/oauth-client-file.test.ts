@@ -1,8 +1,8 @@
 import {expect,test} from "bun:test"
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync,symlinkSync} from "node:fs"
+import {mkdtempSync,writeFileSync,rmSync,symlinkSync} from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import {oauthClientEnvironment} from "../src/oauth-client-file"
+import {oauthClientEnvironment} from "../src/oauth-client-file.js"
 test("local OAuth file parses only allowed assignments and env overrides without shell expansion",()=>{
  const root=mkdtempSync(path.join(os.tmpdir(),"oauth-file-")),file=path.join(root,"credentials.env")
  try{
