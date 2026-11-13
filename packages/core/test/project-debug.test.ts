@@ -149,3 +149,32 @@ console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8')
   expect(await child.exited, error).toBe(0)
   expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", mode: 0o644 })
 }))
+
+for (const target of ["debug-recording.json", ".gitignore"]) test(`rejects a raced hard link before replacing ${target}`, () => fixture(async directory => {
+  const script = path.join(directory, "replace-race.mjs")
+  await writeFile(script, `
+import { mock } from 'bun:test'
+import * as fs from 'node:fs/promises'
+import path from 'node:path'
+const directory = process.argv[2], target = path.join(directory, '.orchestra', process.argv[4]), outside = path.join(directory, 'outside')
+let armed = false
+const originalOpen = fs.open
+mock.module('node:fs/promises', () => ({ ...fs, open: async (file, ...args) => {
+  if (armed && file === target) { armed = false; await fs.unlink(target); await fs.link(outside, target) }
+  return originalOpen(file, ...args)
+} }))
+const { ProjectDebug } = await import(process.argv[3])
+await ProjectDebug.setEnabled(directory, true)
+if (process.argv[4] === '.gitignore') await fs.writeFile(target, 'existing\\n')
+await fs.writeFile(outside, 'untouched', { mode: 0o644 })
+armed = true
+let rejected = false
+try { await ProjectDebug.setEnabled(directory, false) } catch { rejected = true }
+console.log(JSON.stringify({ rejected, value: await fs.readFile(outside, 'utf8'), mode: (await fs.stat(outside)).mode & 0o777 }))
+`)
+  const child = Bun.spawn([process.execPath, script, directory, path.resolve(import.meta.dir, "../src/session/project-debug.ts"), target], { stdout: "pipe", stderr: "pipe" })
+  const output = await new Response(child.stdout).text()
+  const error = await new Response(child.stderr).text()
+  expect(await child.exited, error).toBe(0)
+  expect(JSON.parse(output)).toEqual({ rejected: true, value: "untouched", mode: 0o644 })
+}))

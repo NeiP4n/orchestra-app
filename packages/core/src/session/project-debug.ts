@@ -60,11 +60,30 @@ async function directoryReady(directory: string) {
   const original = text
   for (const name of ["project-debug.jsonl", "project-debug.jsonl.1", "debug-recording.json"]) if (!text.split(/\r?\n/).includes(name)) text += `${text && !text.endsWith("\n") ? "\n" : ""}${name}\n`
   if (text !== original) {
-    const handle = await open(ignore, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0), 0o600)
-    try { await handle.writeFile(text) } finally { await handle.close() }
+    await replacePrivateFile(ignore, text)
   }
   return folder
 }
+// O_TRUNC mutates at open, before the descriptor can be checked. Open first,
+// validate the exact object, and only then truncate, chmod and replace its text.
+async function replacePrivateFile(file: string, text: string) {
+  const before = await lstat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error
+    return undefined
+  })
+  if (before && (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1))
+    throw Error("Debug recording requires a private regular file")
+  const handle = await open(file, constants.O_WRONLY | (before ? 0 : constants.O_CREAT | constants.O_EXCL) | (constants.O_NOFOLLOW ?? 0), 0o600)
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.nlink !== 1 || (before && (before.ino !== info.ino || before.dev !== info.dev)))
+      throw Error("Debug recording requires an unchanged private regular file")
+    await handle.truncate(0)
+    await handle.chmod(0o600)
+    await handle.writeFile(text)
+  } finally { await handle.close() }
+}
+
 export async function enabled(directory: string): Promise<boolean> {
   await noLink(path.dirname(settingsPath(directory)))
   await noLink(settingsPath(directory))
@@ -75,8 +94,7 @@ export async function enabled(directory: string): Promise<boolean> {
 export async function setEnabled(directory: string, value: boolean) {
   await directoryReady(directory)
   await noLink(settingsPath(directory))
-  const handle = await open(settingsPath(directory), constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0), 0o600)
-  try { await handle.chmod(0o600); await handle.writeFile(JSON.stringify({ enabled: value }) + "\n") } finally { await handle.close() }
+  await replacePrivateFile(settingsPath(directory), JSON.stringify({ enabled: value }) + "\n")
 
 }
 
