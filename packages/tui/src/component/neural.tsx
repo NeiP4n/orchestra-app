@@ -1,3 +1,4 @@
+import { basicSymbolsNeeded, consoleGlyph } from "../ui/console-glyphs"
 import { claimNetworkLabel, type LabelRect } from "../util/network-labels"
 import { BoxRenderable, OptimizedBuffer, RGBA, type BoxOptions, type RenderContext } from "@opentui/core"
 import { extend } from "@opentui/solid"
@@ -299,9 +300,11 @@ export class NeuralCanvasRenderable extends BoxRenderable {
     return signals.filter((signal) => scoped.includes(signal.sessionID))
   }
 
+  private readonly basicSymbols = basicSymbolsNeeded()
+
   private cell(buffer: OptimizedBuffer, x: number, y: number, char: string, fg: RGBA) {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return
-    buffer.setCellWithAlphaBlending(this.screenX + x, this.screenY + y, char, fg, TRANSPARENT)
+    buffer.setCellWithAlphaBlending(this.screenX + x, this.screenY + y, this.basicSymbols ? consoleGlyph(char) : char, fg, TRANSPARENT)
   }
 
   // Text sits on the backdrop so a label stays readable over the mesh and the haze.

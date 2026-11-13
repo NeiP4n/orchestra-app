@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { OptimizedBuffer, RGBA } from "@opentui/core"
-import { basicSymbolsNeeded, replaceMissingGlyphs } from "../../src/ui/console-glyphs"
+import { basicSymbolsNeeded, consoleGlyph, replaceMissingGlyphs } from "../../src/ui/console-glyphs"
 
 test("symbols the classic Windows console cannot draw become drawable stand-ins", () => {
   const buffer = OptimizedBuffer.create(30, 1, "unicode")
@@ -20,4 +20,12 @@ test("only the classic Windows console gets basic symbols unless forced", () => 
   expect(basicSymbolsNeeded({}, "linux")).toBe(false)
   expect(basicSymbolsNeeded({ ORCHESTRA_BASIC_SYMBOLS: "1" }, "linux")).toBe(true)
   expect(basicSymbolsNeeded({ ORCHESTRA_BASIC_SYMBOLS: "0" }, "win32")).toBe(false)
+})
+
+test("custom canvas cells get the same drawable console glyphs", () => {
+  expect(consoleGlyph("◉")).toBe("●")
+  expect(consoleGlyph("◈")).toBe("◊")
+  expect(consoleGlyph("●")).toBe("●")
+  expect(consoleGlyph("Ж")).toBe("Ж")
+  expect(consoleGlyph("a")).toBe("a")
 })

@@ -15,6 +15,15 @@ export function basicSymbolsNeeded(env: NodeJS.ProcessEnv = process.env, platfor
   return platform === "win32" && !env.WT_SESSION && !env.TERM_PROGRAM && !env.TERM && !env.ConEmuPID
 }
 
+// Custom canvases can emit cells outside the grapheme-pool encoding used by
+// normal text. Let them apply the same fallback when they draw each cell.
+export function consoleGlyph(char: string) {
+  const point = char.codePointAt(0)
+  if (point === undefined || char.length > 2 || point < FIRST || point > LAST) return char
+  const replacement = glyph(point)
+  return replacement === undefined ? char : String.fromCodePoint(replacement)
+}
+
 export function replaceMissingGlyphs(buffer: OptimizedBuffer) {
   const raw = buffer.buffers
   // Every character beyond ASCII sits in the cell as a grapheme pool reference, so the

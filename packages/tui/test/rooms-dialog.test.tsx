@@ -337,10 +337,12 @@ test("the classic Windows console gets drawable stand-ins for the panel's symbol
   try {
     await using state = await tmpdir()
     await using setup = await render(state.path)
-    const frame = await setup.waitForFrame((frame) => frame.includes("→ Connect"))
+    const frame = await setup.waitForFrame((frame) => frame.includes("→ Join"))
     expect(frame).toContain("↔ Multiplayer")
     expect(frame).not.toContain("⇄")
-    expect(frame).toContain("√ Server")
+    expect(frame).toContain("● Server")
+    expect(frame).not.toContain("◉")
+    if (process.env.CAPTURE_ROOM_CLASSIC) await Bun.write(process.env.CAPTURE_ROOM_CLASSIC, JSON.stringify(setup.captureSpans()))
   } finally {
     if (previous === undefined) delete process.env.ORCHESTRA_BASIC_SYMBOLS
     else process.env.ORCHESTRA_BASIC_SYMBOLS = previous
@@ -618,7 +620,7 @@ test("a hosted room shows its project's DoD with who took each item, and the hos
       if (url.pathname === "/api/room") return json({ data: [room] })
       if (url.pathname === `/api/room/${room.id}/member`) return json({ data: [] })
       if (url.pathname === `/api/room/${room.id}/ban`) return json({ data: [] })
-      if (url.pathname === `/api/room/${room.id}/dod`) return json({ items: items() })
+      if (url.pathname === `/api/room/${room.id}/dod`) return json({ items: items(), status: "ready" })
       // The kanban view of the same items; the real host builds it from the same
       // file, so a present list never answers a disabled board.
       if (url.pathname === `/api/room/${room.id}/dod/board`) {
@@ -658,11 +660,12 @@ test("a hosted room shows its project's DoD with who took each item, and the hos
       }
       if (url.pathname === `/api/room/${room.id}/dod/release` && request.method === "POST") {
         freed.push(await request.json())
-        return json({ items: items() })
+        return json({ items: items(), status: "ready" })
       }
     },
   })
   const tree = await setup.waitForFrame((frame) => /DoD 1\/3 · 1 taken/.test(frame))
+  if (process.env.CAPTURE_ROOM_DOD) await Bun.write(process.env.CAPTURE_ROOM_DOD, JSON.stringify(setup.captureSpans()))
   // finished items only count toward the bar; the open ones list under it
   const heading = cell(tree, "DoD")
   await setup.mockMouse.click(heading.x, heading.y)

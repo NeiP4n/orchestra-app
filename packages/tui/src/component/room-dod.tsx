@@ -274,16 +274,17 @@ export function RoomDodRows(props: {
           <text flexShrink={0} fg={theme.text.muted}>
             {`${" ".repeat(indent())}${open() ? "▾" : "▸"} `}
           </text>
-          <box flexGrow={1} minWidth={0}>
-            <text fg={theme.text.base} wrapMode="none" truncate>
+          <box flexGrow={1} minWidth={0} flexDirection="row">
+            <text fg={theme.text.base} wrapMode="none" flexShrink={0}>
               {t("DoD")}
               <span style={{ fg: theme.text.muted }}>
                 {` ${finished()}/${items().length}`}
                 {taken() > 0 ? ` · ${t("{count} taken", { count: taken() })}` : ""}
               </span>
-              {/* Last, so a narrow panel cuts the bar before the numbers. */}
-              <span style={{ fg: theme.text.feedback.success.base }}>{` ${bar()}`}</span>
             </text>
+            {/* Only the decorative bar may shrink. Middle truncation of a
+                combined label hid the ownership count on narrow panels. */}
+            <text fg={theme.text.feedback.success.base} wrapMode="none" flexShrink={1} minWidth={0} truncate>{` ${bar()}`}</text>
           </box>
           <Show when={props.take && ready()}>
             <HoverAction
