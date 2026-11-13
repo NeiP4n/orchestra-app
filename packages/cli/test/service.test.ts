@@ -301,7 +301,7 @@ processTest(
         urls: [info.url],
         // The server reports the canonical tmp directory; Windows os.tmpdir() can be an 8.3 short name.
         paths: { tmp: await fs.realpath(path.join(os.tmpdir(), "orchestra")) },
-        capabilities: { persistentPty: process.platform !== "win32" },
+        capabilities: { persistentPty: process.platform !== "win32", projectDebug: true, orphanCleanup: true, projectWork: true },
       })
       const contender = Bun.spawn(command, { env, stderr: "pipe", stdout: "ignore" })
       try {
