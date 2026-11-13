@@ -33,7 +33,7 @@ async function render(
     aiTools?: AiToolsAccess
     plugins?: RegistryPluginsAccess
   },
-  size: { width: number; height: number } = { width: 90, height: 44 },
+  size: { width: number; height: number; fps?: number } = { width: 90, height: 44 },
   // The panel is opened as a centered dialog, and that centering is what clips it
   // on a terminal shorter than the panel.
   centered = false,
@@ -71,7 +71,7 @@ async function render(
         </ConfigProvider>
       </TestTuiContexts>
     ),
-    { width: size.width, height: size.height, kittyKeyboard: true },
+    { width: size.width, height: size.height, kittyKeyboard: true, targetFps: size.fps, maxFps: size.fps },
   )
   app.renderer.start()
   // The programs tab carries the search; the AI tools tab, first when offered, has none.
@@ -226,7 +226,7 @@ test("the panel keeps its header, tabs and hint on screen in a very short termin
   }
 })
 
-test("the pinned hint names the action of the tab it sits under", async () => {
+test.each([undefined, 2])("the pinned hint names the action of the tab it sits under at %s fps", async (fps) => {
   await using tmp = await tmpdir()
   const plugins: RegistryPluginsAccess = {
     registered: () => [{ id: "test.builtin", source: "builtin", active: true }],
@@ -234,18 +234,23 @@ test("the pinned hint names the action of the tab it sits under", async () => {
     activate: async () => true,
     deactivate: async () => true,
   }
-  const app = await render({
-    probe,
-    terminalProbe: () => true,
-    manager: registryManager,
-    directory: tmp.path,
-    plugins,
-    aiTools: { installed: () => [], set: async () => {} },
-  })
+  const app = await render(
+    {
+      probe,
+      terminalProbe: () => true,
+      manager: registryManager,
+      directory: tmp.path,
+      plugins,
+      aiTools: { installed: () => [], set: async () => {} },
+    },
+    { width: 90, height: 44, fps },
+  )
   try {
     // The programs tab installs and removes programs, and pages the list.
     await openTab(app, "Programs")
-    await app.waitForFrame((frame) => frame.includes("tab next tab"))
+    // The pinned key row also exists in the old MCP frame. Wait for the
+    // Programs body, independently of the hint assertions, including at low fps.
+    await app.waitForFrame((frame) => frame.includes("Search"))
     expect(hintLine(app)).toContain("enter install/remove")
     expect(hintLine(app)).toContain("←→ page")
     // The plugins tab enables and disables plugins, so the same pinned hint must
