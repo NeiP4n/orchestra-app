@@ -1,3 +1,4 @@
+import { channelSource } from "./channel-source"
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose"
 import semver from "semver"
 import { stringify } from "yaml"
@@ -63,7 +64,7 @@ export default {
     const resolved = resolveChannel(path[0])
     const agent = request.headers.get("User-Agent")?.match(/^orchestra\/(?:([^/]+)\/([^/]+)\/cli|(.*))$/)
     const current = url.searchParams.get("current") ?? agent?.[2] ?? agent?.[3]
-    const source = agent?.[1] ?? current?.match(/^v?0\.0\.0-(.+)-\d+(?:\.\d+)?(?:\+.*)?$/)?.[1]
+    const source = agent?.[1] ?? (current === undefined ? undefined : channelSource(current))
     const caller = source === undefined || resolveChannel(source) === resolved ? current : undefined
     const rollout = await env.DB.prepare("SELECT duration_hours FROM channel_rollout WHERE channel = ?")
       .bind(resolved)
