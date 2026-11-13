@@ -161,7 +161,7 @@ const stubCall = (part: ToolCallPart): ToolCallPart => {
   return {
     ...part,
     input: {
-      _elided: `[${part.name} arguments elided: ${json.length} characters from an earlier step. The result below shows what it returned. Do not guess or reconstruct the arguments; run the tool again if you need them.]`,
+      _elided: `[${part.name} arguments elided: ${json.length} characters from an earlier step. The result below shows what it returned. Do not guess or reconstruct the arguments, and never resend this placeholder. For shell, read the existing script file or use write to save a new script and invoke it with a short command.]`,
       _preview: json.slice(0, 200),
     },
   }

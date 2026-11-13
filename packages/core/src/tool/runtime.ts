@@ -28,6 +28,8 @@ export const definition = (tool: Tool.Info<any, any>): ToolDefinition => ({
 
 export const execute = (tool: Tool.Info<any, any>, input: unknown, context: Tool.Context) =>
   Effect.gen(function* () {
+    if (effectiveName(tool) === "shell" && input && typeof input === "object" && "_elided" in input)
+      return yield* new Tool.Error({message:"Shell arguments were elided from earlier history, so command is missing. Never reconstruct or resend the _elided/_preview placeholder. Read the existing script with read, or write a new reviewed script file with write and invoke that file using a short command."})
     const decoded = yield* decodeInput(tool, input)
     // Tool implementations declare `Tool.Error` but plugins can fail with anything at
     // runtime. A foreign typed failure would slip past every `catchTag("Tool.Error")`

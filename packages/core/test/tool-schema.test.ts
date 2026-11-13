@@ -432,3 +432,12 @@ test("missing external input schemas fall back to an empty schema", () => {
     inputSchema: {},
   })
 })
+
+test("elided shell arguments cannot run and explain the script-file recovery route",async()=>{
+ let ran=false
+ const shell:Info={name:"shell",description:"Shell",input:Schema.Struct({command:Schema.String}),execute:()=>{ran=true;return Effect.succeed({content:"ran"})}}
+ const result=await Effect.runPromise(execute(shell,{_elided:"[arguments elided]",_preview:"partial"},context).pipe(Effect.flip))
+ expect(result.message).toContain("command is missing")
+ expect(result.message).toContain("script file")
+ expect(ran).toBe(false)
+})
