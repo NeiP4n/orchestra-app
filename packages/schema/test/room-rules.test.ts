@@ -271,3 +271,10 @@ test("project design tokens are readable while credential tokens and environment
   expect(RoomRules.commandLeaksCredentials("printenv")).toBeTruthy()
   expect(RoomRules.commandLeaksCredentials("Get-ChildItem Env:")).toBeTruthy()
 })
+
+test("constant path assembly cannot hide credential files from the shell guard",()=>{
+ for (const expression of ["'tok'+'en.json'", "['tok'+'ens.json'].join('')", "['auth','tok'+'ens.json'].join('-')"])
+  expect(RoomRules.protectedFileInCommand(undefined, `node -e "require('fs').readFileSync(${expression})"`)).toBeDefined()
+ expect(RoomRules.protectedFileInCommand(undefined, `node -e "require('fs').writeFileSync(['design','tok'+'ens.json'].join('-'),'{}')"`)).toBeUndefined()
+ expect(RoomRules.commandLeaksCredentials(`node -e "console.log(process.env)"`)).toBe(true)
+})

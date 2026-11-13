@@ -348,12 +348,30 @@ export function commandLeaksCredentials(command: string) {
 // Conservatively detect protected paths directly mentioned in shell commands.
 // This does not replace OS-level sandboxing for indirect access via scripts or aliases.
 export function protectedFileInCommand(rules: Rules | undefined, command: string) {
-  const normal = command.replaceAll("\\", "/")
+  const folded = foldLiteralPaths(command)
+  const normal = folded.replaceAll("\\", "/")
   return [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])].find((raw) => {
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
     return glob(pattern, "(?:^|[\\s\\x22\\x27=:/])", "(?=$|[\\s\\x22\\x27/:])").test(normal)
   })
+}
+
+// Bounded constant folding only: no eval, variable expansion or script execution.
+// Catch a literal credential path split with + or [literal,...].join(literal).
+export function foldLiteralPaths(command: string): string {
+  let result = command
+  const literal = /["']([^"'\\\r\n]*)["']\s*\+\s*["']([^"'\\\r\n]*)["']/g
+  for (let n = 0; n < 16; n++) {
+    const next = result.replace(literal, (_, a, b) => `"${a}${b}"`)
+      .replace(/\[((?:\s*["'][^"'\\\r\n]*["']\s*,?)+)\]\.join\(\s*["']([^"'\\\r\n]*)["']\s*\)/g, (_, list, separator) => {
+        const values = [...list.matchAll(/["']([^"']*)["']/g)].map((entry: RegExpMatchArray) => entry[1])
+        return `"${values.join(separator)}"`
+      })
+    if (next === result) break
+    result = next
+  }
+  return result
 }
 
 export function redactPath(text: string, directory: string) {
