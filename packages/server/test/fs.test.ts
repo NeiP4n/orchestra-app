@@ -2,13 +2,14 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { expect } from "bun:test"
 import { Effect, Schedule } from "effect"
+import { withEnv } from "../../core/test/fixture/env"
 import { tmpdirScoped } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
 import { startServer } from "./fixture/server"
 
 it.live(
   "browsing parents and siblings reuses the current Location and its MCP process",
-  () =>
+  () => withEnv({ ORCHESTRA_MCP: "1" }, () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped()
       const current = path.join(tmp.path, "root", "current")
@@ -74,7 +75,7 @@ it.live(
       yield* list("../sibling")
       expect(yield* loaded).toEqual([{ directory: current }])
       expect(yield* count).toBe(1)
-    }),
+    })),
   15_000,
 )
 
