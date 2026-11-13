@@ -64,7 +64,8 @@ describe("built-in role toolkits", () => {
   test("a role is told exactly which tools and Registry limits it has", () => {
     const reviewer = { ...findRole("reviewer")!, agent: role("reviewer"), origin: "builtin" as const }
     const text = TeamPlugin.toolkit(reviewer, ["read", "grep", "hub", "question"])
-    expect(text).toContain("Tools you can call: grep, hub, read.")
+    expect(text).toContain("Tools whose schemas are loaded in this request: grep, hub, read.")
+    expect(text).toContain("missing schema alone does not mean the tool is unavailable")
     expect(text).toContain("categories search, files, text, json, git, build, github")
     expect(text).toContain("read-only")
     expect(TeamPlugin.toolkit(reviewer, ["read"])).not.toContain("Registry")

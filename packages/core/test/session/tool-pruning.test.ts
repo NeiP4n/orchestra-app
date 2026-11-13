@@ -163,3 +163,11 @@ describe("ToolPruning for the Orchestrator", () => {
   })
 })
 
+
+test("core glob remains advertised to a long-running worker after unrelated edits",()=>{
+ const messages:SessionMessage.Info[]=[user("Continue implementation")]
+ for(let index=0;index<30;index++)messages.push(assistant(["edit"]))
+ const result=ToolPruning.pruneTools(snapshot(["glob","edit","desktop"]),messages,{agent:"team-developer"})
+ expect(names(result.tools)).toContain("glob")
+ expect(result.pruned).toContain("desktop")
+})

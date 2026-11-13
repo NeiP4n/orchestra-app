@@ -81,6 +81,17 @@ const names = (prepared: SessionModelRequest.Prepared) =>
     .filter((name) => name !== "execute")
     .toSorted()
 
+it.effect("glob core schema and executor remain in the same permission-filtered snapshot",()=>Effect.gen(function*(){
+ const registry=yield* Tool.Service
+ yield* registry.transform(editor=>editor.add(tool("glob",{codemode:false,core:true})))
+ const snapshot=yield* registry.snapshot([{action:"*",resource:"*",effect:"deny"},{action:"glob",resource:"*",effect:"allow"}])
+ expect(snapshot.definitions.map(value=>value.name)).toContain("glob")
+ const context={sessionID:session.id,agent:Agent.ID.make("team-tester"),messageID:SessionMessage.ID.make("msg_glob"),call:{type:"tool-call" as const,id:"call_glob",name:"glob",input:{text:"*.ts"}}}
+ expect((yield* snapshot.execute(context)).content).toEqual([{type:"text",text:"glob:*.ts"}])
+ const blocked=yield* registry.snapshot([{action:"*",resource:"*",effect:"deny"}])
+ expect(blocked.definitions.map(value=>value.name)).not.toContain("glob")
+}))
+
 describe("ToolRouter", () => {
   it.effect("advertises core tools and an index instead of on-demand schemas", () =>
     Effect.gen(function* () {

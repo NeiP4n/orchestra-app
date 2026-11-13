@@ -41,7 +41,7 @@ import { SessionMessage } from "./message.js"
 export const TOOL_PRUNE_UNUSED_STEPS_DEFAULT = 10
 
 /** Tools the runner never prunes: the CodeMode gateway and the on-demand index. */
-export const PROTECTED_TOOL_NAMES: ReadonlySet<string> = new Set(["execute", "tools"])
+export const PROTECTED_TOOL_NAMES: ReadonlySet<string> = new Set(["execute", "tools", "glob"])
 
 /** Assistant turns in the visible history, and the last turn each tool was called on (1-based). */
 const toolUse = (messages: ReadonlyArray<SessionMessage.Info>) => {
