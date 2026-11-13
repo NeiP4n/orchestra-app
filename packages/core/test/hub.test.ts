@@ -346,3 +346,14 @@ test("known read-only git misspellings auto-resolve to real entries without fuzz
   expect(entry).toBeDefined();expect(entry.danger).not.toBe(true)
  }
 })
+
+test("status and staged diff accept bounded output limit on Bash and PowerShell",()=>{
+ for(const id of ["git.status","git.diff-staged"]){
+  const entry=Hub.get(id)!
+  expect(Hub.prepare(entry,{limit:"5"},{machine:linux}).command).toEndWith(" | head -n 5")
+  expect(Hub.prepare(entry,{limit:"5"},{machine:windows, backend:"pwsh"}).command).toEndWith(" | Select-Object -First 5")
+  for(const limit of ["0","-1","10; rm -rf .","10001"])
+   expect(()=>Hub.prepare(entry,{limit},{machine:linux})).toThrow()
+ }
+ expect(HubTool.unknownEntry("git.diff_staged").split("Entries that may fit:\n")[1]?.split("\n")[0]).toContain("git.diff-staged")
+})

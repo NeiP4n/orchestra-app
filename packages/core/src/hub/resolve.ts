@@ -4,7 +4,7 @@ import type { Backend, Entry, Platform } from "./types.js"
 import { optionalSlot, placeholders, slotKey } from "./types.js"
 import { all } from "./catalog/index.js"
 import { HubHost } from "./host.js"
-import { fill } from "./quote.js"
+import { fill, InvalidArgumentError } from "./quote.js"
 
 export type Rendered = {
   readonly entry: Entry
@@ -192,12 +192,22 @@ export function render(entry: Entry, backend: Backend, args: Record<string, stri
 }
 
 function fillChecked(entry: Entry, template: string, args: Record<string, string>, backend: Backend): string {
+  // These read-only recipes accept an output line cap, not a git option.
+  const capped = entry.id === "git.status" || entry.id === "git.diff-staged"
+  const limit = capped ? args.limit : undefined
+  if (limit !== undefined && (!/^[1-9]\d{0,4}$/.test(limit) || Number(limit) > 10000))
+    throw new InvalidArgumentError("limit", "must be an integer from 1 to 10000")
+  if (capped && limit !== undefined) args = Object.fromEntries(Object.entries(args).filter(([key]) => key !== "limit"))
   const slots = placeholders(template)
   const missing = slots.filter((slot) => !optionalSlot(slot) && !(slotKey(slot) in args))
   if (missing.length > 0) throw new MissingArgumentError(entry.id, missing)
   const unknown = Object.keys(args).filter((key) => !slots.some((slot) => slotKey(slot) === key))
   if (unknown.length > 0) throw new MissingArgumentError(entry.id, [`unknown: ${unknown.join(", ")}`])
-  return fill(template, args, backend)
+  const command = fill(template, args, backend)
+  if (limit === undefined) return command
+  if (backend === "pwsh") return `${command} | Select-Object -First ${limit}`
+  if (backend === "nu") return `${command} | lines | first ${limit}`
+  return `${command} | head -n ${limit}`
 }
 
 // Swaps a required tool for the name it has on this machine (`fd` → `fdfind`

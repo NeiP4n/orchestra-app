@@ -10,7 +10,7 @@ export const entries: Entry[] = [
     description: "Short status with branch, staged, unstaged and untracked entries",
     category: "git",
     requires: ["git"],
-    templates: { bash: "git status --short --branch" },
+    templates: { bash: "git status --short --branch", pwsh: "git status --short --branch" },
   },
   {
     id: "git.log-graph",
@@ -50,7 +50,7 @@ export const entries: Entry[] = [
     description: "Show what will be committed",
     category: "git",
     requires: ["git"],
-    templates: { bash: "git diff --staged" },
+    templates: { bash: "git diff --staged", pwsh: "git diff --staged" },
   },
   {
     id: "git.diff-branch",

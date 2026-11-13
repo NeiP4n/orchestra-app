@@ -108,6 +108,10 @@ export const unknownEntry = (id: string) => {
   const words = id.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
   // Ids that start with the guess first, then entries whose command runs it as a program, then text matches.
   const rank = (entry: Hub.Entry) => {
+    const wanted = words.join("")
+    const candidate = entry.id.toLowerCase().replace(/[^a-z0-9]/g, "")
+    if (candidate === wanted) return -2
+    if (words.length > 1 && words.every(word => entry.id.includes(word))) return -1
     if (words.some((word) => entry.id.startsWith(`${word}.`))) return 0
     const programs = Object.values(entry.templates).join(" ")
     if (words.some((word) => new RegExp(`(^|[\\s|;(])${word}\\b`).test(programs))) return 1
@@ -358,7 +362,7 @@ export const Plugin = {
                   return yield* failure(`Missing tools for ${input.id}: ${error.missing.join(", ")}.${fallback}${hint}`)
                 }
                 if (error instanceof Hub.MissingArgumentError)
-                  return yield* failure(`Missing arguments for ${input.id}: ${error.missing.join(", ")}`)
+                  return yield* failure(`Missing arguments for ${input.id}: ${error.missing.join(", ")}. Supported: ${entryInfo(entry).placeholders.join(", ") || "none"}${["git.status", "git.diff-staged"].includes(entry.id) ? ", limit (optional output lines, 1..10000)" : ""}. ${unknownEntry(input.id)}`)
                 if (error instanceof Hub.NoBackendError || error instanceof Hub.InvalidArgumentError)
                   return yield* failure(`${error.message}. Use shell as fallback.`)
                 if (error instanceof Error) return yield* failure(error.message)
