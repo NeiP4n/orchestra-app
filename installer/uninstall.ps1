@@ -46,7 +46,7 @@ foreach ($dir in $dirsToDelete) {
       Remove-Item -Path $dir -Recurse -Force -ErrorAction Stop
       Write-Host "   [OK] Удалено: $dir" -ForegroundColor Green
     } catch {
-      Write-Host "   [!] Ошибка при удалении $dir: $_" -ForegroundColor Yellow
+      Write-Host "   [!] Ошибка при удалении $($dir): $_" -ForegroundColor Yellow
     }
   }
 }
